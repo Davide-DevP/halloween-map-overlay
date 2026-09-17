@@ -147,6 +147,21 @@
 
 <main class="container py-4">
 
+    <!-- Shown only once an update has finished downloading. Deliberately has no
+         auto-hide: nothing installs until the user presses the button. -->
+    <div class="alert alert-success d-none mb-3" role="alert" id="updateReady">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+                <strong id="updateReadyHeadline">A new version is ready.</strong>
+                Restart to update &mdash; takes a few seconds, the app reopens by itself.
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <button type="button" class="btn btn-success btn-sm" id="updateRestart">Restart and update</button>
+                <button type="button" class="btn btn-link btn-sm p-0 text-body-secondary text-decoration-underline" id="updateLater">Later</button>
+            </div>
+        </div>
+    </div>
+
     <div class="alert alert-warning alert-dismissible fade d-none" role="alert" id="warning">
         Playing in exclusive fullscreen? Switch the game to <strong>Borderless Windowed</strong> so the overlay
         stays on top. See the FAQ for details.
@@ -432,6 +447,14 @@
                     are never downloaded. You can turn the check off under
                     <em>Settings &rarr; General &rarr; Check for updates on startup</em>, after which the app makes
                     no network requests at all.</p>
+
+                <h6>How do updates work?</h6>
+                <p>When a newer version exists it is downloaded quietly in the background, and then a green banner
+                    appears at the top of this window. <strong>Nothing is installed until you press
+                    <em>Restart and update</em></strong> there (or in the tray menu): the app closes, the installer
+                    runs for a few seconds and the app opens again by itself. Press <em>Later</em> and the banner
+                    goes away for now &mdash; the update stays waiting for the next time you start the app. Closing
+                    or quitting the app never installs anything.</p>
 
                 <h6>How does auto-detect work?</h6>
                 <p>Switch <em>Auto-detect map</em> on above the gallery, then press <kbd>Tab</kbd> in the game once

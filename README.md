@@ -107,6 +107,11 @@ Get the latest build from the
 | `Halloween Map Overlay Setup <version>.exe` | You want it installed, in the Start menu, and **updating itself** |
 | `Halloween Map Overlay <version>.exe` | You want a single portable file with nothing installed |
 
+Both downloads are about 95 MB and unpack to roughly 350 MB on disk.
+Installing — including a self-update — spends a few seconds unpacking that
+payload and pegs a core while it does. That is exactly why the app no longer
+installs an update behind your back when you close it; see **Updates** below.
+
 Or build it yourself (below).
 
 ### "Windows protected your PC"
@@ -119,10 +124,23 @@ whole source is here and `npm run build:win` produces the same thing.
 
 ### Updates
 
-The **installer** build checks GitHub for a newer release when it starts,
-downloads it in the background and installs it the next time you quit the app.
-Progress appears in the status message at the bottom right. You can turn the
-check off in **Settings → General**.
+The **installer** build checks GitHub for a newer release when it starts and
+downloads it in the background; progress appears in the status message at the
+bottom right. **Nothing is installed until you ask for it.** Once the download
+finishes a green banner appears at the top of the app window:
+
+> Version X.Y.Z is ready. Restart to update — takes a few seconds, the app
+> reopens by itself.
+
+Press **Restart and update** (there, or in the tray menu) and the app closes,
+installs and starts itself back up, taking a few seconds. Press **Later** and
+the banner goes away until the next start; the downloaded update keeps waiting.
+
+**Closing or quitting the app never installs anything.** Earlier versions used
+electron-updater's default, which ran the installer silently on quit — a
+several-second freeze at whatever moment you happened to close the app.
+
+You can turn the check off in **Settings → General**.
 
 The **portable** build cannot update itself — there is nothing installed for it
 to replace. Download the new `.exe` from the Releases page when you want to

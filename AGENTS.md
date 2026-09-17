@@ -63,6 +63,8 @@ src/core/utils.js               → fs helpers (recursive listing, mkdir).
 src/core/is-wayland.js          → Wayland session detection.
 src/shared/hotkeys-constants.js → PURE hotkey defs + first-run map-hotkey
                                   defaults + accelerator formatting. Tested.
+src/shared/update-message.js    → PURE "Version X.Y.Z is ready." headline for
+                                  the update banner. Tested.
 src/index.html                  → Main window markup (dark Bootstrap).
 src/renderer.js                 → Renderer entry: builds the renderer modules.
 src/js/maps.js                  → Gallery, current map, hotkey/CLI dispatch.
@@ -107,7 +109,8 @@ test/                           → node:test unit tests for the pure modules.
   : path.join(global.dirname, "maps")` (`map-library.js`). `global.dirname` is
   set at the top of `index.js`.
 - **Pure vs impure**: `map-catalog.js`, `overlay-position.js`,
-  `hotkeys-constants.js` and `map-detector/matcher.js` import nothing from
+  `hotkeys-constants.js`, `update-message.js` and `map-detector/matcher.js`
+  import nothing from
   electron or `fs`. Keep them that way — they are the only parts covered by
   tests. `map-library.js` is the
   fs-facing wrapper around `map-catalog.js`; put new file-system logic there.
@@ -171,6 +174,25 @@ test/                           → node:test unit tests for the pure modules.
 - **Auto-update**: `electron-updater` against GitHub Releases
   (`Davide-DevP/halloween-map-overlay`), started from `MainWindow.checkUpdates()`
   4 s after the window shows and reported through the `update-message` toast.
+  **It downloads on its own and installs only on request.** `autoDownload` and
+  `autoInstallOnAppQuit` are both set explicitly in `checkUpdates()`, the second
+  to `false`: 0.1.0 → 0.2.0 shipped with electron-updater's default quit
+  handler and the silent NSIS run froze the machine for several seconds at the
+  moment the owner closed the app. `update-downloaded` now stores
+  `this.pendingUpdateVersion`, sends the `update-ready` `{version}` IPC (the
+  renderer's persistent green banner, `#updateReady` in `src/index.html`) and
+  tells the tray to grow a "Restart and update" item. The banner's button and
+  that item both reach `MainWindow.installUpdate()` — the single installer
+  trigger — via `ipcMain.handle('install-update')`. A renderer that loads after
+  the download (reopened from the tray) asks with `get-pending-update` instead
+  of waiting for the push. `installUpdate()` sets `app.isQuiting = true` first,
+  or the window's `close` handler hides the window and `quitAndInstall`'s
+  `app.quit()` never completes; then it stops the detector, destroys the tray
+  and calls `autoUpdater.quitAndInstall(true, true)` (silent, force run after)
+  so the app relaunches itself. "Later" in the banner is renderer-session state
+  only — main and the tray keep the pending update. The
+  `checkForUpdatesAndNotify` toast text is overridden too; its default promises
+  an install on exit, which is now a lie.
   Guarded by `app.isPackaged` — **do not** redefine `app.isPackaged` to test it
   the way the reference did; build a real package instead. Also guarded by the
   `checkForUpdates` setting (default true, Settings › General). Every error path
@@ -182,9 +204,9 @@ test/                           → node:test unit tests for the pure modules.
   portable build as well and electron-updater 6.x has **no** portable guard of
   its own, so `checkUpdates()` returns early when
   `process.env.PORTABLE_EXECUTABLE_DIR` is set (electron-builder's portable
-  launcher always sets it). Without that check the portable user would get the
-  NSIS installer downloaded and silently installed on quit while the portable
-  exe stayed at the old version.
+  launcher always sets it). Without that check the portable user would be
+  offered the NSIS installer, and installing it would leave the portable exe
+  they actually launched at the old version.
 - **Hotkey dry run vs. our own bindings.** `rejectIfUnregisterable` probes an
   accelerator with `globalShortcut.register` while the app's real bindings are
   live, so probing one we already hold returns `false` and used to produce a
@@ -375,6 +397,33 @@ npm run build:win      # NSIS installer + portable exe into dist/
 published by an ordinary push to `main`. It runs `npm ci`, `npm test`, then
 `npx electron-builder --win --publish always` with the workflow's own
 `GITHUB_TOKEN` (needs `permissions: contents: write`).
+
+**`build.compression: "store"` barely does anything for the NSIS target —
+measured, not assumed.** It was set to kill the several-second 100 % CPU spike
+the owner felt while the 0.1.0 → 0.2.0 installer unpacked its ~350 MB payload.
+electron-builder reads it (`packager.compression`) and does pass
+`-XSetCompress off` to makensis, so the NSIS stub itself is stored — but the
+**app payload is not**: `NsisTarget.buildAppPackage` routes the archive through
+`configureDifferentialAwareArchiveOptions`
+(`app-builder-lib/out/targets/differentialUpdateInfoBuilder.js`), which
+hard-assigns `compression = "normal"`, `dictSize = 1`, `solid = false` with the
+comment "do not allow to change compression level to avoid different packages".
+The payload 7z is therefore always `-mx=9 -md=1m -ms=off`. Measured on 0.2.1:
+
+| build | installer |
+|---|---|
+| `compression: "store"` (what is committed) | 93.6 MB |
+| `ELECTRON_BUILDER_COMPRESSION_LEVEL=0` on top | 112.8 MB — `-mx=0` is pushed but `-md=1m` keeps LZMA on |
+| 0.2.0, no `compression` key | 92.7 MB |
+
+win-unpacked is 348 MB, so none of those is a stored payload. The **only**
+switch that really stores it is `nsis.differentialPackage: false`, and
+`NsisTarget.js` makes the `Setup.exe.blockmap` conditional on that same flag
+(line ~308), so it also throws away differential updates: every future update
+would download the whole installer. The two goals are mutually exclusive as
+electron-builder stands. The key is left in as a statement of intent and
+because it does store the stub; **do not claim in a release note that it
+shrank the install freeze** until someone measures an actual install.
 
 **The procedure, in order. Nothing else publishes anything.**
 

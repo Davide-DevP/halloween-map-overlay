@@ -7,6 +7,7 @@ const Options = require("./js/options.js");
 const Custom = require("./js/custom.js");
 const Detector = require("./js/detector.js");
 const {debugLog} = require("./js/logger.js");
+const {updateReadyHeadline} = require("./shared/update-message.js");
 
 let timeoutHide = null;
 ipcRenderer.on("update-message", async (event, message) => {
@@ -16,6 +17,23 @@ ipcRenderer.on("update-message", async (event, message) => {
         $("#logStatus").slideUp();
         timeoutHide = null;
     }, 5000);
+});
+
+// The toast above auto-hides after 5 s; a downloaded update is too important
+// for that, so it also raises a banner that stays until the user acts on it.
+// "Later" only silences it for this session — main keeps the pending version,
+// and the tray item stays there too.
+let updateDismissed = false;
+
+function showUpdateBanner(version) {
+    if (updateDismissed) return;
+    // .text(), never interpolation: the version comes off the release feed.
+    $("#updateReadyHeadline").text(updateReadyHeadline(version));
+    $("#updateReady").removeClass("d-none").hide().slideDown();
+}
+
+ipcRenderer.on("update-ready", async (event, info) => {
+    showUpdateBanner(info && info.version);
 });
 
 const settings = new Settings();
@@ -36,6 +54,19 @@ document.addEventListener('DOMContentLoaded', async function () {
     await custom.generateCustomList();
     await hotkeys.loadHotkeys();
     await detector.init();
+
+    $("#updateLater").on("click", function () {
+        updateDismissed = true;
+        $("#updateReady").slideUp();
+    });
+    $("#updateRestart").on("click", function () {
+        $(this).prop("disabled", true).text("Restarting…");
+        ipcRenderer.invoke('install-update');
+    });
+    // `update-downloaded` can fire before this window finished loading (it was
+    // hidden in the tray, say), so ask as well as listen.
+    const pendingUpdate = await ipcRenderer.invoke('get-pending-update');
+    if (pendingUpdate) showUpdateBanner(pendingUpdate.version);
 
     $('#loadingOverlay').slideUp();
     debugLog("renderer::ready",

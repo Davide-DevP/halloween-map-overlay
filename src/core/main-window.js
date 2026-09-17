@@ -14,6 +14,10 @@ class MainWindow {
     overlayWindow;
     settings;
     mapLibrary;
+    /** Version string of a downloaded-but-not-installed update, or null. */
+    pendingUpdateVersion = null;
+    /** {mapDetector, tray} — set from index.js, both built after this class. */
+    shutdownHooks = {};
 
     constructor(obsWindow, overlayWindow, settings, mapLibrary) {
         this.obsWindow = obsWindow;
@@ -23,6 +27,14 @@ class MainWindow {
 
         ipcMain.on('obs-open', async () => {
             obsWindow.show()
+        });
+        // The renderer can finish loading after `update-downloaded` fired (the
+        // window is reopened from the tray, say), so it asks as well as listens.
+        ipcMain.handle('get-pending-update', async () => {
+            return this.pendingUpdateVersion ? {version: this.pendingUpdateVersion} : null;
+        });
+        ipcMain.handle('install-update', async () => {
+            return this.installUpdate();
         });
         ipcMain.handle('version', async () => {
             // Read this app's package.json — app.getVersion() can pick up
@@ -201,6 +213,11 @@ class MainWindow {
      * whenever the user has turned it off in Settings › General. Every failure
      * path is swallowed with a log line: being offline must never do more than
      * show a toast.
+     *
+     * The update downloads in the background but is **never** installed behind
+     * the user's back: `autoInstallOnAppQuit` is off, so the only thing that
+     * runs the installer is `installUpdate()`, from the home-page banner or the
+     * tray item. Closing the app installs nothing.
      */
     checkUpdates() {
         if (!app.isPackaged) {
@@ -222,6 +239,15 @@ class MainWindow {
             return;
         }
 
+        // Download in the background, but install only when the user asks.
+        // The 0.1.0 → 0.2.0 update ran electron-updater's default quit handler
+        // and the NSIS installer froze the machine for several seconds at the
+        // exact moment the user closed the app, possibly mid-game. Both flags
+        // are set explicitly so the behaviour does not depend on a library
+        // default; `installUpdate()` is now the one and only installer trigger.
+        autoUpdater.autoDownload = true;
+        autoUpdater.autoInstallOnAppQuit = false;
+
         const self = this;
         // show() runs again when the window is reopened from the tray
         if (!MainWindow._updaterBound) {
@@ -232,8 +258,16 @@ class MainWindow {
             autoUpdater.on('download-progress', (p) => {
                 self.sendUpdate(`Downloading update: ${Math.round(p.percent || 0)}%`);
             });
-            autoUpdater.on('update-downloaded', () => {
-                self.sendUpdate('Update downloaded — it installs when you quit the app.');
+            autoUpdater.on('update-downloaded', (info) => {
+                const version = info && info.version ? String(info.version) : '';
+                self.pendingUpdateVersion = version || null;
+                self.sendUpdate('Update downloaded — click Restart and update when you are ready.');
+                // The toast auto-hides; the banner is the persistent element.
+                self.send('update-ready', {version});
+                const tray = self.shutdownHooks && self.shutdownHooks.tray;
+                if (tray && typeof tray.setUpdatePending === 'function') {
+                    tray.setUpdatePending(version);
+                }
             });
             autoUpdater.on('error', (err) => {
                 console.error('Update check failed:', err && err.message);
@@ -242,10 +276,56 @@ class MainWindow {
         }
 
         setTimeout(() => {
-            autoUpdater.checkForUpdatesAndNotify().catch(err => {
+            // The default notification text promises an install on exit, which
+            // is exactly what this no longer does — say what really happens.
+            autoUpdater.checkForUpdatesAndNotify({
+                title: 'Update ready',
+                body: '{appName} {version} has been downloaded. Open the app and click "Restart and update" when it suits you.'
+            }).catch(err => {
                 console.error('Update check failed:', err && err.message);
             });
         }, 4000);
+    }
+
+    /**
+     * References to modules built after this one (`index.js` wires them), so
+     * the install can shut the app down cleanly and the tray can grow its
+     * "Restart and update" item.
+     */
+    setShutdownHooks(hooks) {
+        this.shutdownHooks = hooks || {};
+    }
+
+    /**
+     * Run the downloaded installer and relaunch. The only caller-facing entry
+     * point for installing an update: the home-page banner (`install-update`)
+     * and the tray item.
+     *
+     * `app.isQuiting` has to be set first or the main window's `close` handler
+     * hides the window instead of letting it go whenever minimize-to-tray is
+     * on, and `app.quit()` inside `quitAndInstall` would never complete.
+     */
+    installUpdate() {
+        if (!this.pendingUpdateVersion) {
+            console.log('Install update requested with no update pending.');
+            return false;
+        }
+        try {
+            app.isQuiting = true;
+            const {mapDetector, tray} = this.shutdownHooks || {};
+            if (mapDetector && typeof mapDetector.stop === 'function') mapDetector.stop();
+            if (tray && typeof tray.destroy === 'function') tray.destroy();
+            console.log(`Installing update ${this.pendingUpdateVersion} and restarting.`);
+            // (isSilent, isForceRunAfter): no installer UI, and the app comes
+            // back on its own once NSIS is done.
+            autoUpdater.quitAndInstall(true, true);
+            return true;
+        } catch (err) {
+            console.error('Install update failed:', err && err.message);
+            app.isQuiting = false;
+            this.sendUpdate('Could not install the update.');
+            return false;
+        }
     }
 
     /** Short status line shown in the bottom-right toast of the main window. */

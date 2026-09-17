@@ -70,6 +70,11 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     const trayController = new TrayController(mainWindow);
     const mapDetector = new MapDetector(mainWindow, settings);
 
+    // Both are built after the main window. It needs the tray so a downloaded
+    // update can add a "Restart and update" item, and needs both of them shut
+    // down before it hands control over to the installer.
+    mainWindow.setShutdownHooks({mapDetector, tray: trayController});
+
     app.on('second-instance', (event, argv) => {
         const args = argv.slice(1);
         args.forEach(arg => {

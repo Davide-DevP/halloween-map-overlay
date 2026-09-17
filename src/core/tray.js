@@ -5,6 +5,8 @@ const fs = require("fs");
 class TrayController {
     mainWindow = null;
     tray = null;
+    /** Version of a downloaded update, or null. Drives the extra menu item. */
+    pendingUpdateVersion = null;
 
     constructor(mainWindow) {
         this.mainWindow = mainWindow;
@@ -19,27 +21,9 @@ class TrayController {
         this.tray = new Tray(trayIconPath);
         this.tray.setToolTip('Halloween Map Overlay');
 
+        this.refreshMenu();
+
         let mainWindow = this.mainWindow;
-
-        const contextMenu = Menu.buildFromTemplate([
-            {
-                label: 'Show App',
-                click: function () {
-                    mainWindow.show();
-                    mainWindow.focus();
-                }
-            },
-            {type: 'separator'},
-            {
-                label: 'Quit',
-                click: function () {
-                    app.isQuiting = true;
-                    app.quit();
-                }
-            }
-        ]);
-
-        this.tray.setContextMenu(contextMenu);
 
         this.tray.on('double-click', () => {
             mainWindow.show();
@@ -51,8 +35,58 @@ class TrayController {
         });
     }
 
+    /**
+     * Remember that an update is waiting and rebuild the menu so the
+     * "Restart and update" item appears. Called from `MainWindow`'s
+     * `update-downloaded` handler.
+     */
+    setUpdatePending(version) {
+        this.pendingUpdateVersion = version || '';
+        this.refreshMenu();
+    }
+
+    /**
+     * Rebuild the context menu from scratch — Electron menus are immutable, so
+     * a conditional item means a new template every time the condition changes.
+     */
+    refreshMenu() {
+        if (!this.tray || this.tray.isDestroyed()) return;
+
+        const mainWindow = this.mainWindow;
+        const template = [
+            {
+                label: 'Show App',
+                click: function () {
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+            }
+        ];
+
+        if (this.pendingUpdateVersion !== null) {
+            template.push({type: 'separator'});
+            template.push({
+                label: 'Restart and update',
+                click: function () {
+                    mainWindow.installUpdate();
+                }
+            });
+        }
+
+        template.push({type: 'separator'});
+        template.push({
+            label: 'Quit',
+            click: function () {
+                app.isQuiting = true;
+                app.quit();
+            }
+        });
+
+        this.tray.setContextMenu(Menu.buildFromTemplate(template));
+    }
+
     destroy() {
-        if (this.tray) {
+        if (this.tray && !this.tray.isDestroyed()) {
             this.tray.destroy();
         }
     }
