@@ -123,13 +123,15 @@ realm level to match), the realm level itself.
 $ npm test
 ℹ tests 42   ℹ pass 42   ℹ fail 0   ℹ duration_ms 79.29
 ```
-17 ported overlay-position tests + 19 map-catalog tests (catalogue build from a
-fake listing, Windows separators, exact/substring/fuzzy match, no-match, keys
-saved under an older creator folder, next/prev wrap-around, custom merge and
-custom keys joining the cycle) + 11
-hotkey-defaults tests (action set, settings-key mapping, Ctrl+1..4 order,
-no collision with system hotkeys, gapless numbering when a map is missing,
-custom maps never bound, accelerator round-trip).
+Overlay-position tests + map-catalog tests (catalogue build from a fake
+listing, Windows separators, exact/substring/fuzzy match, no-match, keys saved
+under an older creator folder, next/prev wrap-around, custom merge and custom
+keys joining the cycle) + hotkey-defaults tests (action set, settings-key
+mapping, Ctrl+1..N order, no collision with system hotkeys, gapless numbering
+when a map is missing, custom maps never bound, accelerator round-trip).
+
+*(The per-file split above was wrong in an earlier revision of this report. The
+current counts are in §4e; `node --test` prints the authoritative numbers.)*
 
 ### AC1 — `npm start` opens the window with 4 map cards, hotkeys work
 Run with `DEBUG=true` (which forwards renderer console output to the terminal),
@@ -307,8 +309,8 @@ An independent review returned SHIP WITH FIXES. All eight findings addressed.
 | 7 | README alt text and "releases page" wording | Alt text fixed; Download now points at the real Releases page (Task B) | — |
 | 8 | Dead code | Removed `downloadLogs`, the `debug-log` listener, `deleteDirectoryContents`, `displayToAccelerator`, `normalizeAccelerator`, the lobby-era `id: uuid.v4()` default and the `uuid` dependency; custom imports now keep their real extension (`extensionFor`) | `npm test`, asar no longer contains `uuid` |
 
-Tests went 42 → **55** (17 overlay-position, 19 map-catalog, 13 hotkeys/capture,
-6 escape-html).
+Tests went 42 → **55** (14 overlay-position, 18 map-catalog, 17
+hotkeys/capture, 6 escape-html).
 
 ## 4d. Phase 1b — public repo and auto-update
 
@@ -341,6 +343,214 @@ Tests went 42 → **55** (17 overlay-position, 19 map-catalog, 13 hotkeys/captur
   It is on `main` and GitHub lists it as an active workflow. **No tag was
   pushed**, per instruction — the first release waits on the owner's in-game
   test.
+
+## 4e. Phase 2 — review fixes and automatic map detection (0.2.0)
+
+### Review fixes (`docs/VERIFICATION-2.md`, "New findings")
+
+| # | Finding | Fix | Evidence |
+|---|---|---|---|
+| N1 | The portable build ran the update check, contradicting README/AGENTS.md | `MainWindow.checkUpdates()` returns early on `process.env.PORTABLE_EXECUTABLE_DIR` (electron-builder's portable launcher always sets it), logging `Update check skipped: portable build.` | `src/core/main-window.js`; the guard sits after the `app.isPackaged` one and before the `checkForUpdates` one |
+| N2 | `.claude/settings.local.json` was packaged into the asar | `"!.claude/*"` and `"!.claude/**"` added to `build.files` | `npx @electron/asar list dist/win-unpacked/resources/app.asar` piped through `grep -i claude` → **0 hits** after a clean `npm run build:win`. Top-level asar entries are exactly `node_modules`, `AGENTS.md`, `LICENSE`, `NOTICE`, `README.md`, `index.js`, `package.json`, `src` |
+| N3 | electron-builder would create the GitHub release as a draft | `"releaseType": "release"` added to `build.publish`; the release procedure (bump, commit, `git tag vX.Y.Z`, `git push --tags`, tag == `v` + package.json version) is now spelled out in AGENTS.md § Releasing | `package.json` |
+| N4 | Re-saving an accelerator the app already holds toasted "already taken by another application"; three `loadKeys()` per save | `rejectIfUnregisterable` returns early for anything in the new `ownAccelerators()` (system hotkeys + `hotkeys.json`) — such an accelerator has demonstrably registered already, so there is nothing to probe and nothing to disturb. The success path no longer calls `loadKeys()` at all; the caller's single call after the write is enough | `src/core/hotkeys.js` |
+| N5 | Doc contradictions | `AGENTS.md` scope rule rewritten (it claimed "no network calls, no screen capture" — both now false, and both now described with their opt-in/opt-out); this report's "No auto-update" bullet and the AC2 test split corrected | — |
+| N6 | The at-least-one-modifier rule was renderer-only | New pure `hasModifier()` in `hotkeys-constants.js`, called by both `save-hotkeys` and `save-system-hotkey` before anything is written | 3 unit tests in `test/hotkeys-defaults.test.js` |
+
+### What was built
+
+- `src/core/map-detector/matcher.js` — pure: `toGray`, `cropRegion`,
+  `downsample`, `gradientMagnitude`, `ncc`, `tabScreenFeatures`,
+  `TAB_SCREEN_GATE`, `frameThumbnail`, `matchMap`. No electron, no fs, no sharp.
+- `src/core/map-detector/templates.json` — generated, committed; one 64x64
+  thumbnail per map keyed by catalogue key (~20 KB each).
+- `scripts/prepare-detector.js` — dev only; finds the map panel in each fixture
+  and writes `templates.json`. Idempotent (byte-identical on a re-run, verified
+  with `diff`). Also exports `locatePanel`, which the tests reuse so they
+  measure the fixtures rather than trusting a constant.
+- `src/core/map-detector.js` — the main-process loop, `desktopCapturer` →
+  matcher → `show-map-command`, plus `map-detector-start` / `-stop` / `-status`.
+- `src/js/detector.js` plus a home-page switch and status line ("Off" /
+  "Watching for the in-game map (Tab)…" / "Detected <Map> at HH:MM");
+  `mapDetection` setting, default false.
+
+### Detector behaviour (as refined during the pass)
+
+- Poll every **2000 ms** while searching, **5000 ms** after a detection.
+- The overlay switches only when a map *different* from `lastDetected` is seen;
+  a manual pick (card, hotkey) never stops the loop.
+- An automatic switch names the map on the overlay for **3 s**. The name rides
+  on the existing `map-change` payload as a `mapLabel` field rather than a
+  second IPC message, so the overlay cannot name a map it is not showing. It
+  uses the map's own opacity setting, is cleared by the next `map-change` or
+  `map-hide`, and is drawn absolutely so it cannot resize the window (which is
+  sized to the rotated map by the main process). Manual picks send no label and
+  the settings preview never carries one.
+- A fifth system hotkey, **`clear-map` (Ctrl+Shift+D, editable like the rest)**,
+  hides the map *and* sends `map-detector-reset`, which clears `lastDetected`
+  and schedules an immediate tick. Without the reset, hiding a detected map
+  would leave the overlay blank for the rest of the match — the loop would keep
+  seeing the same map, decide nothing had changed, and never re-show it. The
+  Hotkeys tab builds itself from `SYSTEM_HOTKEY_DEFS`, so the new action
+  appeared in the UI with no view change.
+- `DEBUG=true` logs `capture=… match=… total=…` for every tick plus an
+  event-loop peak-drift line every 10 s.
+
+### Measured regions
+
+Everything was measured from `tab-fullscreen-haddonfield-heights.png`
+(1919x1078 — not 1920x1080). The Tab screen draws each panel with a 1 px frame
+line whose luminance is exactly 21 then 28 on an otherwise black panel, which
+makes it findable by scanning column and row means:
+
+| Feature | Position (full-screen pixels) |
+|---|---|
+| left panel frame | cols 255/256 and 843/844, rows 145/146 and 933/934 |
+| map panel frame | cols 875/876 and 1663/1664, rows 145/146 and 933/934 |
+| map panel interior | x 877..1662, y 147..932 — an exact **786x786** square |
+| map-name box frame | cols 300/301, rows 160/161 and 201/202 |
+
+| Constant | Pixels | Relative |
+|---|---|---|
+| `MAP_PANEL_REL` (interior inset 10 px) | x 887..1652, y 157..922, 766x766 | `{x: 0.46222, y: 0.14564, w: 0.39917, h: 0.71058}` |
+| `LEFT_PANEL_REL` (gate darkness) | x 257..842, y 250..929 | `{x: 0.13392, y: 0.23191, w: 0.30537, h: 0.63080}` |
+| `NAME_BOX_REL` (gate brightness) | x 300..479, y 158..204 | `{x: 0.15633, y: 0.14657, w: 0.09380, h: 0.04360}` |
+
+The 10 px inset does two jobs: it absorbs the differences between the four
+hand-made fixture crops, and it excludes the near-white 1 px highlight rectangle
+the game draws 8 px inside the frame while the cursor is over the map panel
+(present in `tab-east-haddonfield.png` and `tab-haddonfield-town-center.png`,
+absent in the other two — including it would have put a fixture-specific
+artefact into two of the four templates).
+
+The four crops were each located independently rather than by one shared offset,
+because they differ:
+
+| Fixture | Size | Offset from full-screen coordinates |
+|---|---|---|
+| `tab-fullscreen-haddonfield-heights.png` | 1919x1078 | dx 0, dy 0 |
+| `tab-east-haddonfield.png` | 1403x784 | dx 257, dy 146 |
+| `tab-haddonfield-heights.png` | 1406x784 | dx 255, dy 148 |
+| `tab-haddonfield-town-center.png` | 1400x781 | dx 261, dy 149 |
+| `tab-orange-grove-estates.png` | 1411x785 | dx 251, dy 146 |
+
+Each offset was derived twice and independently — from the panel frame line and
+from the map-name box frame — and the two agreed on every fixture. All four
+crops cut 1–3 px off the panel's own frame, which is why the region is inset and
+why `locatePanel` keys on features that survive the crop. The cropped panels
+were also written out and looked at: each is the map, centred, with the "N"
+marker at top centre and no frame or highlight line inside.
+
+### Scores and margins (`npm test` prints this table)
+
+Score = mean of the luminance NCC and the gradient-magnitude NCC. Accept
+threshold 0.80, margin threshold 0.10.
+
+| Fixture | Expected | Detected | Score | Runner-up | Margin |
+|---|---|---|---|---|---|
+| `tab-fullscreen-haddonfield-heights.png` | Haddonfield Heights | Haddonfield Heights | 0.9959 | 0.5041 | **0.4919** |
+| `tab-east-haddonfield.png` | East Haddonfield | East Haddonfield | 1.0000 | 0.5010 | **0.4990** |
+| `tab-haddonfield-heights.png` | Haddonfield Heights | Haddonfield Heights | 1.0000 | 0.5010 | **0.4990** |
+| `tab-haddonfield-town-center.png` | Haddonfield Town Center | Haddonfield Town Center | 1.0000 | 0.4833 | **0.5167** |
+| `tab-orange-grove-estates.png` | Orange Grove Estates | Orange Grove Estates | 1.0000 | 0.4578 | **0.5422** |
+| fullscreen @ 1280x720 | Haddonfield Heights | Haddonfield Heights | 0.9932 | 0.5033 | **0.4899** |
+| fullscreen @ 2560x1440 | Haddonfield Heights | Haddonfield Heights | 0.9935 | 0.5047 | **0.4888** |
+| fullscreen @ 640x360 (the capture size) | Haddonfield Heights | Haddonfield Heights | 0.9908 | 0.5021 | **0.4887** |
+| fullscreen shifted −2 % / −1 % / +1 % / +2 % | Haddonfield Heights | Haddonfield Heights | 0.9959 | ≤0.5041 | **≥0.4919** |
+| `gameplay-killer.png` | null | gated out | — | — | — |
+| `gameplay-civilian.png` | null | gated out | — | — | — |
+| `menu-main.png` | null | gated out | — | — | — |
+| the three negatives, gate disabled | null | rejected | ≤0.2794 | — | — |
+
+Every positive margin is roughly five times the required 0.10, so no threshold
+had to be lowered. Two design decisions came out of measuring rather than
+guessing:
+
+- **Two signals.** Luminance NCC alone already identifies every fixture, but
+  with a margin of only ~0.22 and — worse — a runner-up of ~0.775, right under
+  the 0.80 accept threshold. Adding the Sobel gradient-magnitude NCC and
+  averaging the two drops the runner-up to ~0.50 and doubles the margin.
+- **Alignment search.** A 2 % vertical slip of the captured frame (≈21 px at
+  1080p, 3 % of the panel) took a correct match from 0.99 to 0.68 — below
+  threshold. `matchMap` now tries the region at 15 small offsets (dy ±1/±2 %,
+  dx ±1.5 %) and each template keeps its best, which restores 0.9959. Lowering
+  the threshold instead would have let wrong maps in as well.
+
+Gate separation, measured over all eight fixtures:
+
+| | Tab screen | gameplay / menu |
+|---|---|---|
+| dark fraction of the lower left panel | 0.990–0.995 | 0.271–0.649 |
+| bright fraction of the map-name box | 0.088–0.114 | 0.000 |
+
+### Data-only map additions
+
+Adding a map touches no source file. `scripts/prepare-detector.js` derives the
+catalogue key from the fixture filename (`tab-<slug>.png`, un-slugged and
+resolved against the real `maps/` catalogue with `findClosestMapMatch`, so the
+creator comes from the map file); the matcher iterates over whatever
+`templates.json` holds; `buildDefaultMapHotkeys` hands Ctrl+1..Ctrl+9 to the
+first nine maps in catalogue order instead of consulting a hand-written list
+(`DEFAULT_MAP_HOTKEY_ORDER` is gone — this swapped the stock Ctrl+3 and Ctrl+4
+bindings to alphabetical order, on fresh installs only); and the test file
+discovers its whole matrix from `detection-fixtures/`, including a check that
+every map in `maps/` has a fixture. The procedure is written out in AGENTS.md
+and README.
+
+### Runtime verification
+
+| Run | Result |
+|---|---|
+| `npm test` | **94 pass / 0 fail** (33 map-detector, 23 hotkeys/capture, 18 map-catalog, 14 overlay-position, 6 escape-html; ~1.9 s) |
+| `npm run prepare-detector` re-run | templates byte-identical (`diff` clean) |
+| dev, isolated `--user-data-dir`, `mapDetection: true`, `DEBUG=true`, 25 s | loop ticked 13x, `desktopCapturer` returned a source every time (`640x360 from "Intero schermo"`), `no match` each tick (the owner was not on a Tab screen), renderer reached `renderer::ready maps=4 cards=4 customs=1` and `detector::init {"running":true,…,"templates":4}`, **no stderr, no errors** |
+| `npm run build:win` | exit 0; `Halloween Map Overlay Setup 0.2.0.exe` and `Halloween Map Overlay 0.2.0.exe` |
+| packaged `dist/win-unpacked/Halloween Map Overlay.exe`, isolated user data, 25 s | same loop, 13 ticks, `templates.json` loaded from inside the asar, **no stderr**. `desktopCapturer` needs no extra permission when packaged on Windows |
+
+### KNOWN ISSUE — the capture backend is too heavy
+
+The owner reported the whole PC briefly freezing at every capture tick. That
+reproduces and is measurable. With `DEBUG=true` the detector now logs
+`capture=… match=… total=…` per tick and a peak event-loop drift line every
+10 s. Over a 35 s isolated run:
+
+| Measurement | Value |
+|---|---|
+| `desktopCapturer.getSources` | **286–518 ms per tick** |
+| the matcher (gate + crop + 15 offsets + 4 templates) | **1–4 ms** |
+| main-thread event-loop peak drift | **152–246 ms** per 10 s window |
+
+So the image processing is free and `desktopCapturer.getSources` is the entire
+cost; it blocks the main thread for ~150 ms at a time, every poll. The poll
+period was raised from 1500 ms to 2000 ms, which reduces how often that happens
+but not the stutter itself.
+
+**This is not fixed.** The agreed fix is to capture only the game window with
+`node-screenshots` (AGENTS.md § KNOWN ISSUE has the full plan: window lookup by
+`/halloween/i`, skip the tick entirely when the game is not running, early
+downscale, `asarUnpack` for the `.node` binaries, `utilityProcess` if it is
+still slow). It could not be implemented in this pass because installing a new
+npm package was refused by the sandbox. Auto-detect is off by default and both
+the README and the in-app FAQ warn about the stutter, so nobody is exposed to it
+silently — but it should be fixed before 0.2.0 is tagged.
+
+### Not verifiable here
+
+- **Detecting a real map in a real match.** The owner was playing on this
+  machine during the test window, but no tick landed on a Tab screen, so every
+  run logged "no match". The full-frame path is covered by the fixture at three
+  resolutions and at the exact 640x360 capture size, but no screenshot taken by
+  `desktopCapturer` itself has ever been matched against a template.
+- **The home-page switch and status line** were not clicked. `detector::init`
+  proves the renderer module loads, reads the status over IPC and renders it,
+  and `map-detector-start`/`-stop` are plain `ipcMain.handle`s, but no GUI
+  interaction was possible.
+- **Anything but 16:9.** The regions are fractions of the frame, so 21:9 or 4:3
+  would put the panel somewhere else. Untested, and no fixture exists.
+- **Non-1080p game rendering.** Every fixture came from the same 1080p machine;
+  the rescale tests resample that one screenshot rather than showing the game
+  actually running at another resolution.
+- **The release workflow** still has never run — no tag has been pushed.
 
 ## 5. Other fixes made along the way
 
@@ -391,11 +601,13 @@ Tests went 42 → **55** (17 overlay-position, 19 map-catalog, 13 hotkeys/captur
   the current code reads it. Note that auto-detection is out of scope for this
   version per `SPEC.md` §3, and any implementation of it will have to be
   reconciled with the "nothing that touches the game process" rule.
+  *(Superseded by §4e: automatic detection shipped in 0.2.0, reading the screen
+  only — no game process access.)*
 - **Linux/Wayland untested.** The respawn code is ported as-is; only Windows was
   built and run.
-- **No auto-update.** Deliberate (no release feed). The `update-message` toast
-  is still wired up, so re-adding `electron-updater` later is a small change;
-  flagged as a TODO in `AGENTS.md`.
+- ~~**No auto-update.**~~ Superseded by §4d: `electron-updater` was added in
+  phase 1b and the NSIS build checks GitHub Releases at startup. The portable
+  build skips the check entirely (see §4e).
 - **Unsigned binaries.** No code-signing certificate is configured, so Windows
   SmartScreen will warn on first run of the installer.
 - `npm run build` is an alias for `build:win` — there is no Linux packaging

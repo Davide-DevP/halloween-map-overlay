@@ -9,9 +9,14 @@ window with a green background for streamers.
 
 - **License**: Apache-2.0
 - **Derived from**: `LucaFontanot/dbd-map-overlay` (Apache-2.0) — see `NOTICE`
-- **Scope rule**: this is a *static map viewer*. No network calls, no telemetry,
-  no screen capture, no memory reading, nothing that touches the game process.
-  Anything that would need one of those is out of scope, not a TODO.
+- **Scope rule**: this is a *map viewer*. No telemetry, no memory reading,
+  nothing that touches the game process. It makes exactly two kinds of outside
+  contact, both opt-out/opt-in and both documented in the README and the in-app
+  FAQ: the GitHub Releases update check (on by default, Settings › General) and
+  the automatic map detection's screen capture (**off** by default, home-page
+  switch). Adding a third needs the README "Network use" / "Auto-detect"
+  sections and the FAQ changed in the same commit. Anything that would need to
+  read the game's memory or inject into it is out of scope, not a TODO.
 
 ## Stack
 
@@ -40,6 +45,14 @@ src/core/map-library.js         → File-system side of the catalogue: maps root
                                   directory listing, key → absolute path.
 src/core/map-catalog.js         → PURE catalogue: build from a listing, fuzzy
                                   key matching, next/prev, custom merge. Tested.
+src/core/map-detector.js        → Automatic map detection loop (main process):
+                                  desktopCapturer → matcher → show-map-command.
+                                  IPC start/stop/status. Off by default.
+src/core/map-detector/matcher.js→ PURE matcher: grayscale, relative crop,
+                                  64x64 area downsample, gradient magnitude,
+                                  zero-mean NCC, Tab-screen gate. Tested.
+src/core/map-detector/templates.json → Generated, committed. 64x64 thumbnail
+                                  per map, keyed by catalogue key.
 src/core/hotkeys.js             → globalShortcut registration + hotkeys.json.
 src/core/settings.js            → settings-app.json in userData, defaults merged.
 src/core/user-data.js           → userData `custom/` read/write/delete/list.
@@ -54,6 +67,7 @@ src/js/maps.js                  → Gallery, current map, hotkey/CLI dispatch.
 src/js/options.js               → Settings modal (General + Overlay tabs).
 src/js/hotkeys.js               → Hotkeys tab: tables, editing, key capture.
 src/js/custom.js                → "Add custom image" modal.
+src/js/detector.js              → Home-page auto-detect switch + status line.
 src/js/overlay-preview.js       → Canvas sample image for the Overlay tab.
 src/js/settings.js              → Renderer mirror of the settings file.
 src/js/logger.js                → debugLog.
@@ -63,6 +77,10 @@ maps/<Creator>/<Map>.png        → Shipped maps (electron-builder extraResource
                                   Currently one creator: `deftyconchgaming`.
 maps-src/*.webp                 → Untouched originals; input to prepare-maps.
 scripts/prepare-maps.js         → Dev only: crop maps-src → maps/, render icons.
+scripts/prepare-detector.js     → Dev only: detection-fixtures → templates.json.
+                                  Also exports `locatePanel` — the tests use it.
+detection-fixtures/*.png        → Game screenshots: template sources and the
+                                  detector's test matrix. Never packaged.
 test/                           → node:test unit tests for the pure modules.
 ```
 
@@ -86,9 +104,10 @@ test/                           → node:test unit tests for the pure modules.
 - **Maps root**: `app.isPackaged ? path.join(process.resourcesPath, "maps")
   : path.join(global.dirname, "maps")` (`map-library.js`). `global.dirname` is
   set at the top of `index.js`.
-- **Pure vs impure**: `map-catalog.js`, `overlay-position.js` and
-  `hotkeys-constants.js` import nothing from electron or `fs`. Keep them that
-  way — they are the only parts covered by tests. `map-library.js` is the
+- **Pure vs impure**: `map-catalog.js`, `overlay-position.js`,
+  `hotkeys-constants.js` and `map-detector/matcher.js` import nothing from
+  electron or `fs`. Keep them that way — they are the only parts covered by
+  tests. `map-library.js` is the
   fs-facing wrapper around `map-catalog.js`; put new file-system logic there.
 - **Name folding / matching**: `foldName`, `levenshtein` and
   `findClosestMapMatch` in `map-catalog.js` are the single source. Do not
@@ -109,8 +128,10 @@ test/                           → node:test unit tests for the pure modules.
   deletes a custom map must call `invalidate()` — `user-data.js` already does.
 - **First-run hotkeys**: `hotkeys.json` is written once, only when absent
   (`Hotkeys.ensureDefaultMapHotkeys`), from the pure
-  `buildDefaultMapHotkeys(catalog, makeId)`. A user who deleted every binding
-  keeps it deleted.
+  `buildDefaultMapHotkeys(catalog, makeId)`, which hands Ctrl+1..Ctrl+9 to the
+  first nine **shipped maps in catalogue order** (creator, then map name).
+  There is deliberately no hand-maintained map list — a new map gets its number
+  from the catalogue. A user who deleted every binding keeps it deleted.
 - **Hotkey priority**: system hotkeys register first. Saving a per-map hotkey
   that matches a system one is refused (`Hotkeys.systemConflict`), and a stale
   colliding entry already in `hotkeys.json` is skipped at registration *and*
@@ -155,7 +176,153 @@ test/                           → node:test unit tests for the pure modules.
   **only** network request — if you add another one, the README "Network use"
   section and the in-app FAQ both have to change.
 - **Only the NSIS build self-updates.** The portable exe has nothing installed
-  to replace; that is stated in the README.
+  to replace; that is stated in the README. `app.isPackaged` is true in the
+  portable build as well and electron-updater 6.x has **no** portable guard of
+  its own, so `checkUpdates()` returns early when
+  `process.env.PORTABLE_EXECUTABLE_DIR` is set (electron-builder's portable
+  launcher always sets it). Without that check the portable user would get the
+  NSIS installer downloaded and silently installed on quit while the portable
+  exe stayed at the old version.
+- **Hotkey dry run vs. our own bindings.** `rejectIfUnregisterable` probes an
+  accelerator with `globalShortcut.register` while the app's real bindings are
+  live, so probing one we already hold returns `false` and used to produce a
+  bogus "taken by another application" toast. It now returns early for anything
+  in `ownAccelerators()` (system hotkeys + `hotkeys.json`) — which also means a
+  successful save runs `loadKeys()` once instead of three times.
+- **The modifier rule is enforced on both sides.** `keyEventToAccelerator`
+  refuses a modifier-less binding in the renderer, and `save-hotkeys` /
+  `save-system-hotkey` re-check with the pure `hasModifier()`. With
+  `nodeIntegration: true` the renderer is not a trust boundary, and Electron
+  will happily register a bare `H` globally.
+
+## Automatic map detection (phase 2)
+
+Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
+`docs/SPEC-DETECT.md`.
+
+- **Two halves.** `map-detector/matcher.js` is pure arithmetic over a luminance
+  buffer and holds every threshold and region; `map-detector.js` is the loop,
+  the capture and the IPC. Keep new logic on the pure side — it is the only
+  half with tests.
+- **Regions are relative to the captured frame**, so 1280x720, 1920x1080 and
+  2560x1440 all work with no per-resolution code. They were measured from
+  `tab-fullscreen-haddonfield-heights.png` (1919x1078), where the Tab screen's
+  panels are drawn with a 1 px frame line of luminance exactly 21/28 on black:
+  map panel frame cols 875/876 and 1663/1664, rows 145/146 and 933/934, so its
+  interior is x 877..1662, y 147..932 — an exact 786x786 square. `MAP_PANEL_REL`
+  is that square **inset 10 px** (x 887..1652, y 157..922 = 766x766). The inset
+  absorbs the few-pixel differences between the hand-made fixture crops *and*
+  excludes the near-white 1 px highlight rectangle the game draws 8 px inside
+  the frame while the cursor is over the map panel (two of the four fixtures
+  have it, two do not).
+- **Two signals, not one.** The score is the mean of the NCC on luminance and
+  the NCC on Sobel gradient magnitude. Luminance alone separates the maps
+  (margin ~0.22) but leaves the runner-up at ~0.775 — right under the 0.80
+  accept threshold, which is far too close for a real screen capture. With the
+  gradient term the runner-up drops to ~0.50 and the margin doubles to ~0.49.
+  Do not "simplify" this back to one signal.
+- **Small alignment search.** A capture can be a few pixels off (a window's
+  client area, a screenshot that lost a row); a 2 % vertical slip alone takes a
+  correct match from 0.99 to 0.68. `matchMap` therefore tries `DEFAULT_OFFSETS`
+  (dy ±1/±2 %, dx ±1.5 %) and each template keeps its best. Lowering the
+  threshold instead would let wrong maps through too.
+- **The Tab-screen gate runs first** so ordinary gameplay never reaches NCC:
+  ≥90 % of the lower left panel must be near-black *and* ≥2 % of the map-name
+  box must be bright. Measured separation: 0.99 vs 0.27–0.65 and 0.09–0.11 vs
+  0.00. The darkness test is a *fraction*, not a mean, on purpose — the app's
+  own overlay is on screen and gets captured with everything else, and a bright
+  patch over a tenth of the region would wreck a mean.
+- **Detection never fights the user.** A manual pick does not stop the loop; the
+  loop only acts on a map *different* from `lastDetected`. Poll **2000 ms** while
+  searching, **5000 ms** after a hit.
+- **`clear-map` (Ctrl+Shift+D) is not `toggle-map`.** It hides the map *and*
+  sends `map-detector-reset`, which clears `lastDetected` and schedules an
+  immediate tick. Without the reset, hiding a detected map would leave the
+  overlay blank for the rest of the match: the loop would keep seeing the same
+  map, decide nothing changed, and never re-show it.
+- **The overlay label rides on the existing `map-change` payload.** An automatic
+  switch passes `{mapLabel}` from `Maps.sendMap` → main → the overlay's
+  `map-change` as a 6th argument; `src/map/renderer.js` shows it for 3 s at the
+  map's own opacity and clears it on the next `map-change` or `map-hide`. It is
+  deliberately *not* a second IPC message — the overlay must never be able to
+  name a map it is not showing. Manual picks send no label, and the settings
+  preview never carries one.
+- **Home-page status line**: "Off" / "Watching for the in-game map (Tab)…" /
+  "Detected <Map> at HH:MM", driven by the `map-detector-status` push plus one
+  `invoke` at startup.
+- **`DEBUG=true` logs `capture=… match=… total=…` per tick** and an event-loop
+  peak-drift line every 10 s. That is the instrumentation the capture-backend
+  work below needs; leave it in.
+- **Never keep a frame.** No disk, no network, nothing beyond the tick.
+
+### KNOWN ISSUE — the capture backend is too heavy (blocking for a release)
+
+Measured on this machine, `DEBUG=true`, 35 s (the numbers are in the DEBUG log:
+`capture=… match=… total=…` and a 10 s event-loop peak-drift line):
+
+| | |
+|---|---|
+| `desktopCapturer.getSources` | **286–518 ms per tick** |
+| matcher (gate + crop + 15 offsets + 4 templates) | **1–4 ms** |
+| main-thread event-loop peak drift | **152–246 ms** per 10 s |
+
+The matching is free; `desktopCapturer.getSources` is the whole cost and it
+blocks the main thread long enough to stutter the machine every poll. The agreed
+fix (owner's instruction, **not yet implemented** — `npm install` of a new
+package was refused by the sandbox) is:
+
+1. `node-screenshots` as a runtime dependency, with
+   `"asarUnpack": ["**/node-screenshots/**/*.node", "**/node-screenshots-*/**/*.node"]`.
+2. Capture only the **game window** — `Window.all()`, pick the one whose
+   `appName()`/`title()` matches `/halloween/i`, is not this app, and is not
+   minimized. No game window → skip the tick entirely (zero cost when the game
+   is not running), logging that state at most once a minute.
+3. `await window.captureImage()` and downscale as early as the API allows;
+   target < 30 ms per tick. If it is still slow, move the whole loop into an
+   Electron `utilityProcess` and pass results back over its MessagePort.
+4. README/FAQ then say "captures the game window … only while the game is
+   running" instead of "the selected display".
+
+The relative-region logic already tolerates a window-sized capture: it is
+relative to whatever frame it is handed, and a ±2 % vertical shift is covered by
+a test.
+
+## Adding a map (data only — no code change)
+
+The game is getting more maps; adding one must never need an edit to a source
+file. The whole procedure:
+
+1. Put the overlay image at `maps/<Creator>/<Map Name>.png` (or drop the source
+   in `maps-src/` and run `npm run prepare-maps` — see "Adding maps" below).
+2. Put one Tab (Objectives) screenshot at
+   `detection-fixtures/tab-<slug>.png`, where `<slug>` is the map name
+   lower-cased with non-alphanumerics turned into hyphens
+   (`Haddonfield Town Center` → `tab-haddonfield-town-center.png`). A full
+   1920x1080 frame or a crop of the two panels both work — `locatePanel` finds
+   the panel either way.
+3. `npm run prepare-detector` → rewrites `src/core/map-detector/templates.json`.
+4. `npm test` → the new map is already covered; the fixture list *is* the test
+   matrix.
+5. Credit the author in the Credits modal (`src/index.html`), `README.md` and
+   `NOTICE` if the creator is new.
+
+Everything else follows automatically: the gallery and the creator filter read
+the `maps/` listing, `next`/`prev` cycle over the catalogue, the first nine maps
+in catalogue order get Ctrl+1..Ctrl+9 on a fresh install, and the matcher
+iterates over whatever `templates.json` holds.
+
+Naming rules that make that work, do not break them:
+- `detection-fixtures/tab-<slug>.png` → template source **and** a positive test.
+- `detection-fixtures/tab-fullscreen-<slug>.png` → an extra full-frame positive
+  test for that same map; **not** used as a template source (so a map can have
+  both a crop and a full frame without producing two templates).
+- Any other `detection-fixtures/*.png` → a **negative**: the detector must
+  return null for it. That is where gameplay and menu screenshots go.
+- The slug is resolved against the real catalogue with `findClosestMapMatch`,
+  the project's single name matcher, so the creator comes from the `maps/`
+  folder and the key can never drift. A slug that matches no map is ignored by
+  the generator and fails `test/map-detector.test.js`
+  ("every map in maps/ has a detection fixture").
 
 ## Commands
 
@@ -164,6 +331,7 @@ npm install
 npm start              # dev run (DEBUG=true opens devtools and the menu)
 npm test               # node --test over test/**/*.test.js
 npm run prepare-maps   # crop maps-src/*.webp → maps/, render build+app icons
+npm run prepare-detector # detection-fixtures/tab-*.png → templates.json
 npm run build:win      # NSIS installer + portable exe into dist/
 ```
 
@@ -174,16 +342,24 @@ published by an ordinary push to `main`. It runs `npm ci`, `npm test`, then
 `npx electron-builder --win --publish always` with the workflow's own
 `GITHUB_TOKEN` (needs `permissions: contents: write`).
 
+**The procedure, in order. Nothing else publishes anything.**
+
 ```bash
-# 1. bump "version" in package.json
-git commit -am "Release 0.1.1"
-git push
-git tag v0.1.1 && git push --tags     # this is what triggers the release
+# 1. bump "version" in package.json — say to 0.2.1
+npm test                              # must be green; the workflow reruns it
+git commit -am "Release 0.2.1"
+git push                              # publishes nothing on its own
+git tag v0.2.1                        # the tag MUST be "v" + package.json version
+git push --tags                       # this, and only this, triggers the release
 ```
 
-The tag must match the `package.json` version, or electron-builder uploads
-artifacts to a release whose name disagrees with the app. Watch the run before
-telling anyone to download: a failed publish still creates a draft release.
+The tag must equal `v` + the `package.json` version. electron-builder derives
+the GitHub release name from `package.json`, **not** from the pushed tag, so a
+mismatch uploads the artifacts to a release whose name disagrees with the app.
+`build.publish.releaseType` is `"release"`, so the release is published rather
+than left as a draft (electron-builder's default is `draft`, which
+electron-updater ignores and which shows nothing on the Releases page). Watch
+the run before telling anyone to download.
 
 Gotcha: the very first push, the one `gh repo create --source . --push` makes,
 is rejected if it contains a workflow file — *"refusing to allow an OAuth App
@@ -198,19 +374,21 @@ the account owner).
 The workflow has **never actually run** — no tag has been pushed yet, by
 instruction. Treat the first `v*` tag as the test of it and watch the run.
 
-## Adding maps
+## Adding maps — the map image half
+
+See "Adding a map (data only)" above for the whole procedure; this is just the
+image step.
 
 1. Drop the source image in `maps-src/` and add its stem → display name to
    `MAP_NAMES` in `scripts/prepare-maps.js`, **or** put a finished PNG straight
-   into `maps/<Creator>/<Map Name>.png`.
+   into `maps/<Creator>/<Map Name>.png` (no code change at all).
 2. `npm run prepare-maps` if you went through `maps-src/`. Then *look at the
    output PNGs* — the crop is detected from the image, not hard-coded, so a
    differently framed source can crop wrong.
 3. A new folder under `maps/` is automatically a new creator; the home creator
    filter un-hides itself once there is more than one.
-4. To give a new map a default Ctrl+N binding, add its name to
-   `DEFAULT_MAP_HOTKEY_ORDER` in `src/shared/hotkeys-constants.js` (this only
-   affects installs that have no `hotkeys.json` yet).
+4. Default Ctrl+N bindings need no edit: the first nine shipped maps in
+   catalogue order get them (fresh installs only, i.e. no `hotkeys.json` yet).
 5. Credit the author in the Credits modal (`src/index.html`), `README.md` and
    `NOTICE`.
 
