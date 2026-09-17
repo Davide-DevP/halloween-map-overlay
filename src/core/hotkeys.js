@@ -10,6 +10,7 @@ const {
     hasModifier
 } = require("../shared/hotkeys-constants");
 const {msg} = require("../shared/i18n");
+const appLog = require("./app-log");
 
 const hotkeyFilePath = path.join(app.getPath('userData'), 'hotkeys.json');
 
@@ -31,12 +32,30 @@ class Hotkeys {
     mainWindow;
     settings;
     mapLibrary;
+    /**
+     * Accelerators the last `loadKeys()` could not register — the §4 health
+     * check. `[{accelerator, action, reason}]`, rebuilt from scratch on every
+     * reload so it can never accumulate stale entries.
+     */
+    conflicts = [];
+    /**
+     * True while `loadKeys()` is running. A failed registration then goes to
+     * the banner instead of the toast: reloading binds a dozen accelerators at
+     * once and one toast per failure, five times a session, is noise the user
+     * learns to dismiss without reading.
+     */
+    bulkLoading = false;
 
     constructor(mainWindow, settings, mapLibrary) {
         this.mainWindow = mainWindow;
         this.settings = settings;
         this.mapLibrary = mapLibrary;
         const classInstance = this;
+
+        // The banner is raised by a push from `loadKeys()`, which runs before
+        // the window has finished loading on a cold start — so the renderer
+        // asks as well as listens.
+        ipcMain.handle('get-hotkey-conflicts', async () => classInstance.getConflicts());
 
         // --- Per-map hotkeys ---
         // `handle`, not `on`: the renderer keeps the modal open until it knows
@@ -269,19 +288,47 @@ class Hotkeys {
     /**
      * Register one accelerator, surviving anything Electron throws at us.
      * A bad entry must never stop the ones after it from being registered.
+     * @param {string} accelerator
+     * @param {Function} handler
+     * @param {string} label for the console line — a system action id, or a
+     *   per-map binding's uuid.
+     * @param {string} [actionLabel] what a failure is *recorded* as, when that
+     *   differs: a uuid means nothing in a diagnostic report.
      * @returns {boolean}
      */
-    safeRegister(accelerator, handler, label) {
+    safeRegister(accelerator, handler, label, actionLabel) {
         const win = this.mainWindow;
         try {
             if (globalShortcut.register(accelerator, handler)) return true;
             console.warn(`Failed to register "${accelerator}" (${label}) — already taken`);
-            if (win) win.sendUpdate(msg('hotkeys.error.takenByOther', {accelerator: acceleratorToDisplay(accelerator)}));
+            this.noteConflict(accelerator, actionLabel || label, 'taken');
+            if (win && !this.bulkLoading) win.sendUpdate(msg('hotkeys.error.takenByOther', {accelerator: acceleratorToDisplay(accelerator)}));
         } catch (err) {
             console.error(`Invalid accelerator "${accelerator}" (${label}): ${err.message}`);
-            if (win) win.sendUpdate(msg('hotkeys.error.invalidSaved', {accelerator}));
+            this.noteConflict(accelerator, actionLabel || label, 'invalid');
+            if (win && !this.bulkLoading) win.sendUpdate(msg('hotkeys.error.invalidSaved', {accelerator}));
         }
         return false;
+    }
+
+    /**
+     * Record a registration failure for the home-page banner and the log.
+     *
+     * A hotkey that silently does nothing is the single hardest thing to
+     * diagnose remotely: the user presses Ctrl+H, nothing happens, and the app
+     * looks broken when in fact Discord or the NVIDIA overlay took the
+     * combination first. Both halves of 0.3.2 exist for this case — the log
+     * line for the report, the banner so the user does not have to send one.
+     */
+    noteConflict(accelerator, action, reason) {
+        const entry = {accelerator, action: action || '', reason: reason || 'taken'};
+        if (!this.conflicts.some(c => c.accelerator === accelerator)) this.conflicts.push(entry);
+        appLog.warn('hotkey-register-failed', {accelerator, action: entry.action, reason: entry.reason});
+    }
+
+    /** @returns {Array<{accelerator: string, action: string, reason: string}>} */
+    getConflicts() {
+        return this.conflicts.slice();
     }
 
     registerSystemHotkeys() {
@@ -294,7 +341,10 @@ class Hotkeys {
         for (const [actionId, accelerator] of Object.entries(this.getSystemHotkeys())) {
             const def = SYSTEM_HOTKEY_DEFS[actionId];
             if (!def) continue;
-            this.safeRegister(accelerator, () => win.send(def.action), actionId);
+            this.safeRegister(accelerator, () => {
+                appLog.event('hotkey', {action: actionId});
+                win.send(def.action);
+            }, actionId);
         }
     }
 
@@ -312,10 +362,18 @@ class Hotkeys {
         for (const [hotkey, {mapKey, id}] of Object.entries(hotkeys)) {
             if (systemAccelerators.has(hotkey)) {
                 console.warn(`Skipping map hotkey "${hotkey}" — conflicts with a system hotkey.`);
+                this.noteConflict(hotkey, 'map', 'shadowed');
                 win.sendUpdate(msg('hotkeys.error.systemShadowsMap', {accelerator: acceleratorToDisplay(hotkey)}));
                 continue;
             }
-            this.safeRegister(hotkey, () => win.send('hotkey-pressed', mapKey), id);
+            // The console label stays the binding's id (that is what
+            // hotkeys.json is keyed by when something has to be found in it);
+            // the *recorded* action is just "map", because a per-map hotkey's
+            // real name is a map name and a custom map's name is user text.
+            this.safeRegister(hotkey, () => {
+                appLog.event('hotkey', {action: 'map'});
+                win.send('hotkey-pressed', mapKey);
+            }, id, 'map');
         }
     }
 
@@ -323,14 +381,29 @@ class Hotkeys {
     loadKeys() {
         globalShortcut.unregisterAll();
 
-        this.ensureDefaultMapHotkeys();
-        this.registerSystemHotkeys();
+        // Rebuilt from scratch: a combination the user has since freed must
+        // drop off the banner, and a reload is the only moment we can know.
+        this.conflicts = [];
+        this.bulkLoading = true;
+        let parsed;
+        try {
+            this.ensureDefaultMapHotkeys();
+            this.registerSystemHotkeys();
 
-        const parsed = this.readHotkeyFile();
-        this.mainWindow.send('hotkey-updated', parsed);
-        this.registerCustomHotkeys(parsed);
+            parsed = this.readHotkeyFile();
+            this.mainWindow.send('hotkey-updated', parsed);
+            this.registerCustomHotkeys(parsed);
+        } finally {
+            this.bulkLoading = false;
+        }
 
         this.mainWindow.send('system-hotkeys-updated', this.getSystemHotkeys());
+        // One banner, updated in place — not a toast per failure per reload.
+        this.mainWindow.send('hotkey-conflicts', this.getConflicts());
+        appLog.event('hotkeys-loaded', {
+            maps: Object.keys(parsed || {}).length,
+            conflicts: this.conflicts.length
+        });
     }
 }
 

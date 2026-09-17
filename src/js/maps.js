@@ -47,10 +47,10 @@ class Maps {
 
         $("#obsOpen").on("click", function () {
             ipcRenderer.send('obs-open');
-            self.sendMap(self.currentKey);
+            self.sendMap(self.currentKey, {source: 'click'});
         });
         $("#hide").on("click", function () {
-            self.sendMap("");
+            self.sendMap("", {source: 'click'});
         });
         $("#creatorSelect").on("change", function () {
             self.renderGallery();
@@ -83,7 +83,9 @@ class Maps {
             // the player never asked for it, so it has to say what it did. The
             // name comes from the catalogue entry, not from the key main sent:
             // the catalogue is the single source for a map's name.
-            self.sendMap(entry.key, opts.fromDetector ? {mapLabel: entry.name} : {});
+            self.sendMap(entry.key, opts.fromDetector
+                ? {mapLabel: entry.name, source: 'detector'}
+                : {source: 'cli'});
             if (opts.fromDetector) ipcRenderer.send('map-detector-applied', {key: entry.key, applied: true});
         });
 
@@ -93,14 +95,14 @@ class Maps {
                 debugLog("maps::hotkey-pressed::no-match", mapKey);
                 return;
             }
-            self.sendMap(entry.key);
+            self.sendMap(entry.key, {source: 'hotkey'});
         });
 
         ipcRenderer.on('toggle-map', () => {
             if (self.currentKey === "") {
-                self.sendMap(self.lastKey);
+                self.sendMap(self.lastKey, {source: 'hotkey'});
             } else {
-                self.sendMap("");
+                self.sendMap("", {source: 'hotkey'});
             }
         });
 
@@ -110,7 +112,7 @@ class Maps {
             await self.settings.set("rotation", next);
             if ($("#rotationSelect").length) $("#rotationSelect").val(String(next));
             // Re-apply whatever is on screen so the new angle takes effect
-            self.sendMap(self.currentKey || self.lastKey);
+            self.sendMap(self.currentKey || self.lastKey, {source: 'hotkey'});
         });
 
         ipcRenderer.on('next-map', () => self.step(nextMap));
@@ -123,7 +125,7 @@ class Maps {
         ipcRenderer.on('clear-map', () => {
             ipcRenderer.send('map-detector-reset');
             self.lastKey = "";
-            self.sendMap("");
+            self.sendMap("", {source: 'hotkey'});
         });
 
         // The detector saw the game's main menu again: the match this map
@@ -132,7 +134,7 @@ class Maps {
         ipcRenderer.on('menu-hide-map', () => {
             if (self.currentKey === "") return;
             debugLog("maps::menu-hide-map", self.currentKey);
-            self.sendMap("");
+            self.sendMap("", {source: 'detector'});
         });
 
         // Opacity/size from the keyboard. Same shape as rotate-map: write the
@@ -151,7 +153,7 @@ class Maps {
         // The slider only exists while the settings modal has been built; when
         // it is open it has to follow, or the next drag would snap back.
         if ($("#opacityRange").length) $("#opacityRange").val(String(next));
-        this.sendMap(this.currentKey || this.lastKey);
+        this.sendMap(this.currentKey || this.lastKey, {source: 'hotkey'});
         showStatus(t('toast.opacity', {percent: Math.round(next * 100)}));
     }
 
@@ -160,14 +162,14 @@ class Maps {
         const next = stepSize(this.settings.raw("size"), delta);
         await this.settings.set("size", next);
         if ($("#sizeRange").length) $("#sizeRange").val(String(next));
-        this.sendMap(this.currentKey || this.lastKey);
+        this.sendMap(this.currentKey || this.lastKey, {source: 'hotkey'});
         showStatus(t('toast.size', {size: next}));
     }
 
     step(pick) {
         const entry = pick(this.currentKey || this.lastKey, this.catalog);
         if (!entry) return;
-        this.sendMap(entry.key);
+        this.sendMap(entry.key, {source: 'hotkey'});
     }
 
     async loadCatalog() {
@@ -238,7 +240,7 @@ class Maps {
 
         const self = this;
         $("#results .map-card").on("click", function () {
-            self.sendMap($(this).attr("data-key"));
+            self.sendMap($(this).attr("data-key"), {source: 'click'});
         });
         this.highlightActive();
     }
@@ -252,8 +254,11 @@ class Maps {
     /**
      * Put a map on the overlay. `""` hides it.
      * @param {string} key catalogue key
-     * @param {{mapLabel?: string}} [opts] `mapLabel` names the map on the
-     *   overlay for a few seconds — used for automatic switches only.
+     * @param {{mapLabel?: string, source?: string}} [opts] `mapLabel` names the
+     *   map on the overlay for a few seconds — used for automatic switches
+     *   only. `source` is for `app.log` alone (click/hotkey/cli/detector/
+     *   preview/hide): "the map changed and I did not do it" is a real support
+     *   question, and only this side knows which of the six it was.
      */
     sendMap(key, opts = {}) {
         // Leaving "set position" mode on would keep the overlay grabbing clicks
@@ -264,7 +269,9 @@ class Maps {
         this.currentKey = value;
         window.__activeMapKey = value;
 
-        ipcRenderer.send('map-change', value, opts.mapLabel ? {mapLabel: opts.mapLabel} : {});
+        const payload = {source: opts.source || 'click'};
+        if (opts.mapLabel) payload.mapLabel = opts.mapLabel;
+        ipcRenderer.send('map-change', value, payload);
 
         // A map arriving mid-preview must not replace the sample image on screen
         if (this.options && this.options.previewActive) this.options.sendPreview();

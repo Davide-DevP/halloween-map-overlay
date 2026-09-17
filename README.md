@@ -122,7 +122,9 @@ whether the overlay actually switched. It contains no images and nothing about
 your system; it is only ever written to your own computer and is never sent
 anywhere. Open **Settings → General → Open log folder** and send
 `detector.log` (and `detector.log.1` if it is there) with your report. The file
-is capped at 512 KB with one backup, so it cannot grow without bound.
+is capped at 512 KB with one backup, so it cannot grow without bound. Easier
+still: use **Create diagnostic report**, which puts that file and everything
+else into one zip — see [Reporting a problem](#reporting-a-problem).
 
 ## The map name on the overlay
 
@@ -206,6 +208,36 @@ You can turn the check off in **Settings → General**.
 The **portable** build cannot update itself — there is nothing installed for it
 to replace. Download the new `.exe` from the Releases page when you want to
 upgrade.
+
+## Reporting a problem
+
+Something not working? Three steps:
+
+1. Open **Settings → General** and press **Create diagnostic report**.
+2. A file called `HalloweenMapOverlay-report-<date>-<time>.zip` appears on your
+   Desktop, and the folder opens with it selected.
+3. Attach that zip to your message — an
+   [issue](https://github.com/Davide-DevP/halloween-map-overlay/issues) or
+   wherever you got the app from.
+
+If the app closed on its own, it says so on the home page the next time you
+start it, with the same button in the notice.
+
+**What is in the zip**, so you can check before you send it — it is all plain
+text:
+
+- `app.log` (and one backup): what the app did — starts, map switches, hotkeys,
+  settings changes, update checks, errors.
+- `detector.log` (and one backup): what auto-detect decided. Only present if you
+  have used it.
+- `settings-app.json`, `hotkeys.json`: your settings and key bindings.
+- `crash-*.txt`: any crash the app recorded, with the last 200 log lines.
+- `system.txt`: Windows version, screens, graphics card, app version.
+
+**What is *not* in it**: no screenshots, no map images, no file paths from your
+user folder (they are written as `~`), no custom map names, no account of any
+kind. Nothing is uploaded — the button writes a file, and you decide whether to
+send it. The app's only network request is still the update check.
 
 ## Network use
 
@@ -324,6 +356,24 @@ Security → Virus & threat protection → Manage settings → Exclusions** remo
 that too.
 
 ## Changelog
+
+### 0.3.2
+
+- **One-click diagnostic report.** **Settings → General → Create diagnostic
+  report** writes a single zip to your Desktop with the logs, your settings and
+  a description of your PC, then opens the folder so you can attach it. Nothing
+  is uploaded and there are no screenshots or map images in it — see
+  [Reporting a problem](#reporting-a-problem).
+- **The app keeps its own log now**, `app.log`, next to the detector's: starts,
+  map switches, hotkeys, settings changes, update checks and errors. Paths from
+  your user folder are written as `~`, so the file is safe to send.
+- **It says when it crashed.** If the app closes unexpectedly it writes a crash
+  file and tells you on the home page next time you start it, with the report
+  button right there. If the window itself dies it is reloaded once instead of
+  leaving you with a frozen app.
+- **Hotkeys another program has taken are no longer silent.** They are listed in
+  a warning on the home page — the usual culprits are Discord and the NVIDIA
+  overlay — so a shortcut that "does nothing" has a visible reason.
 
 ### 0.3.1
 

@@ -41,7 +41,10 @@ class Options {
             if (classInstance.previewActive) {
                 classInstance.sendPreview();
             } else {
-                maps.sendMap(maps.currentKey);
+                // 'settings', not 'click': a slider drag re-sends the same map
+                // thirty times, and app.log collapses repeats of one key from
+                // one source into a single line.
+                maps.sendMap(maps.currentKey, {source: 'settings'});
             }
         };
 
@@ -256,7 +259,7 @@ class Options {
         // the raw-base64 path, and a catalogue key decoded as base64 is not an
         // image — `imageSize` threw and the overlay was left showing the sample
         // map until something else changed it.
-        this.maps.sendMap(this.maps.currentKey || "");
+        this.maps.sendMap(this.maps.currentKey || "", {source: 'preview'});
     }
 }
 

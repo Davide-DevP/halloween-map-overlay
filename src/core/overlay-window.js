@@ -1,4 +1,5 @@
 const {BrowserWindow, ipcMain} = require('electron');
+const appLog = require('./app-log');
 
 class OverlayWindow {
     window = null;
@@ -67,6 +68,8 @@ class OverlayWindow {
             }, 1000);
         }
 
+        appLog.event('overlay', {action: 'show', draggable: !!isDraggable});
+
         this.window.on('moved', () => {
             console.log("Window moved");
             console.log(this.window.getBounds());
@@ -74,6 +77,9 @@ class OverlayWindow {
                 const bounds = this.window.getBounds();
                 this.settings.set('overlayX', bounds.x);
                 this.settings.set('overlayY', bounds.y);
+                // Coordinates, never a path: where the user actually dragged
+                // the overlay is half of every "it is off screen" report.
+                appLog.event('overlay', {action: 'move', x: bounds.x, y: bounds.y});
             }
         });
     }
@@ -110,6 +116,7 @@ class OverlayWindow {
     }
 
     close() {
+        if (this.window) appLog.event('overlay', {action: 'hide'});
         if (this._alwaysOnTopInterval) {
             clearInterval(this._alwaysOnTopInterval);
             this._alwaysOnTopInterval = null;

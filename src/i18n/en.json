@@ -35,6 +35,18 @@
   "detector.detected": "Detected {map}",
   "detector.detectedAt": "Detected {map} at {time}",
 
+  "crash.notice": "The app closed unexpectedly last time. Create a diagnostic report and send it.",
+  "crash.dismiss": "Dismiss",
+
+  "hotkeyConflict.title": "Some hotkeys could not be registered:",
+  "hotkeyConflict.help": "— already used by another app (Discord, NVIDIA, …). Change them in Settings → Hotkeys.",
+
+  "diagnostics.create": "Create diagnostic report",
+  "diagnostics.create.help": "Saves one <code>.zip</code> on your Desktop with the logs, your settings and a description of this PC, then opens the folder so you can attach it. Nothing is uploaded, and it contains no screenshots and no map images.",
+  "diagnostics.creating": "Building the diagnostic report…",
+  "diagnostics.created": "Diagnostic report saved to your Desktop: {file}",
+  "diagnostics.failed": "The diagnostic report could not be written.",
+
   "update.ready.headline": "Version {version} is ready.",
   "update.ready.headlineUnknown": "A new version is ready.",
   "update.ready.body": "Restart and update — the app closes, installs for a few seconds (disk-heavy, an installer window shows progress) and reopens by itself.",

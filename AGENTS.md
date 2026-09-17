@@ -54,9 +54,31 @@ src/core/map-detector/matcher.js→ PURE matcher: grayscale, relative crop,
                                   64x64 area downsample, gradient magnitude,
                                   zero-mean NCC, Tab-screen gate, and the
                                   main-menu strip matcher. Tested.
-src/core/map-detector/log.js    → Detector event log (userData `detector.log`,
-                                  512 KB + one .1 backup). fs only, no electron:
-                                  the directory is injected. Tested.
+src/core/map-detector/log.js    → Detector event log *policy*: `detector.log`,
+                                  512 KB + one .1 backup, unbuffered. A thin
+                                  subclass of `rotating-log.js`. Tested.
+src/core/rotating-log.js        → The shared append-only writer both logs use:
+                                  line format (+ optional level), rotation,
+                                  buffered/unbuffered modes, in-memory ring
+                                  buffer. fs only, no electron. Tested.
+src/core/app-log.js             → **Singleton.** `app.log` in userData (1 MB +
+                                  one .1, buffered 500 ms, 200-line ring):
+                                  startup snapshot, map changes, hotkeys,
+                                  settings, updates, errors. Owns the
+                                  `uncaughtException`/`unhandledRejection`
+                                  handlers and the crash file. `require` it and
+                                  call `event()` — it is not injected.
+src/core/diagnostics.js         → The "Create diagnostic report" IPC: the file
+                                  list, `system.txt`, the crash notice.
+src/core/diagnostics/zip.js     → PURE minimal zip writer + reader on
+                                  `node:zlib` (no new dependency). Tested.
+src/core/diagnostics/report.js  → `buildDiagnosticReport({files, texts, outDir})`
+                                  → one zip. fs only, no electron. Tested.
+src/core/diagnostics/crash.js   → `crash-*.txt`: format, list, prune to 5,
+                                  `pendingCrash`. fs only, no electron. Tested.
+src/shared/redact.js            → PURE `redactHome(text, home)` → `~`. Tested.
+src/js/diagnostics.js           → Renderer: crash banner, hotkey-conflict
+                                  banner, the report button.
 src/shared/detector-rules.js    → PURE cadence + throttle + the renderer's
                                   "is this map already showing?" decision,
                                   shared by main and the renderer. Tested.
@@ -130,11 +152,17 @@ test/                           → node:test unit tests for the pure modules.
   set at the top of `index.js`.
 - **Pure vs impure**: `map-catalog.js`, `overlay-position.js`,
   `hotkeys-constants.js`, `settings-defaults.js`, `i18n.js`,
-  `update-message.js`, `detector-rules.js` and `map-detector/matcher.js`
+  `update-message.js`, `detector-rules.js`, `redact.js`,
+  `diagnostics/zip.js` and `map-detector/matcher.js`
   import nothing from
   electron or `fs` (`i18n.js` requires the two JSON catalogues and nothing
-  else). Keep them that way — they are the only parts covered by
-  tests. `map-library.js` is the
+  else). Keep them that way. A second tier — `rotating-log.js`,
+  `map-detector/log.js`, `diagnostics/report.js`, `diagnostics/crash.js` — uses
+  `fs` but **never electron**: the directory is injected, which is exactly what
+  lets a test drive them against `mkdtemp`. Anything that needs `app.getPath`
+  belongs in the electron-facing module above it (`app-log.js`,
+  `diagnostics.js`, `map-detector.js`). Those two tiers are the whole test
+  suite; keep new logic on one of them. `map-library.js` is the
   fs-facing wrapper around `map-catalog.js`; put new file-system logic there.
   `core/settings.js` holds only the read/write/IPC half; the default values
   themselves live in the pure `shared/settings-defaults.js` so a test can check
@@ -438,8 +466,9 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   `applied`/`same-as-current` answer, and capture errors. Not gated on DEBUG —
   it exists so the owner can send it after a session that misbehaved
   (**Settings › General › Open log folder** → `shell.openPath(userData)`, IPC
-  `open-log-folder`). Rotated at 512 KB keeping one `.1` backup; `rotate()`
-  and the line format are pure enough to be unit tested against a temp dir.
+  `open-log-folder`). Rotated at 512 KB keeping one `.1` backup. Since 0.3.2 the writer
+  itself is `core/rotating-log.js`, shared with `app.log`; this file is only the
+  detector's policy (name, cap, unbuffered writes).
   A write failure is logged once and never breaks a tick.
 
 ### The capture path — do not make it heavier
@@ -503,6 +532,74 @@ compile step, but the `.node` files cannot live inside the asar —
 matters on Windows. `package-lock.json` carries every platform's optional
 package, so `npm ci` on the `windows-latest` runner installs the win32-x64 one
 with no extra step.
+
+## Field diagnostics (0.3.2)
+
+Spec: `docs/SPEC-0.3.2.md`. Built for one sentence — *"it does not work"* — from
+a friend who is not going to run a command. Zero telemetry: everything is a
+local file, and the user decides whether to send it.
+
+- **Two logs, one writer.** `rotating-log.js` is the writer; `detector.log`
+  (512 KB, unbuffered, decisions only) and `app.log` (1 MB, buffered 500 ms,
+  200-line ring buffer) are separate *files* on purpose — a single match writes
+  far more detector lines than app lines and one file would bury the other.
+  Line format: `<ISO> [level] <event> k=v …`, one event per line always. A level
+  is optional so detector lines are byte-identical to what 0.3.1 wrote.
+- **Never log a path, a frame, or user text.** Every string value that reaches
+  `app.log` goes through `redactHome` (`shared/redact.js`, tested against both
+  separator spellings and a home directory full of regex metacharacters), so a
+  stack trace or an `ENOENT` becomes `~/…`. A map key is logged only when it is
+  a *shipped* map; a custom map is `(custom)`, because its key is a name the
+  user typed. Custom maps appear as a **count** in the startup snapshot and
+  nowhere else. The detector's "no frames, no pixels" rule is unchanged.
+- **`appLog` is a singleton, not an injected dependency.** Nearly every module
+  in `src/core` logs something and several are built before the one that would
+  own the logger. `require('./app-log')` and call `event()`/`warn()`/`error()`.
+  `init()` (from `index.js`, before anything else) points it at userData;
+  before that, writes land in the ring buffer only, which is deliberate — a
+  crash during module construction still has context.
+- **`map-change` carries a `source`** (click/hotkey/cli/detector/preview/
+  settings/hide) from the renderer, because only the renderer knows which it
+  was, and "the map changed and I did not do it" is a real support question.
+  Main collapses consecutive identical `key`+`source` pairs into one line: a
+  slider drag re-sends the same map once per pixel.
+- **Crash policy**, and each half is deliberate:
+  - `uncaughtException` → log, flush, write `crash-<ISO>.txt` (version, message,
+    stack, the 200-line ring buffer), then `process.exit(1)`. **Not swallowed**:
+    an app that keeps running after an unhandled throw in main is in an unknown
+    state, and "it just froze" is what that looks like from outside.
+  - `unhandledRejection` → logged as an error, the app lives. A rejected promise
+    nobody awaited is usually one broken feature, not a broken process.
+  - `render-process-gone` → reload the window **once** (a lone renderer death is
+    normally a GPU hiccup); a second within 60 s is a crash loop, so it becomes
+    a crash file and a quit. `reason === 'clean-exit'` is not a crash.
+  - At most 5 crash files. The name carries the time and sorts chronologically
+    as a plain string — `lastCrashSeen` (a setting) is compared against it with
+    `>=`, no date parsing, nothing a copied file can make lie.
+- **The report is a file list, not a directory walk.** `LOG_FILES` in
+  `diagnostics.js` plus the `crash-*.txt` plus a generated `system.txt` — so
+  "no screenshots, no maps" is checkable by reading one constant.
+  `buildDiagnosticReport({files, texts, outDir})` is fs-only and never throws;
+  a missing file is a `skipped` entry, not a failure. Desktop, falling back to
+  userData (a redirected OneDrive Desktop must not lose the report).
+- **The zip writer is ours** (`diagnostics/zip.js`, `node:zlib`). No
+  `archiver`/`adm-zip` — a new runtime dependency is not worth a hundred-line
+  format in an app that ships 350 MB per update. Two traps it already avoids,
+  both covered by tests: method 8 needs `deflateRawSync` (a zlib header makes
+  every unpacker refuse the file), and an entry deflate would *grow* is stored.
+  `readZip` exists so the round-trip test proves the bytes are a real archive
+  rather than proving the writer agrees with itself.
+- **The hotkey-conflict health check is a banner, not a toast.** `safeRegister`
+  records every failure on `Hotkeys.conflicts`, rebuilt from scratch on each
+  `loadKeys()`; the toast is suppressed while `bulkLoading` is true, because a
+  reload binds a dozen accelerators at once and five toasts a session is
+  something a user learns to dismiss without reading. The renderer both listens
+  for `hotkey-conflicts` and asks with `get-hotkey-conflicts`, since
+  registration happens before the window finishes loading.
+- **The renderer never writes the log.** It has `nodeIntegration: true` and
+  could, but two processes appending to one file with two size caches lose
+  lines at the rotation boundary. `window.onerror` and `unhandledrejection` are
+  forwarded over `renderer-error` and main writes them.
 
 ## Translation (English + Italian)
 
@@ -737,4 +834,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-17 (0.3.1)*
+*Last updated: 2026-09-17 (0.3.2)*

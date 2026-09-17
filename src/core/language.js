@@ -2,6 +2,7 @@ const {app, ipcMain} = require('electron');
 const fs = require('fs');
 const path = require('path');
 const {t, resolveLanguage, LANGUAGE_SETTING_VALUES} = require('../shared/i18n');
+const appLog = require('./app-log');
 
 /**
  * The main process's view of the UI language.
@@ -30,6 +31,7 @@ class Language {
             const next = LANGUAGE_SETTING_VALUES.includes(value) ? value : 'system';
             if (this.settings) this.settings.set('language', next);
             const resolved = this.current();
+            appLog.event('language', {setting: next, resolved});
             if (this.onChange) this.onChange(resolved);
             return resolved;
         });

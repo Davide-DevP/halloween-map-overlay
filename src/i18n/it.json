@@ -35,6 +35,18 @@
   "detector.detected": "Rilevata {map}",
   "detector.detectedAt": "Rilevata {map} alle {time}",
 
+  "crash.notice": "L'ultima volta l'app si è chiusa da sola. Crea un report diagnostico e invialo.",
+  "crash.dismiss": "Chiudi l'avviso",
+
+  "hotkeyConflict.title": "Alcune scorciatoie non sono state registrate:",
+  "hotkeyConflict.help": "— sono già usate da un'altra app (Discord, NVIDIA, …). Cambiale in Impostazioni → Scorciatoie.",
+
+  "diagnostics.create": "Crea report diagnostico",
+  "diagnostics.create.help": "Salva sul Desktop un solo file <code>.zip</code> con i log, le tue impostazioni e una descrizione di questo PC, poi apre la cartella così puoi allegarlo. Non viene caricato nulla in rete e non contiene screenshot né immagini delle mappe.",
+  "diagnostics.creating": "Creazione del report diagnostico…",
+  "diagnostics.created": "Report diagnostico salvato sul Desktop: {file}",
+  "diagnostics.failed": "Non è stato possibile creare il report diagnostico.",
+
   "update.ready.headline": "La versione {version} è pronta.",
   "update.ready.headlineUnknown": "È pronta una nuova versione.",
   "update.ready.body": "Riavvia e aggiorna — l'app si chiude, installa per qualche secondo (usa molto il disco, una finestra mostra l'avanzamento) e si riapre da sola.",

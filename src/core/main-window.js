@@ -8,8 +8,15 @@ const {autoUpdater} = require('electron-updater');
 const {computeOverlayPosition, rotatedSize} = require('./overlay-position');
 const {mapLabelMode} = require('../shared/settings-defaults');
 const {msg, t} = require('../shared/i18n');
+const appLog = require('./app-log');
 
 const debug = process.env.DEBUG === 'true';
+
+/**
+ * Two renderer deaths closer together than this are a crash loop, not a
+ * hiccup. One minute, per the 0.3.2 spec.
+ */
+const RENDERER_CRASH_WINDOW_MS = 60000;
 
 class MainWindow {
 
@@ -28,6 +35,14 @@ class MainWindow {
     installStarted = false;
     /** {mapDetector, tray} — set from index.js, both built after this class. */
     shutdownHooks = {};
+    /** When the main window's renderer last died; see `render-process-gone`. */
+    lastRendererGone = 0;
+    /**
+     * The last `map-change` written to app.log, so a slider drag (which
+     * re-sends the same map once per pixel so main can recompute the rotated
+     * bounding box) is one line rather than thirty.
+     */
+    lastLoggedMap = null;
 
     constructor(obsWindow, overlayWindow, settings, mapLibrary, language) {
         this.obsWindow = obsWindow;
@@ -39,6 +54,7 @@ class MainWindow {
         this.language = language || null;
 
         ipcMain.on('obs-open', async () => {
+            appLog.event('obs', {action: 'open'});
             obsWindow.show()
         });
         // The renderer can finish loading after `update-downloaded` fired (the
@@ -89,6 +105,7 @@ class MainWindow {
         })
         ipcMain.on('map-change', async (event, map, opts = {}) => {
             if (!map) {
+                this.logMapChange('', opts.source || 'hide');
                 overlayWindow.send('map-hide');
                 if (!opts.preview) obsWindow.send('map-hide');
                 return;
@@ -102,6 +119,7 @@ class MainWindow {
                 // The settings preview is rendered in the renderer and arrives
                 // as raw base64 — never look it up in the catalogue.
                 imgData = Buffer.from(map, "base64");
+                this.logMapChange('(preview)', 'preview');
             } else {
                 const entry = this.mapLibrary ? this.mapLibrary.resolveEntry(map) : null;
                 if (entry) {
@@ -110,6 +128,11 @@ class MainWindow {
                 } else {
                     imgData = Buffer.from(map, "base64");
                 }
+                // A custom map's key is a name the user typed, so only shipped
+                // keys are logged; a custom one is logged as the fact that it
+                // was custom. See the "never log paths or user text" rule.
+                this.logMapChange(entry ? (entry.custom ? '(custom)' : entry.key) : '(raw image)',
+                    opts.source || 'click');
             }
 
             let dimensions;
@@ -188,6 +211,13 @@ class MainWindow {
         });
     }
 
+    /** One log line per *distinct* map change. See `lastLoggedMap`. */
+    logMapChange(key, source) {
+        if (this.lastLoggedMap && this.lastLoggedMap.key === key && this.lastLoggedMap.source === source) return;
+        this.lastLoggedMap = {key, source};
+        appLog.event('map-change', {key, source});
+    }
+
     show() {
         if (this.window) {
             if (!this.window.isDestroyed()) {
@@ -237,10 +267,56 @@ class MainWindow {
             return {action: 'deny'};
         });
 
-        // A renderer crash is otherwise completely silent from the terminal
+        // A renderer crash is otherwise completely silent from the terminal —
+        // and from the user, who sees a window that stopped responding to
+        // clicks and no error anywhere.
+        //
+        // Policy (0.3.2): reload once and carry on, because a single renderer
+        // death is usually a GPU hiccup and reloading restores a working window
+        // in under a second. A *second* death within a minute is not a hiccup:
+        // reloading again would loop, so it becomes a crash file and a quit,
+        // which at least leaves evidence and a clean state to start from.
         this.window.webContents.on('render-process-gone', (event, details) => {
             console.error('Renderer process gone:', details);
+            const reason = (details && details.reason) || 'unknown';
+            const now = Date.now();
+            const recent = this.lastRendererGone && (now - this.lastRendererGone) < RENDERER_CRASH_WINDOW_MS;
+            appLog.error('render-process-gone', {
+                reason,
+                exitCode: details && details.exitCode,
+                repeat: recent ? 'yes' : 'no'
+            });
+            // `clean-exit` is the window being closed normally on some
+            // platforms; there is nothing to recover from.
+            if (reason === 'clean-exit') return;
+            this.lastRendererGone = now;
+            if (!recent) {
+                try {
+                    this.window.reload();
+                } catch (err) {
+                    console.error('Renderer reload failed:', err && err.message);
+                }
+                return;
+            }
+            appLog.fatal('render-process-gone', new Error(`the main window died twice in ${RENDERER_CRASH_WINDOW_MS / 1000} s (${reason})`), {quit: false});
+            app.isQuiting = true;
+            this.runShutdownHooks();
+            app.quit();
         });
+        // Every child process that dies, not just the renderer: a GPU process
+        // that keeps dying is what a "the overlay flickers" report looks like
+        // from the inside. Bound once — `show()` runs again every time the
+        // window is reopened from the tray.
+        if (!MainWindow._childGoneBound) {
+            MainWindow._childGoneBound = true;
+            app.on('child-process-gone', (event, details) => {
+                appLog.error('child-process-gone', {
+                    type: (details && details.type) || '',
+                    reason: (details && details.reason) || '',
+                    exitCode: details && details.exitCode
+                });
+            });
+        }
         if (debug) {
             this.window.webContents.on('console-message', (event) => {
                 console.log(`[renderer] ${event.message} (${event.sourceId}:${event.lineNumber})`);
@@ -305,14 +381,24 @@ class MainWindow {
         // show() runs again when the window is reopened from the tray
         if (!MainWindow._updaterBound) {
             MainWindow._updaterBound = true;
-            autoUpdater.on('checking-for-update', () => self.sendUpdate(msg('update.checking')));
-            autoUpdater.on('update-available', () => self.sendUpdate(msg('update.available')));
-            autoUpdater.on('update-not-available', () => self.sendUpdate(msg('update.upToDate')));
+            autoUpdater.on('checking-for-update', () => {
+                appLog.event('update', {state: 'checking'});
+                self.sendUpdate(msg('update.checking'));
+            });
+            autoUpdater.on('update-available', (info) => {
+                appLog.event('update', {state: 'available', version: (info && info.version) || ''});
+                self.sendUpdate(msg('update.available'));
+            });
+            autoUpdater.on('update-not-available', () => {
+                appLog.event('update', {state: 'up-to-date'});
+                self.sendUpdate(msg('update.upToDate'));
+            });
             autoUpdater.on('download-progress', (p) => {
                 self.sendUpdate(msg('update.downloading', {percent: Math.round(p.percent || 0)}));
             });
             autoUpdater.on('update-downloaded', (info) => {
                 const version = info && info.version ? String(info.version) : '';
+                appLog.event('update', {state: 'downloaded', version});
                 self.pendingUpdateVersion = version || null;
                 // `UpdateDownloadedEvent.downloadedFile` (electron-updater
                 // out/types.d.ts) is the absolute path of the .exe just written
@@ -329,6 +415,10 @@ class MainWindow {
             });
             autoUpdater.on('error', (err) => {
                 console.error('Update check failed:', err && err.message);
+                // An update error is the one network failure a user can see, so
+                // it is logged rather than only toasted — "it said update
+                // failed" is otherwise unanswerable.
+                appLog.error('update', {state: 'error', message: (err && err.message) || String(err)});
                 self.sendUpdate(msg('update.checkFailed'));
             });
         }
@@ -500,6 +590,8 @@ class MainWindow {
             return true;
         }
         const version = this.pendingUpdateVersion;
+        appLog.event('install-update', {version});
+        appLog.flush();
         try {
             if (this.spawnInstallerAtLowPriority()) {
                 this.installStarted = true;
@@ -521,6 +613,7 @@ class MainWindow {
             return true;
         } catch (err) {
             console.error('Install update failed:', err && err.message);
+            appLog.error('install-update', {version, message: (err && err.message) || String(err)});
             this.installStarted = false;
             app.isQuiting = false;
             this.sendUpdate(msg('update.installFailed'));

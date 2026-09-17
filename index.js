@@ -26,6 +26,12 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
 } else {
 
     const {app, BrowserWindow, dialog} = require('electron')
+    // First, before anything else can throw: `app.log` and the crash handlers.
+    // A crash during module construction is exactly the crash nobody can
+    // explain afterwards, and `app.getPath` already works at this point (it is
+    // what `Settings` reads its file with).
+    const appLog = require("./src/core/app-log").init();
+    appLog.installCrashHandlers();
     const ObsWindow = require("./src/core/obs-window");
     const MainWindow = require("./src/core/main-window");
     const OverlayWindow = require("./src/core/overlay-window");
@@ -36,6 +42,7 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     const TrayController = require("./src/core/tray");
     const MapDetector = require("./src/core/map-detector");
     const Language = require("./src/core/language");
+    const Diagnostics = require("./src/core/diagnostics");
     const {t} = require("./src/shared/i18n");
 
     const gotLock = app.requestSingleInstanceLock();
@@ -82,6 +89,14 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     const userData = new UserData(mapLibrary);
     const trayController = new TrayController(mainWindow, language);
     const mapDetector = new MapDetector(mainWindow, settings);
+    const diagnostics = new Diagnostics(mainWindow, settings);
+
+    // What the startup snapshot and `system.txt` read from.
+    appLog.setContext({settings, language, mapLibrary});
+    // The one health check the report carries (0.3.2 §4): hotkeys that another
+    // application already owns. `Hotkeys` is built after this class, so the
+    // list is fetched through a callback rather than held.
+    diagnostics.setHealthCheck(() => hotkeys.getConflicts());
 
     // Both are built after the main window. It needs the tray so a downloaded
     // update can add a "Restart and update" item, and needs both of them shut
@@ -113,6 +128,10 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
 
     app.whenReady().then(() => {
         createWindow()
+        // After the window, not before: `screen` and `getGPUInfo` both need a
+        // ready app, and the snapshot is worth more than four milliseconds of
+        // startup are.
+        appLog.logStartup().catch(err => console.error('startup log failed:', err && err.message));
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) {
                 createWindow()
@@ -130,5 +149,10 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
         overlayWindow.close();
         mapDetector.stop();
         trayController.destroy();
+        // Last thing: the buffered log must not lose the final 500 ms of a
+        // session, which is precisely the interesting part when the complaint
+        // is "it closed on its own".
+        appLog.event('shutdown');
+        appLog.flush();
     });
 }

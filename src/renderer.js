@@ -6,6 +6,7 @@ const Hotkeys = require("./js/hotkeys.js");
 const Options = require("./js/options.js");
 const Custom = require("./js/custom.js");
 const Detector = require("./js/detector.js");
+const Diagnostics = require("./js/diagnostics.js");
 const {debugLog} = require("./js/logger.js");
 const {showStatus} = require("./js/status.js");
 const i18n = require("./js/i18n.js");
@@ -48,6 +49,7 @@ const maps = new Maps(settings);
 const hotkeys = new Hotkeys(maps, settings);
 const custom = new Custom(maps);
 const detector = new Detector(settings);
+const diagnostics = new Diagnostics();
 
 document.addEventListener('DOMContentLoaded', async function () {
     // The product name is not translated; the version is not text.
@@ -64,6 +66,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     await custom.generateCustomList();
     await hotkeys.loadHotkeys();
     await detector.init();
+    await diagnostics.init();
 
     $("#updateLater").on("click", function () {
         updateDismissed = true;
@@ -89,11 +92,27 @@ document.addEventListener('DOMContentLoaded', async function () {
     }, 15000);
 });
 
+// A renderer error used to exist only in a devtools console nobody has open.
+// It is now forwarded to main, which writes it to app.log — the renderer never
+// touches the file itself: two processes appending to one log with two size
+// caches would lose lines at the rotation boundary.
 window.addEventListener('error', (e) => {
     console.error('renderer::uncaught', e.message, e.filename, e.lineno);
+    ipcRenderer.send('renderer-error', {
+        kind: 'error',
+        message: e.message || '',
+        source: e.filename || '',
+        line: e.lineno,
+        stack: (e.error && e.error.stack) || ''
+    });
 });
 window.addEventListener('unhandledrejection', (e) => {
     console.error('renderer::unhandled-rejection', e.reason && e.reason.message);
+    ipcRenderer.send('renderer-error', {
+        kind: 'unhandledrejection',
+        message: (e.reason && e.reason.message) || String(e.reason || ''),
+        stack: (e.reason && e.reason.stack) || ''
+    });
 });
 
 // Importing or removing a custom map changes the catalogue, so the map picker

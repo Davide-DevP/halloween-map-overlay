@@ -1,4 +1,5 @@
 const {BrowserWindow} = require('electron')
+const appLog = require('./app-log');
 const path = require("path");
 
 /**
@@ -38,6 +39,7 @@ class ObsWindow {
     }
 
     close() {
+        if (this.window) appLog.event('obs', {action: 'close'});
         if (this.window) {
             if (!this.window.isDestroyed()) this.window.close();
             this.window = null;

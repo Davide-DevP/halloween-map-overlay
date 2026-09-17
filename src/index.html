@@ -164,6 +164,29 @@
         </div>
     </div>
 
+    <!-- The previous run ended in a crash the user has not been told about.
+         Asked for on load, never pushed: the process that crashed is gone. -->
+    <div class="alert alert-danger d-none mb-3" role="alert" id="crashNotice">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span data-i18n="crash.notice">The app closed unexpectedly last time. Create a diagnostic report and send
+                it.</span>
+            <div class="d-flex align-items-center gap-3">
+                <button type="button" class="btn btn-danger btn-sm" id="crashReportBtn" data-i18n="diagnostics.create">Create diagnostic report</button>
+                <button type="button" class="btn btn-link btn-sm p-0 text-body-secondary text-decoration-underline"
+                        id="crashDismiss" data-i18n="crash.dismiss">Dismiss</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- One banner for every hotkey another application already owns, updated
+         in place on each reload. Not a toast: a reload binds a dozen at once. -->
+    <div class="alert alert-warning d-none mb-3" role="alert" id="hotkeyConflict">
+        <strong data-i18n="hotkeyConflict.title">Some hotkeys could not be registered:</strong>
+        <span id="hotkeyConflictList"></span>
+        <span data-i18n="hotkeyConflict.help">— already used by another app (Discord, NVIDIA, …). Change them in
+            Settings → Hotkeys.</span>
+    </div>
+
     <div class="alert alert-warning alert-dismissible fade d-none" role="alert" id="warning">
         <span data-i18n-html="home.fullscreenNotice">Playing in exclusive fullscreen? Switch the game to
             <strong>Borderless Windowed</strong> so the overlay stays on top. See the FAQ for details.</span>
@@ -274,9 +297,16 @@
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="openLogFolder"
                                 data-i18n="settings.openLogFolder">Open log folder
                         </button>
-                        <small class="text-secondary d-block mt-2" data-i18n-html="settings.openLogFolder.help">If
+                        <small class="text-secondary d-block mt-2 mb-3" data-i18n-html="settings.openLogFolder.help">If
                             auto-detect misbehaves, open this folder and send <code>detector.log</code> — it records
                             what the detector decided, never any image.</small>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="createReport"
+                                data-i18n="diagnostics.create">Create diagnostic report
+                        </button>
+                        <small class="text-secondary d-block mt-2" data-i18n-html="diagnostics.create.help">Saves one
+                            <code>.zip</code> on your Desktop with the logs, your settings and a description of this PC,
+                            then opens the folder so you can attach it. Nothing is uploaded, and it contains no
+                            screenshots and no map images.</small>
                     </div>
 
                     <!-- Overlay -->

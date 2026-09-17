@@ -32,6 +32,11 @@ const DEFAULT_SETTINGS = {
     mapLabel: 'auto',
     // UI language: 'system' (follow the OS locale), 'en' or 'it'.
     language: 'system',
+    // File name of the newest `crash-*.txt` the user has already been shown
+    // the home-page notice for. Null means "never seen one", so any crash file
+    // present at startup raises the banner. A file name, not a timestamp: the
+    // names sort chronologically and cannot disagree with the files on disk.
+    lastCrashSeen: null,
     rotation: 0,
     monitor: 0,
     overlayX: null,

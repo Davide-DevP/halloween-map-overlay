@@ -5,6 +5,7 @@ const path = require("path");
 // The defaults themselves are pure and live in src/shared/settings-defaults.js
 // so the tests can check them without importing electron.
 const {DEFAULT_SETTINGS: defaultConfig} = require("../shared/settings-defaults");
+const appLog = require("./app-log");
 
 class Settings {
 
@@ -57,8 +58,14 @@ class Settings {
     }
 
     set(key, value) {
+        const before = this.settings[key];
         this.settings[key] = value;
         this.write();
+        // Every setting change is a log line: half the field reports about this
+        // app are "it used to work", and the settings file only ever shows the
+        // *current* value. None of these values is a path or user text — see
+        // shared/settings-defaults.js.
+        if (before !== value) appLog.event('setting', {key, value: value === null ? 'null' : value});
     }
 
     /** Apply several keys at once without dropping keys the caller never saw. */

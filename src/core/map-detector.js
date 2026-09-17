@@ -5,6 +5,7 @@ const {
     MENU_TEMPLATE_WIDTH, MENU_TEMPLATE_HEIGHT
 } = require('./map-detector/matcher');
 const DetectorLog = require('./map-detector/log');
+const appLog = require('./app-log');
 const {
     GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE, SLOW_TICK_MS,
     tickInterval, SendThrottle
@@ -204,6 +205,9 @@ class MapDetector {
         }
         this.running = true;
         console.log(`Map detection started (${Object.keys(this.templates).length} templates, every ${GAME_INTERVAL} ms while the game is running).`);
+        // The detail stays in detector.log; app.log only records that the
+        // feature was on, so a report can be read without the other file.
+        appLog.event('detector', {action: 'start'});
         this.log.write('loop-start', {
             templates: Object.keys(this.templates).length,
             gameMs: GAME_INTERVAL,
@@ -255,6 +259,7 @@ class MapDetector {
         this.inMenu = false;
         this.windowSeen = null;
         this.sendThrottle.reset();
+        appLog.event('detector', {action: 'stop'});
         this.log.write('loop-stop');
         console.log('Map detection stopped.');
         this.sendStatus({state: 'off'});
