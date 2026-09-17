@@ -3,11 +3,12 @@ const assert = require('node:assert');
 const {
     SYSTEM_HOTKEY_DEFS,
     ACTION_TO_SETTING_KEY,
-    DEFAULT_MAP_HOTKEY_ORDER,
+    MAX_DEFAULT_MAP_HOTKEYS,
     buildDefaultMapHotkeys,
     acceleratorToDisplay,
     acceleratorKeyName,
-    keyEventToAccelerator
+    keyEventToAccelerator,
+    hasModifier
 } = require('../src/shared/hotkeys-constants');
 const {buildCatalog} = require('../src/core/map-catalog');
 
@@ -24,12 +25,23 @@ function counter() {
     return () => `id-${++n}`;
 }
 
-test('the four system hotkeys are the documented ones', () => {
-    assert.deepStrictEqual(Object.keys(SYSTEM_HOTKEY_DEFS), ['toggle-map', 'rotate-map', 'next-map', 'prev-map']);
+test('the system hotkeys are the documented ones', () => {
+    assert.deepStrictEqual(Object.keys(SYSTEM_HOTKEY_DEFS),
+        ['toggle-map', 'rotate-map', 'next-map', 'prev-map', 'clear-map']);
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['toggle-map'].defaultAccelerator, 'CommandOrControl+H');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator, 'CommandOrControl+R');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['next-map'].defaultAccelerator, 'CommandOrControl+Right');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['prev-map'].defaultAccelerator, 'CommandOrControl+Left');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['clear-map'].defaultAccelerator, 'CommandOrControl+Shift+D');
+});
+
+test('every system hotkey default is registrable and carries a modifier', () => {
+    const seen = new Set();
+    for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        assert.ok(hasModifier(def.defaultAccelerator), `${actionId}: ${def.defaultAccelerator}`);
+        assert.ok(!seen.has(def.defaultAccelerator), `${def.defaultAccelerator} is bound twice`);
+        seen.add(def.defaultAccelerator);
+    }
 });
 
 test('every system action persists under its own settings key', () => {
@@ -45,20 +57,42 @@ test('each system action fires the IPC event named by its definition', () => {
     }
 });
 
-test('first-run defaults bind Ctrl+1..Ctrl+4 in the documented map order', () => {
+test('first-run defaults bind Ctrl+1..Ctrl+N in catalogue order', () => {
     const defaults = buildDefaultMapHotkeys(catalog, counter());
     assert.deepStrictEqual(defaults, {
         'CommandOrControl+1': {id: 'id-1', mapKey: 'deftyconchgaming/East Haddonfield'},
         'CommandOrControl+2': {id: 'id-2', mapKey: 'deftyconchgaming/Haddonfield Heights'},
-        'CommandOrControl+3': {id: 'id-3', mapKey: 'deftyconchgaming/Orange Grove Estates'},
-        'CommandOrControl+4': {id: 'id-4', mapKey: 'deftyconchgaming/Haddonfield Town Center'}
+        'CommandOrControl+3': {id: 'id-3', mapKey: 'deftyconchgaming/Haddonfield Town Center'},
+        'CommandOrControl+4': {id: 'id-4', mapKey: 'deftyconchgaming/Orange Grove Estates'}
     });
-    assert.deepStrictEqual(DEFAULT_MAP_HOTKEY_ORDER, [
-        'East Haddonfield',
-        'Haddonfield Heights',
-        'Orange Grove Estates',
-        'Haddonfield Town Center'
+    // The bindings follow the catalogue, which is what next/prev cycles over —
+    // there is no separate hand-maintained list to keep in step.
+    assert.deepStrictEqual(Object.values(defaults).map(b => b.mapKey), catalog.map(e => e.key));
+});
+
+test('a new map needs no code change to get a default binding', () => {
+    // Exactly what "drop a PNG into maps/<creator>/" produces.
+    const grown = buildCatalog([
+        'deftyconchgaming/East Haddonfield.png',
+        'deftyconchgaming/Haddonfield Heights.png',
+        'deftyconchgaming/Haddonfield Town Center.png',
+        'deftyconchgaming/Orange Grove Estates.png',
+        'deftyconchgaming/Zzz New Map.png'
     ]);
+    const defaults = buildDefaultMapHotkeys(grown, counter());
+    assert.strictEqual(Object.keys(defaults).length, 5);
+    assert.strictEqual(defaults['CommandOrControl+5'].mapKey, 'deftyconchgaming/Zzz New Map');
+});
+
+test('no more than nine default bindings, whatever the catalogue holds', () => {
+    const many = buildCatalog(
+        Array.from({length: 14}, (_, i) => `deftyconchgaming/Map ${String.fromCharCode(65 + i)}.png`)
+    );
+    const defaults = buildDefaultMapHotkeys(many, counter());
+    assert.strictEqual(MAX_DEFAULT_MAP_HOTKEYS, 9);
+    assert.strictEqual(Object.keys(defaults).length, 9);
+    assert.deepStrictEqual(Object.keys(defaults), Array.from({length: 9}, (_, i) => `CommandOrControl+${i + 1}`));
+    assert.strictEqual(defaults['CommandOrControl+9'].mapKey, 'deftyconchgaming/Map I');
 });
 
 test('defaults never collide with a system hotkey', () => {
@@ -198,4 +232,32 @@ test('no accelerator ever carries a raw browser key name', () => {
         assert.ok(!/\+\s|\s\+/.test(accelerator), `${accelerator} contains a spaced separator`);
         assert.ok(!accelerator.includes('++'), `${accelerator} contains an empty segment`);
     }
+});
+
+test('hasModifier: accepts every modifier spelling Electron does', () => {
+    const ok = [
+        'CommandOrControl+H', 'CmdOrCtrl+1', 'Control+Alt+Delete', 'Ctrl+Shift+P',
+        'Alt+F4', 'Shift+Space', 'Super+L', 'Command+Q', 'Cmd+Q', 'Meta+K',
+        'Option+A', 'AltGr+B', 'commandorcontrol+h', 'CTRL+J'
+    ];
+    for (const accelerator of ok) assert.ok(hasModifier(accelerator), accelerator);
+});
+
+test('hasModifier: refuses bare keys and non-strings', () => {
+    const bad = ['H', '1', 'F5', 'Space', 'Plus', 'MediaPlayPause', '', 'Shift', 'Alt', null, undefined, 42, {}];
+    for (const accelerator of bad) assert.ok(!hasModifier(accelerator), String(accelerator));
+});
+
+test('hasModifier: every accelerator the key capture can emit has a modifier', () => {
+    const events = [
+        {ctrlKey: true, key: 'w'}, {altKey: true, key: 'F4'}, {shiftKey: true, key: ' '},
+        {metaKey: true, key: 'ArrowRight'}, {ctrlKey: true, shiftKey: true, key: '+'}
+    ];
+    for (const event of events) {
+        const {status, accelerator} = keyEventToAccelerator(event);
+        assert.strictEqual(status, 'ok', JSON.stringify(event));
+        assert.ok(hasModifier(accelerator), accelerator);
+    }
+    // ...and the one it refuses would not have passed hasModifier either
+    assert.strictEqual(keyEventToAccelerator({key: 'w'}).status, 'no-modifier');
 });

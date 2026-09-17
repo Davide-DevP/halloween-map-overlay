@@ -113,10 +113,14 @@ class MainWindow {
                 });
                 overlayWindow.setPosition(x, y);
             }
+            // `mapLabel` rides along on the existing payload rather than being
+            // a second IPC message, so the overlay can never show a name for a
+            // map it is not displaying. The settings preview never carries one.
+            const mapLabel = (!opts.preview && typeof opts.mapLabel === 'string') ? opts.mapLabel : '';
             if (!settings.get('hideOverlay')) {
-                overlayWindow.send('map-change', Buffer.from(imgData).toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'))
+                overlayWindow.send('map-change', Buffer.from(imgData).toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'), mapLabel)
             } else {
-                overlayWindow.send('map-change', Buffer.from("").toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'));
+                overlayWindow.send('map-change', Buffer.from("").toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'), '');
             }
             // The settings preview stays off the OBS window -- it must never leak into a stream
             if (!opts.preview) obsWindow.send('map-change', Buffer.from(imgData).toString("base64"), settings.get('size'));
@@ -193,13 +197,24 @@ class MainWindow {
      *
      * This is the app's only network request. It is skipped entirely in dev
      * (there is no release feed to talk to, and unlike the reference this does
-     * NOT redefine `app.isPackaged` to fake one) and whenever the user has
-     * turned it off in Settings › General. Every failure path is swallowed
-     * with a log line: being offline must never do more than show a toast.
+     * NOT redefine `app.isPackaged` to fake one), in the portable build, and
+     * whenever the user has turned it off in Settings › General. Every failure
+     * path is swallowed with a log line: being offline must never do more than
+     * show a toast.
      */
     checkUpdates() {
         if (!app.isPackaged) {
             console.log('Update check skipped: not a packaged build.');
+            return;
+        }
+        // `app.isPackaged` is true in the portable exe too, and electron-updater
+        // has no portable guard of its own: left alone it would download the
+        // NSIS installer and silently install it on quit, while the portable
+        // exe the user actually launched stayed at the old version. README and
+        // AGENTS.md both promise the portable build does not self-update.
+        // electron-builder's portable launcher always sets this variable.
+        if (process.env.PORTABLE_EXECUTABLE_DIR) {
+            console.log('Update check skipped: portable build.');
             return;
         }
         if (this.settings && this.settings.get('checkForUpdates') === false) {

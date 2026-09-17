@@ -30,6 +30,14 @@ const SYSTEM_HOTKEY_DEFS = {
         defaultAccelerator: 'CommandOrControl+Left',
         description: 'Show the previous map',
         action: 'prev-map'
+    },
+    // Not the same as toggle-map: this one also makes the auto-detector forget
+    // what it last saw, so pressing Tab on the *same* map detects it again.
+    'clear-map': {
+        id: 'clear-map',
+        defaultAccelerator: 'CommandOrControl+Shift+D',
+        description: 'Clear the map and re-detect',
+        action: 'clear-map'
     }
 };
 
@@ -38,28 +46,25 @@ const ACTION_TO_SETTING_KEY = {
     'toggle-map': 'hotkeyToggleMap',
     'rotate-map': 'hotkeyRotateMap',
     'next-map': 'hotkeyNextMap',
-    'prev-map': 'hotkeyPrevMap'
+    'prev-map': 'hotkeyPrevMap',
+    'clear-map': 'hotkeyClearMap'
 };
 
-/**
- * Map names, in the order the shipped Ctrl+1..Ctrl+N defaults are handed out
- * on first run. This is presentation order for the default bindings only —
- * next/prev cycling follows the catalogue's own (alphabetical) order.
- */
-const DEFAULT_MAP_HOTKEY_ORDER = [
-    'East Haddonfield',
-    'Haddonfield Heights',
-    'Orange Grove Estates',
-    'Haddonfield Town Center'
-];
+/** Only the number row can be handed out as a default map binding. */
+const MAX_DEFAULT_MAP_HOTKEYS = 9;
 
 /**
- * Build the first-run contents of `hotkeys.json`: Ctrl+1..Ctrl+N bound to the
- * shipped maps in `DEFAULT_MAP_HOTKEY_ORDER`. Pure — the id generator is
- * injected so the result is reproducible in tests.
+ * Build the first-run contents of `hotkeys.json`: Ctrl+1..Ctrl+9 bound to the
+ * first nine shipped maps **in catalogue order** (`buildCatalog` already sorts
+ * by creator then map name, and `nextMap`/`prevMap` cycle in that same order,
+ * so the numbers follow the gallery). Pure — the id generator is injected so
+ * the result is reproducible in tests.
  *
- * Numbers are handed out consecutively to the maps that are actually present,
- * so a missing map leaves no gap in the bindings.
+ * There is deliberately no per-map list here: adding a map to `maps/` must not
+ * require a code change. Numbers are handed out consecutively to whatever the
+ * catalogue holds, so nothing has to be renumbered by hand either. Imported
+ * (Custom) maps never get a default binding — they are the user's own and a new
+ * import would otherwise silently steal a number.
  *
  * @param {Array<{key: string, name: string, custom: boolean}>} catalog
  * @param {() => string} makeId
@@ -70,13 +75,10 @@ function buildDefaultMapHotkeys(catalog, makeId) {
     if (!Array.isArray(catalog) || catalog.length === 0) return bindings;
 
     let slot = 0;
-    for (const wanted of DEFAULT_MAP_HOTKEY_ORDER) {
-        const entry = catalog.find(e =>
-            !e.custom && String(e.name).toLowerCase() === wanted.toLowerCase());
-        if (!entry) continue;
+    for (const entry of catalog) {
+        if (!entry || entry.custom) continue;
         slot++;
-        // Only the number row can be bound this way.
-        if (slot > 9) break;
+        if (slot > MAX_DEFAULT_MAP_HOTKEYS) break;
         bindings[`CommandOrControl+${slot}`] = {id: makeId(), mapKey: entry.key};
     }
     return bindings;
@@ -107,6 +109,34 @@ function acceleratorToDisplay(accel) {
 
 /** Keys that only ever act as modifiers — never the "main" key of a binding. */
 const MODIFIER_ONLY_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'OS', 'Hyper', 'Super']);
+
+/**
+ * Every modifier token Electron's accelerator parser accepts, lower-cased
+ * (the parser is case-insensitive).
+ */
+const ACCELERATOR_MODIFIERS = new Set([
+    'command', 'cmd', 'control', 'ctrl', 'commandorcontrol', 'cmdorctrl',
+    'alt', 'option', 'altgr', 'shift', 'super', 'meta'
+]);
+
+/**
+ * Does this accelerator carry at least one modifier?
+ *
+ * Electron happily registers a bare `H` globally, which would then be
+ * swallowed in the game and in every other application. `keyEventToAccelerator`
+ * refuses modifier-less bindings when the user records one, but that guard
+ * lives in the renderer, and with `nodeIntegration: true` the renderer is not a
+ * trust boundary — the main-process IPC handlers check this too.
+ *
+ * @param {string} accelerator
+ * @returns {boolean}
+ */
+function hasModifier(accelerator) {
+    if (typeof accelerator !== 'string' || !accelerator) return false;
+    const parts = accelerator.split('+');
+    // The last part is the key itself; "+" as a key is spelled "Plus".
+    return parts.slice(0, -1).some(part => ACCELERATOR_MODIFIERS.has(part.trim().toLowerCase()));
+}
 
 /** `KeyboardEvent.key` → Electron accelerator key name, where they differ. */
 const KEY_TO_ACCELERATOR = {
@@ -209,8 +239,10 @@ function keyEventToAccelerator(event) {
 module.exports = {
     SYSTEM_HOTKEY_DEFS,
     ACTION_TO_SETTING_KEY,
-    DEFAULT_MAP_HOTKEY_ORDER,
+    MAX_DEFAULT_MAP_HOTKEYS,
     MODIFIER_ONLY_KEYS,
+    ACCELERATOR_MODIFIERS,
+    hasModifier,
     buildDefaultMapHotkeys,
     acceleratorToDisplay,
     acceleratorKeyName,

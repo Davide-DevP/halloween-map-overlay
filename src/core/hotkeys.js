@@ -6,7 +6,8 @@ const {
     SYSTEM_HOTKEY_DEFS,
     ACTION_TO_SETTING_KEY,
     acceleratorToDisplay,
-    buildDefaultMapHotkeys
+    buildDefaultMapHotkeys,
+    hasModifier
 } = require("../shared/hotkeys-constants");
 
 const hotkeyFilePath = path.join(app.getPath('userData'), 'hotkeys.json');
@@ -30,6 +31,10 @@ class Hotkeys {
             const {hotkey, mapkey, id: incomingId} = payload || {};
             if (!hotkey || !mapkey) {
                 return classInstance.fail('Pick both a key combination and a map.');
+            }
+
+            if (!hasModifier(hotkey)) {
+                return classInstance.fail('A hotkey needs at least one modifier (Ctrl, Alt, Shift or Super).');
             }
 
             const conflict = classInstance.systemConflict(hotkey);
@@ -87,6 +92,10 @@ class Hotkeys {
             if (!settingKey) {
                 console.warn(`save-system-hotkey: unknown actionId "${actionId}"`);
                 return classInstance.fail('Failed to save hotkey: unknown action.');
+            }
+
+            if (!hasModifier(accelerator)) {
+                return classInstance.fail('A hotkey needs at least one modifier (Ctrl, Alt, Shift or Super).');
             }
 
             // Conflicts with the other system hotkeys
@@ -163,26 +172,45 @@ class Hotkeys {
      * A `false` return (some other application already owns the combination) is
      * not a parse failure: the binding is allowed and the user is told.
      *
+     * Accelerators this app *itself* already holds are skipped entirely. The
+     * probe runs while our own bindings are live, so `register` on one of them
+     * returns `false` — re-recording the same combination for the same action
+     * used to produce a bogus "taken by another application" toast. An
+     * accelerator we are already holding has demonstrably parsed and
+     * registered, so there is nothing to find out and nothing to disturb.
+     *
      * @returns {string|null} an error message when invalid, null when usable.
      */
     rejectIfUnregisterable(accelerator) {
+        if (this.ownAccelerators().has(accelerator)) return null;
+
         let registered = false;
         try {
             registered = globalShortcut.register(accelerator, () => {});
         } catch (err) {
             console.warn(`Rejected accelerator "${accelerator}": ${err.message}`);
-            // The dry run may have unregistered a live binding on its way out
+            // A throw mid-register may have left globalShortcut in a state
+            // where one of our bindings is gone; rebuild them.
             this.loadKeys();
             return `"${accelerator}" is not a key combination this app can register.`;
         }
+        // The probe took nothing away from us (we never hold this one), so the
+        // caller's own loadKeys() after a successful save is the only one
+        // needed — this used to run loadKeys three times per save.
         if (registered) globalShortcut.unregister(accelerator);
-        // Rebuild whatever the probe disturbed; the caller's own loadKeys()
-        // after a successful save is harmless on top of this.
-        this.loadKeys();
-        if (!registered) {
-            this.mainWindow.sendUpdate(`"${acceleratorToDisplay(accelerator)}" is already taken by another application.`);
-        }
+        else this.mainWindow.sendUpdate(`"${acceleratorToDisplay(accelerator)}" is already taken by another application.`);
         return null;
+    }
+
+    /**
+     * Every accelerator this app currently binds: the four system hotkeys plus
+     * whatever is in `hotkeys.json`.
+     * @returns {Set<string>}
+     */
+    ownAccelerators() {
+        const held = new Set(Object.values(this.getSystemHotkeys()));
+        for (const accelerator of Object.keys(this.readHotkeyFile())) held.add(accelerator);
+        return held;
     }
 
     readHotkeyFile() {

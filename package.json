@@ -1,6 +1,6 @@
 {
   "name": "halloween-map-overlay",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Transparent in-game map overlay for Halloween: The Game",
   "author": "Halloween Map Overlay contributors",
   "main": "index.js",
@@ -9,6 +9,7 @@
     "start": "electron .",
     "test": "node --test \"test/**/*.test.js\"",
     "prepare-maps": "node scripts/prepare-maps.js",
+    "prepare-detector": "node scripts/prepare-detector.js",
     "build:win": "electron-builder -w",
     "build": "electron-builder -w"
   },
@@ -45,7 +46,9 @@
       "!.git/*",
       "!.idea/*",
       "!.github/*",
-      "!.vscode/*"
+      "!.vscode/*",
+      "!.claude/*",
+      "!.claude/**"
     ],
     "nsis": {
       "oneClick": false,
@@ -54,7 +57,8 @@
     "publish": {
       "provider": "github",
       "owner": "Davide-DevP",
-      "repo": "halloween-map-overlay"
+      "repo": "halloween-map-overlay",
+      "releaseType": "release"
     }
   },
   "devDependencies": {
