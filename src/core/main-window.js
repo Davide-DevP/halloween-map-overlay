@@ -6,6 +6,7 @@ const {spawn} = require("child_process");
 const {imageSize} = require('image-size');
 const {autoUpdater} = require('electron-updater');
 const {computeOverlayPosition, rotatedSize} = require('./overlay-position');
+const {mapLabelMode} = require('../shared/settings-defaults');
 
 const debug = process.env.DEBUG === 'true';
 
@@ -70,14 +71,18 @@ class MainWindow {
             }
 
             let imgData;
+            // The map's own name, for the `always` label mode. Empty for raw
+            // base64 payloads, which have no name to show.
+            let resolvedName = '';
             if (opts.preview) {
                 // The settings preview is rendered in the renderer and arrives
                 // as raw base64 — never look it up in the catalogue.
                 imgData = Buffer.from(map, "base64");
             } else {
-                const file = this.mapLibrary ? this.mapLibrary.resolve(map) : null;
-                if (file) {
-                    imgData = await fs.promises.readFile(file);
+                const entry = this.mapLibrary ? this.mapLibrary.resolveEntry(map) : null;
+                if (entry) {
+                    resolvedName = entry.name;
+                    imgData = await fs.promises.readFile(entry.path);
                 } else {
                     imgData = Buffer.from(map, "base64");
                 }
@@ -133,15 +138,29 @@ class MainWindow {
             }
             // `mapLabel` rides along on the existing payload rather than being
             // a second IPC message, so the overlay can never show a name for a
-            // map it is not displaying. The settings preview never carries one.
-            const mapLabel = (!opts.preview && typeof opts.mapLabel === 'string') ? opts.mapLabel : '';
+            // map it is not displaying.
+            //
+            // `auto` (the original behaviour) shows a name only when the caller
+            // supplies one, which only an automatic detector switch does, and
+            // the overlay clears it again after a few seconds. `always` names
+            // whatever is on screen — the caller's label if it sent one, the
+            // resolved map name otherwise — and the overlay keeps it up. The
+            // settings preview carries a label of its own so `always` can be
+            // seen in the Overlay tab; in `auto` it is suppressed, because the
+            // preview is not a map switch the player needs telling about.
+            const labelMode = mapLabelMode(settings.get('mapLabel'));
+            const requested = typeof opts.mapLabel === 'string' ? opts.mapLabel : '';
+            let mapLabel = '';
+            if (labelMode === 'always') mapLabel = requested || resolvedName;
+            else if (labelMode === 'auto') mapLabel = opts.preview ? '' : requested;
+
             if (!settings.get('hideOverlay')) {
-                overlayWindow.send('map-change', Buffer.from(imgData).toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'), mapLabel)
+                overlayWindow.send('map-change', Buffer.from(imgData).toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'), mapLabel, labelMode)
             } else {
-                overlayWindow.send('map-change', Buffer.from("").toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'), '');
+                overlayWindow.send('map-change', Buffer.from("").toString("base64"), settings.get('size'), settings.get('opacity'), settings.get('draggable'), settings.get('rotation'), '', labelMode);
             }
             // The settings preview stays off the OBS window -- it must never leak into a stream
-            if (!opts.preview) obsWindow.send('map-change', Buffer.from(imgData).toString("base64"), settings.get('size'));
+            if (!opts.preview) obsWindow.send('map-change', Buffer.from(imgData).toString("base64"), settings.get('size'), mapLabel, labelMode);
         });
     }
 

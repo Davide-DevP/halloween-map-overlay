@@ -1,7 +1,11 @@
 const {ipcRenderer} = require('electron');
 const {buildPreviewImage} = require('./overlay-preview');
 const {presetToGlide} = require('../core/overlay-position');
+const {mapLabelMode} = require('../shared/settings-defaults');
 const isWayland = require('../core/is-wayland');
+
+/** Name the sample map shows when the map label is set to "always". */
+const PREVIEW_LABEL = 'Sample map';
 
 /** Settings modal: General and Overlay tabs. */
 class Options {
@@ -113,6 +117,14 @@ class Options {
             refreshOverlay();
         }).val(String(savedRotation));
 
+        // Map name on the overlay: auto (a few seconds after an automatic
+        // switch), always, or never. The preview carries a sample name so
+        // "always" can actually be seen while this tab is open.
+        $("#mapLabelSelect").on("input", async function () {
+            await settings.set("mapLabel", mapLabelMode($(this).val()));
+            refreshOverlay();
+        }).val(mapLabelMode(settings.raw("mapLabel")));
+
         $("#monitorSelect").on("input", async function () {
             await settings.set("monitor", parseInt($(this).val(), 10));
             refreshOverlay();
@@ -186,14 +198,21 @@ class Options {
         const img = await buildPreviewImage();
         // The tab may have been left while the sample map was still rendering
         if (!this.previewActive) return;
-        ipcRenderer.send('map-change', img, {preview: true});
+        // The sample map has no catalogue name, so it brings its own. Main only
+        // puts it on the overlay when the setting is "always" — which is the
+        // point: the label can be seen here before it is turned on for real.
+        ipcRenderer.send('map-change', img, {preview: true, mapLabel: PREVIEW_LABEL});
     }
 
     stopPreview() {
         if (!this.previewActive) return;
         this.previewActive = false;
-        // Put the overlay back to whatever it showed before the preview
-        ipcRenderer.send('map-change', this.maps.currentKey || "", {preview: true});
+        // Put the overlay back to whatever it showed before the preview.
+        // Through `sendMap`, NOT `{preview: true}`: that flag forces main down
+        // the raw-base64 path, and a catalogue key decoded as base64 is not an
+        // image — `imageSize` threw and the overlay was left showing the sample
+        // map until something else changed it.
+        this.maps.sendMap(this.maps.currentKey || "");
     }
 }
 

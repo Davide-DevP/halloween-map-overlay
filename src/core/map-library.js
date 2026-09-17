@@ -76,11 +76,17 @@ class MapLibrary {
     }
 
     /**
-     * Turn a catalogue key, a bare map name or a custom-map file name into an
-     * absolute path. Returns null when nothing matches — callers then treat the
-     * payload as raw base64 image data instead.
+     * The catalogue entry a key, a bare map name or a custom-map file name
+     * refers to, but only when its image is actually on disk. Returns null when
+     * nothing matches — callers then treat the payload as raw base64 image data.
+     *
+     * Kept separate from `resolve()` because the overlay label needs the map's
+     * *name*, and re-deriving it from the payload string would mean matching the
+     * name twice with two chances to disagree.
+     *
+     * @returns {{key, name, creator, file, custom, path}|null}
      */
-    resolve(key) {
+    resolveEntry(key) {
         // Base64 image payloads are also strings; a path/key never gets near
         // this length, so bail out before fuzzy-matching a whole PNG.
         if (typeof key !== 'string' || !key || key.length > 260) return null;
@@ -88,7 +94,18 @@ class MapLibrary {
         if (!entry) return null;
         const root = entry.custom ? this.customRoot : this.mapsRoot;
         const file = path.join(root, entry.file);
-        return fs.existsSync(file) ? file : null;
+        if (!fs.existsSync(file)) return null;
+        return Object.assign({}, entry, {path: file});
+    }
+
+    /**
+     * Turn a catalogue key, a bare map name or a custom-map file name into an
+     * absolute path. Returns null when nothing matches — callers then treat the
+     * payload as raw base64 image data instead.
+     */
+    resolve(key) {
+        const entry = this.resolveEntry(key);
+        return entry ? entry.path : null;
     }
 }
 

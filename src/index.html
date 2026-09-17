@@ -290,6 +290,15 @@
                             <option value="270">270&deg;</option>
                         </select>
 
+                        <label for="mapLabelSelect" class="form-label">Map name on the overlay</label>
+                        <select class="form-select" id="mapLabelSelect">
+                            <option value="auto">After an automatic switch</option>
+                            <option value="always">Always</option>
+                            <option value="never">Never</option>
+                        </select>
+                        <small class="text-secondary d-block mb-3">Shown at the bottom of the overlay, never rotated
+                            with the map, at the same opacity. The OBS window follows the same setting.</small>
+
                         <div class="form-check form-switch mb-2">
                             <input class="form-check-input" type="checkbox" id="hiddenCheck" role="switch">
                             <label class="form-check-label" for="hiddenCheck">Overlay hidden</label>

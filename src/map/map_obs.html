@@ -14,9 +14,23 @@
     body{
         background-color: #00ff00;
     }
+    /* Same map name the overlay shows, under the same setting. Static flow
+       rather than absolute positioning: this window is resized by the user in
+       OBS, not sized to the map, so the label just follows the image. */
+    #mapLabel {
+        display: none;
+        padding: 2px 6px;
+        font: 600 13px/1.4 "Segoe UI", system-ui, sans-serif;
+        color: #ffe9d2;
+        text-shadow: 0 0 4px #000, 0 0 2px #000;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 </style>
 <body>
 <img src="" id="mainImg"/>
+<div id="mapLabel"></div>
 </body>
 <script src="renderer_obs.js"></script>
 </html>

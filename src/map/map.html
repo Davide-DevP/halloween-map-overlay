@@ -21,13 +21,16 @@
         justify-content: center;
         overflow: hidden;
     }
-    /* Name of the map, shown for a few seconds after an automatic switch.
+    /* Name of the map: for a few seconds after an automatic switch, or
+       permanently when Settings > Overlay > Map name is "Always".
        Absolutely positioned so it cannot resize the window, which is sized to
        the rotated map by the main process. Never rotated with the map: it has
-       to stay readable. */
+       to stay readable. It sits at the bottom, inside the 10 % of extra height
+       the main process adds to the rotated bounding box, so it does not land
+       on top of the map itself. */
     #mapLabel {
         position: absolute;
-        top: 2px;
+        bottom: 2px;
         left: 0;
         right: 0;
         display: none;
