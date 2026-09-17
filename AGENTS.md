@@ -374,10 +374,11 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   0.3.3): `score >= 0.80 && margin >= 0.10` **or** `score >= 0.60 && margin >=
   0.20`. The second exists because of the owner's 0.3.2 field log: every Tab
   press in a *civilian* match scored 0.68-0.72 with the right map 0.27-0.31
-  ahead and nothing was ever sent. It is the safety net for a view no fixture
-  covers yet (today: Haddonfield Heights has only Michael's), measured at
-  0.6879/0.2779 and 0.7623/0.3013 on the two civilian maps with their own
-  variant removed. The committed negatives, scored with the Tab
+  ahead and nothing was ever sent. All four maps now ship both views, so this
+  branch is the safety net for the *next* view nobody has sent a screenshot of:
+  measured on the civilian frames with their own variant removed, they score
+  0.6631-0.7623 with margins of 0.2493-0.3052, i.e. exactly the field numbers,
+  and they are accepted. The committed negatives, scored with the Tab
   gate off, reach 0.09/0.13/0.28 with margins ≤ 0.035, so they miss both halves
   of the second branch by an order of magnitude — a test asserts that fixture by
   fixture, and the printed score table carries both thresholds in its header.

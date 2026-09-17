@@ -400,7 +400,7 @@ that too.
   <kbd>Tab</kbd> map differently for a civilian than for Michael, and 0.3.2
   only knew Michael's — so in a civilian match the right map was always in
   front but just under the bar it needed to act, and had to be picked by hand.
-  Three of the four maps now carry both views, and a map is accepted either
+  All four maps now carry both views, and a map is accepted either
   when it matches strongly *or* when it is clearly ahead of every other map,
   which covers the views no screenshot exists for yet.
 - **The overlay clears in the menu even when you picked the map yourself.**
