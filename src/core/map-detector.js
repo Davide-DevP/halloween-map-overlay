@@ -1,5 +1,6 @@
-const {desktopCapturer, ipcMain, screen} = require('electron');
-const {toGray, matchMap, DEFAULT_SIZE} = require('./map-detector/matcher');
+const {ipcMain} = require('electron');
+const {Window} = require('node-screenshots');
+const {toGrayScaled, matchMap, DEFAULT_SIZE} = require('./map-detector/matcher');
 const TEMPLATE_FILE = require('./map-detector/templates.json');
 
 const debug = process.env.DEBUG === 'true';
@@ -8,22 +9,53 @@ const debug = process.env.DEBUG === 'true';
 const SEARCH_INTERVAL = 2000;
 /** Poll period after a successful detection — a map lasts a whole match. */
 const DETECTED_INTERVAL = 5000;
-/** What we ask `desktopCapturer` for. Big enough for a 64x64 map thumbnail. */
-const THUMBNAIL_SIZE = {width: 640, height: 360};
-/** A capture that keeps failing must not fill the log. */
-const ERROR_LOG_INTERVAL = 60000;
+/**
+ * Width the captured window is reduced to before anything looks at it. The
+ * templates are 64x64 thumbnails of a region that is ~40 % of the frame, so
+ * 640 px across leaves ~255 px for a 64 px thumbnail — four times more detail
+ * than the match needs, and a quarter of the pixels of a 1080p frame.
+ */
+const CAPTURE_WIDTH = 640;
+
+/**
+ * The game, matched on the window's **app name** — which comes from the
+ * running executable (`Halloween.exe` → "Halloween"), not from whatever the
+ * window happens to be displaying.
+ *
+ * Deliberately not the title: titles produce false positives constantly. On the
+ * machine this was developed on, a terminal window called "Halloween The Game
+ * mappe" (the project folder) and any browser tab about the game would both
+ * match `/halloween/i` on the title while having app names "Windows Terminal
+ * Host" and "Floorp". Capturing one of those and matching it against the map
+ * templates is harmless but pointless, and it would keep the detector busy
+ * while the game was not even running. The title is only consulted when the
+ * app name is empty, i.e. when the OS would not tell us what owns the window.
+ */
+const GAME_NAME = /halloween/i;
+/** This app's own windows — they match GAME_NAME too. */
+const OWN_NAME = /map\s*overlay/i;
+/** A window this small cannot be the game; skip splash/tooltip windows. */
+const MIN_WINDOW = {width: 320, height: 240};
+
+/** "Game not running" and capture errors are states, not events: log sparsely. */
+const STATE_LOG_INTERVAL = 60000;
 
 /**
  * Automatic map detection (phase 2).
  *
- * Off by default (`mapDetection` setting). While on, it grabs a 640x360
- * thumbnail of the display the overlay is configured for every 1.5 s, runs it
- * through the pure matcher in `map-detector/matcher.js`, and — when it sees the
- * in-game Tab screen showing a *different* map than the last one it recognised
- * — tells the renderer to switch, on the same `show-map-command` channel the
- * CLI uses.
+ * Off by default (`mapDetection` setting). While on, it captures **the game's
+ * own window** every 2 s, reduces it to 640 px wide, runs it through the pure
+ * matcher in `map-detector/matcher.js`, and — when it sees the in-game Tab
+ * screen showing a *different* map than the last one it recognised — tells the
+ * renderer to switch, on the same `show-map-command` channel the CLI uses.
  *
  * Deliberate choices:
+ * - **The game window, not the display.** `desktopCapturer.getSources` (the
+ *   first implementation) cost 286-518 ms of main-thread time per tick and
+ *   stuttered the whole machine every poll. `node-screenshots` captures one
+ *   window asynchronously for a fraction of that, and when the game is not
+ *   running there is no window to capture, so a tick costs one cheap window
+ *   enumeration and nothing else.
  * - The frame never leaves this function. It is not stored, not written to
  *   disk, not sent anywhere, and the only thing derived from it that survives
  *   the tick is a map name.
@@ -47,6 +79,7 @@ class MapDetector {
         this.lastAt = null;
         this.lastScore = null;
         this.lastErrorAt = 0;
+        this.lastMissingAt = 0;
         this.lastTiming = null;
         this.lagTimer = null;
 
@@ -119,10 +152,10 @@ class MapDetector {
 
     /**
      * DEBUG only: how late a 200 ms timer actually fires, i.e. how long the
-     * main thread was blocked. The capture call is native and synchronous once
-     * it reaches the compositor, so this is the number that says whether the
-     * detector is making the UI (and the machine) stutter. Peak drift is
-     * reported once every 10 s and reset.
+     * main thread was blocked. This is the number that says whether the
+     * detector is making the UI (and the machine) stutter — it is what caught
+     * the original `desktopCapturer` backend. Peak drift is reported once every
+     * 10 s and reset.
      */
     startLagProbe() {
         if (!debug || this.lagTimer) return;
@@ -168,48 +201,61 @@ class MapDetector {
     }
 
     /**
-     * `capture=… match=… total=…` in milliseconds for the last tick.
-     *
-     * The capture number is the one that matters: `desktopCapturer.getSources`
-     * is the expensive half by two orders of magnitude, and it is the reason
-     * the poll period is measured in seconds rather than frames.
+     * `enumerate=… capture=… match=… total=…` in milliseconds for the last
+     * tick. `capture` is the native window grab plus the raw-pixel copy;
+     * `match` is the downscale, the gate and the NCCs.
      */
     timingLabel() {
         const t = this.lastTiming;
         if (!t) return '';
-        return `capture=${t.capture}ms match=${t.match}ms total=${t.total}ms`;
+        return `enumerate=${t.enumerate}ms capture=${t.capture}ms match=${t.match}ms total=${t.total}ms`;
     }
 
-    logError(message) {
+    /** A repeating state (game closed, capture refused) must not fill the log. */
+    logState(field, message, level) {
         const now = Date.now();
-        if (now - this.lastErrorAt < ERROR_LOG_INTERVAL) return;
-        this.lastErrorAt = now;
-        console.error('Map detection:', message);
+        if (now - this[field] < STATE_LOG_INTERVAL) return;
+        this[field] = now;
+        (level === 'error' ? console.error : console.log)('Map detection:', message);
     }
 
     /**
-     * The display the overlay is on — the same `monitor` index Settings ›
-     * Overlay writes and `get-displays` enumerates.
+     * The game's window, or null when the game is not running.
+     *
+     * Three things have to be kept out: this app's own windows (the main window
+     * is literally called "Halloween Map Overlay", so a bare name test would
+     * match it), minimized windows (Windows hands back a stale or empty image
+     * for those), and anything that merely mentions the game — see `GAME_NAME`.
+     * An exact `Halloween` / `Halloween.exe` app name wins over a looser one.
      */
-    targetDisplay() {
-        const displays = screen.getAllDisplays();
-        const index = parseInt(this.settings ? this.settings.get('monitor') : 0) || 0;
-        return displays[index] || displays[0] || screen.getPrimaryDisplay();
-    }
+    findGameWindow() {
+        let fallback = null;
+        for (const win of Window.all()) {
+            let appName, title, minimized, width, height, pid;
+            try {
+                appName = (win.appName() || '').trim();
+                title = (win.title() || '').trim();
+                minimized = win.isMinimized();
+                width = win.width();
+                height = win.height();
+                pid = win.pid();
+            } catch (err) {
+                // A window can disappear between the enumeration and the reads.
+                continue;
+            }
+            if (minimized) continue;
+            if (pid === process.pid) continue;
+            if (width < MIN_WINDOW.width || height < MIN_WINDOW.height) continue;
+            if (OWN_NAME.test(`${appName} ${title}`)) continue;
 
-    /**
-     * Pick the capture source for that display. `display_id` is the reliable
-     * link; the index is only a fallback for platforms that leave it empty.
-     */
-    pickSource(sources, display) {
-        if (!sources || !sources.length) return null;
-        if (display) {
-            const wanted = String(display.id);
-            const byId = sources.find(s => String(s.display_id) === wanted);
-            if (byId) return byId;
+            if (/^halloween(\.exe)?$/i.test(appName)) return win;
+            // Looser app-name match, or a title match only when the OS gave us
+            // no app name at all.
+            if (GAME_NAME.test(appName) || (!appName && GAME_NAME.test(title))) {
+                if (!fallback) fallback = win;
+            }
         }
-        const index = parseInt(this.settings ? this.settings.get('monitor') : 0) || 0;
-        return sources[index] || sources[0];
+        return fallback;
     }
 
     async tick() {
@@ -217,41 +263,45 @@ class MapDetector {
         this.busy = true;
         let interval = SEARCH_INTERVAL;
         const started = Date.now();
-        let capturedAt = started;
         try {
-            const display = this.targetDisplay();
-            const sources = await desktopCapturer.getSources({
-                types: ['screen'],
-                thumbnailSize: THUMBNAIL_SIZE,
-                fetchWindowIcons: false
-            });
-            capturedAt = Date.now();
+            const win = this.findGameWindow();
+            const enumeratedAt = Date.now();
+            if (!win) {
+                // Nothing to capture: a tick costs one window enumeration and
+                // stops here, so having the switch on while the game is closed
+                // is free.
+                this.logState('lastMissingAt', 'game window not found — is Halloween: The Game running?');
+                return;
+            }
+
+            const image = await win.captureImage();
             if (!this.running) return;
-
-            const source = this.pickSource(sources, display);
-            if (!source || !source.thumbnail || source.thumbnail.isEmpty()) {
-                this.logError('no screen capture source available.');
-                return;
-            }
-
-            const {width, height} = source.thumbnail.getSize();
+            const {width, height} = image;
             if (!width || !height) {
-                this.logError('capture returned an empty frame.');
+                this.logState('lastErrorAt', 'the game window capture came back empty.', 'error');
                 return;
             }
 
-            // BGRA on every platform Electron supports. The buffer, the
-            // luminance frame and the thumbnail all go out of scope here.
-            const gray = toGray(source.thumbnail.toBitmap(), width, height);
-            const match = matchMap(gray, width, height, this.templates, {size: this.size});
+            // node-screenshots hands back RGBA. Reduce to 640 px wide while
+            // converting to luminance — one pass over the source pixels, no
+            // multi-megabyte intermediate, and everything after this is small.
+            const raw = await image.toRaw();
+            if (!this.running) return;
+            const capturedAt = Date.now();
+
+            const outWidth = CAPTURE_WIDTH;
+            const outHeight = Math.max(1, Math.round(CAPTURE_WIDTH * height / width));
+            const gray = toGrayScaled(raw, width, height, outWidth, outHeight, 'rgba');
+            const match = matchMap(gray, outWidth, outHeight, this.templates, {size: this.size});
             this.lastTiming = {
-                capture: capturedAt - started,
+                enumerate: enumeratedAt - started,
+                capture: capturedAt - enumeratedAt,
                 match: Date.now() - capturedAt,
                 total: Date.now() - started
             };
 
             if (!match) {
-                if (debug) console.log(`map-detector: no match (${width}x${height} from "${source.name}") ${this.timingLabel()}`);
+                if (debug) console.log(`map-detector: no match (${width}x${height} → ${outWidth}x${outHeight}) ${this.timingLabel()}`);
                 return;
             }
 
@@ -259,7 +309,7 @@ class MapDetector {
             this.lastScore = match.score;
             this.lastAt = Date.now();
             if (match.key === this.lastDetected) {
-                if (debug) console.log(`map-detector: still "${match.key}" (${match.score.toFixed(3)})`);
+                if (debug) console.log(`map-detector: still "${match.key}" (${match.score.toFixed(3)}) ${this.timingLabel()}`);
                 this.sendStatus({state: 'detected', key: match.key, at: this.lastAt, score: match.score});
                 return;
             }
@@ -269,7 +319,7 @@ class MapDetector {
             if (this.mainWindow) this.mainWindow.send('show-map-command', match.key, {fromDetector: true});
             this.sendStatus({state: 'detected', key: match.key, at: this.lastAt, score: match.score});
         } catch (err) {
-            this.logError((err && err.message) || String(err));
+            this.logState('lastErrorAt', (err && err.message) || String(err), 'error');
         } finally {
             this.busy = false;
             this.schedule(interval);
@@ -285,4 +335,4 @@ class MapDetector {
 module.exports = MapDetector;
 module.exports.SEARCH_INTERVAL = SEARCH_INTERVAL;
 module.exports.DETECTED_INTERVAL = DETECTED_INTERVAL;
-module.exports.THUMBNAIL_SIZE = THUMBNAIL_SIZE;
+module.exports.CAPTURE_WIDTH = CAPTURE_WIDTH;

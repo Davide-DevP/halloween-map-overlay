@@ -50,6 +50,10 @@
       "!.claude/*",
       "!.claude/**"
     ],
+    "asarUnpack": [
+      "node_modules/node-screenshots/**/*.node",
+      "node_modules/node-screenshots-*/**/*.node"
+    ],
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
@@ -71,7 +75,8 @@
     "bootstrap": "^5.3.8",
     "electron-updater": "^6.7.3",
     "image-size": "^2.0.2",
-    "jquery": "^4.0.0"
+    "jquery": "^4.0.0",
+    "node-screenshots": "^0.2.8"
   },
   "repository": {
     "type": "git",

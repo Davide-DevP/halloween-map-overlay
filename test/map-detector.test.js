@@ -169,6 +169,71 @@ test('toGray: refuses a buffer that is too small', () => {
     assert.throws(() => M.toGray(new Uint8Array(8), 4, 4), /expected 64 bytes/);
 });
 
+test('toGrayScaled equals toGray followed by downsample', async () => {
+    // The runtime fuses the two into one pass over the capture; that shortcut
+    // is only safe while it produces the same numbers as the slow path.
+    const file = fixture(FULLSCREEN_FIXTURES[0]);
+    const {data, info} = await sharp(file).ensureAlpha().raw().toBuffer({resolveWithObject: true});
+    const slowGray = M.toGray(data, info.width, info.height, 'rgba');
+    // 1919x1078 divides evenly by neither, so these exercise the general path;
+    // the exact-ratio fast path is covered by the 1920x1080 case below.
+    for (const [outW, outH] of [[640, 360], [320, 180], [info.width, info.height]]) {
+        const fused = M.toGrayScaled(data, info.width, info.height, outW, outH, 'rgba');
+        const slow = M.resample(slowGray, info.width, info.height, outW, outH);
+        assert.strictEqual(fused.length, outW * outH, `${outW}x${outH}: length`);
+        let worst = 0;
+        for (let i = 0; i < fused.length; i++) worst = Math.max(worst, Math.abs(fused[i] - slow[i]));
+        assert.ok(worst < 1e-5, `${outW}x${outH}: worst difference ${worst}`);
+    }
+});
+
+test('toGrayScaled: the exact-ratio fast path agrees with the general one', async () => {
+    // 1920 -> 640 and 1080 -> 360 are both exactly 3:1, which is the path a
+    // 1080p game window actually takes. It must produce the same numbers as the
+    // fractional-weight code, or the templates stop matching on exactly the
+    // resolution everyone plays at.
+    const buf = await sharp(fixture(FULLSCREEN_FIXTURES[0])).resize(1920, 1080, {fit: 'fill'}).png().toBuffer();
+    const {data, info} = await sharp(buf).ensureAlpha().raw().toBuffer({resolveWithObject: true});
+    assert.strictEqual(info.width % 640, 0);
+    assert.strictEqual(info.height % 360, 0);
+    const fast = M.toGrayScaled(data, info.width, info.height, 640, 360, 'rgba');
+    const slow = M.resample(M.toGray(data, info.width, info.height, 'rgba'), info.width, info.height, 640, 360);
+    let worst = 0;
+    for (let i = 0; i < fast.length; i++) worst = Math.max(worst, Math.abs(fast[i] - slow[i]));
+    assert.ok(worst < 1e-5, `worst difference ${worst}`);
+});
+
+test('toGrayScaled: handles both channel orders and rejects a short buffer', () => {
+    const rgba = Uint8Array.from([10, 20, 30, 255, 200, 100, 50, 255]);
+    const bgra = Uint8Array.from([30, 20, 10, 255, 50, 100, 200, 255]);
+    assert.deepStrictEqual(
+        Array.from(M.toGrayScaled(rgba, 2, 1, 2, 1, 'rgba')),
+        Array.from(M.toGrayScaled(bgra, 2, 1, 2, 1, 'bgra'))
+    );
+    // 2x1 averaged into 1x1 is the mean of the two lumas.
+    const one = M.toGrayScaled(rgba, 2, 1, 1, 1, 'rgba');
+    const both = M.toGrayScaled(rgba, 2, 1, 2, 1, 'rgba');
+    assert.ok(Math.abs(one[0] - (both[0] + both[1]) / 2) < 1e-6);
+    assert.throws(() => M.toGrayScaled(new Uint8Array(8), 4, 4, 2, 2), /expected 64 bytes/);
+});
+
+test('a 640-wide capture of any 16:9 window still detects the map', async () => {
+    // What the runtime actually feeds the matcher: raw window pixels reduced to
+    // 640 px wide by toGrayScaled, not a pre-made thumbnail.
+    const key = fullscreenKey(FULLSCREEN_FIXTURES[0]);
+    for (const [w, h] of [[1920, 1080], [1280, 720], [2560, 1440]]) {
+        const buf = await sharp(fixture(FULLSCREEN_FIXTURES[0])).resize(w, h, {fit: 'fill'}).png().toBuffer();
+        const {data, info} = await sharp(buf).ensureAlpha().raw().toBuffer({resolveWithObject: true});
+        const outW = 640, outH = Math.round(640 * info.height / info.width);
+        const gray = M.toGrayScaled(data, info.width, info.height, outW, outH, 'rgba');
+        const r = record(`window ${w}x${h} → ${outW}x${outH} (runtime path)`, short(key),
+            M.matchMap(gray, outW, outH, TEMPLATES, {report: true}));
+        assert.strictEqual(r.key, key, `${w}x${h}`);
+        assert.ok(r.accepted, `${w}x${h}: not accepted`);
+        assert.ok(r.margin >= 0.10, `${w}x${h}: margin ${r.margin.toFixed(4)}`);
+    }
+});
+
 test('templates.json: one 64x64 template per template fixture, keyed by catalogue key', () => {
     assert.strictEqual(SIZE, 64);
     assert.ok(KEYS.length > 0, 'no templates');

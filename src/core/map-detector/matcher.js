@@ -5,9 +5,9 @@
  * arithmetic over a luminance buffer, so the whole thing is unit testable and
  * runs in well under a millisecond per frame.
  *
- * Pipeline: screen frame → grayscale → crop the in-game map panel by a
- * resolution-independent relative region → area-average down to 64x64 →
- * zero-mean normalized cross-correlation against the four bundled templates.
+ * Pipeline: captured game-window frame → grayscale → crop the in-game map panel
+ * by a resolution-independent relative region → area-average down to 64x64 →
+ * zero-mean normalized cross-correlation against the bundled templates.
  *
  * ## Where the regions come from
  *
@@ -125,6 +125,92 @@ function toGray(pixels, width, height, order) {
 }
 
 /**
+ * BGRA/RGBA bytes → a *smaller* luminance frame, in one pass.
+ *
+ * The capture backend hands us a full-size window image (2 MP at 1080p) and has
+ * no resize of its own. Converting that to luminance and then area-averaging it
+ * would touch every source pixel twice and allocate an 8 MB intermediate; this
+ * does the box average and the luma conversion together, so each source pixel is
+ * read exactly once and nothing bigger than the output is allocated. It is the
+ * single most expensive thing the detector does per tick, which is why it is
+ * one loop and not two.
+ *
+ * Equivalent to `downsample(toGray(pixels, w, h), w, h, …)` to within float
+ * rounding — there is a test for that.
+ *
+ * @param {Uint8Array|Buffer} pixels 4 bytes per pixel
+ * @param {number} width source width
+ * @param {number} height source height
+ * @param {number} outWidth
+ * @param {number} outHeight
+ * @param {string} [order] 'bgra' (default) or 'rgba'
+ * @returns {Float32Array} outWidth*outHeight luminance values in 0..1
+ */
+function toGrayScaled(pixels, width, height, outWidth, outHeight, order) {
+    const n = width * height;
+    if (pixels.length < n * 4) {
+        throw new Error('toGrayScaled: expected ' + (n * 4) + ' bytes, got ' + pixels.length);
+    }
+    const rgba = order === 'rgba';
+    const rOff = rgba ? 0 : 2;
+    const bOff = rgba ? 2 : 0;
+    const out = new Float32Array(outWidth * outHeight);
+
+    // Fast path: whole-number box. 1920 -> 640 is exactly 3:1, and so is the
+    // matching vertical ratio, so this is what actually runs on a 1080p window.
+    // Every weight is 1 and the divisor is constant, which takes the per-pixel
+    // work down to three multiplies and an add.
+    if (width % outWidth === 0 && height % outHeight === 0) {
+        const bx = width / outWidth;
+        const by = height / outHeight;
+        const scale = 1 / (bx * by * 255);
+        for (let oy = 0; oy < outHeight; oy++) {
+            const y0 = oy * by, y1 = y0 + by;
+            for (let ox = 0; ox < outWidth; ox++) {
+                const x0 = ox * bx, x1 = x0 + bx;
+                let sum = 0;
+                for (let y = y0; y < y1; y++) {
+                    let p = (y * width + x0) * 4;
+                    for (let x = x0; x < x1; x++, p += 4) {
+                        sum += 0.299 * pixels[p + rOff] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + bOff];
+                    }
+                }
+                out[oy * outWidth + ox] = sum * scale;
+            }
+        }
+        return out;
+    }
+
+    const sx = width / outWidth;
+    const sy = height / outHeight;
+    for (let oy = 0; oy < outHeight; oy++) {
+        const fy0 = oy * sy, fy1 = (oy + 1) * sy;
+        const iy0 = Math.floor(fy0), iy1 = Math.min(height, Math.ceil(fy1));
+        for (let ox = 0; ox < outWidth; ox++) {
+            const fx0 = ox * sx, fx1 = (ox + 1) * sx;
+            const ix0 = Math.floor(fx0), ix1 = Math.min(width, Math.ceil(fx1));
+            let sum = 0, weight = 0;
+            for (let y = iy0; y < iy1; y++) {
+                const wy = Math.min(y + 1, fy1) - Math.max(y, fy0);
+                if (wy <= 0) continue;
+                const row = y * width;
+                for (let x = ix0; x < ix1; x++) {
+                    const wx = Math.min(x + 1, fx1) - Math.max(x, fx0);
+                    if (wx <= 0) continue;
+                    const p = (row + x) * 4;
+                    const luma = 0.299 * pixels[p + rOff] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + bOff];
+                    const wgt = wx * wy;
+                    sum += luma * wgt;
+                    weight += wgt;
+                }
+            }
+            out[oy * outWidth + ox] = weight > 0 ? sum / (weight * 255) : 0;
+        }
+    }
+    return out;
+}
+
+/**
  * Crop a relative region out of a luminance frame.
  * @param {Float32Array} gray
  * @param {number} width
@@ -154,13 +240,21 @@ function cropRegion(gray, width, height, rel) {
  */
 function downsample(gray, width, height, size) {
     const n = size || DEFAULT_SIZE;
-    const out = new Float32Array(n * n);
-    const sx = width / n;
-    const sy = height / n;
-    for (let oy = 0; oy < n; oy++) {
+    return resample(gray, width, height, n, n);
+}
+
+/**
+ * The rectangular form of `downsample`: area-average to `outWidth x outHeight`.
+ * @returns {Float32Array}
+ */
+function resample(gray, width, height, outWidth, outHeight) {
+    const out = new Float32Array(outWidth * outHeight);
+    const sx = width / outWidth;
+    const sy = height / outHeight;
+    for (let oy = 0; oy < outHeight; oy++) {
         const fy0 = oy * sy, fy1 = (oy + 1) * sy;
         const iy0 = Math.floor(fy0), iy1 = Math.min(height, Math.ceil(fy1));
-        for (let ox = 0; ox < n; ox++) {
+        for (let ox = 0; ox < outWidth; ox++) {
             const fx0 = ox * sx, fx1 = (ox + 1) * sx;
             const ix0 = Math.floor(fx0), ix1 = Math.min(width, Math.ceil(fx1));
             let sum = 0, weight = 0;
@@ -176,7 +270,7 @@ function downsample(gray, width, height, size) {
                     weight += wgt;
                 }
             }
-            out[oy * n + ox] = weight > 0 ? sum / weight : 0;
+            out[oy * outWidth + ox] = weight > 0 ? sum / weight : 0;
         }
     }
     return out;
@@ -375,8 +469,10 @@ module.exports = {
     GATE_NAME_BOX_LEVEL,
     GATE_MIN_NAME_BOX_FRACTION,
     toGray,
+    toGrayScaled,
     cropRegion,
     downsample,
+    resample,
     gradientMagnitude,
     ncc,
     tabScreenFeatures,
