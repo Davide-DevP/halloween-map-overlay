@@ -185,6 +185,22 @@ The tag must match the `package.json` version, or electron-builder uploads
 artifacts to a release whose name disagrees with the app. Watch the run before
 telling anyone to download: a failed publish still creates a draft release.
 
+**`.github/workflows/release.yml` is not on the remote yet.** GitHub refuses a
+push that adds or changes a workflow file unless the token carries the
+`workflow` scope, and the `gh` login here has only `gist, read:org, repo`. The
+file exists locally; to publish it, grant the scope once (a browser
+confirmation) and push:
+
+```bash
+gh auth refresh -h github.com -s workflow
+git add .github/workflows/release.yml
+git commit -m "Add release workflow"
+git push
+```
+
+Until that lands, tagging does nothing — build and upload with
+`npm run build:win` plus `gh release create` by hand.
+
 ## Adding maps
 
 1. Drop the source image in `maps-src/` and add its stem → display name to

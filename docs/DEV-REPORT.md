@@ -292,6 +292,51 @@ modal, `README.md` and `NOTICE`. `NOTICE` additionally states that the map
 images belong to their author and are **not** covered by the Apache-2.0 licence
 that applies to the code.
 
+## 4c. Review fixes (docs/VERIFICATION.md)
+
+An independent review returned SHIP WITH FIXES. All eight findings addressed.
+
+| # | Finding | Fix | Verified by |
+|---|---|---|---|
+| 1 | Key capture stored raw `KeyboardEvent.key` (`ArrowRight`, `" "`, `+`); `globalShortcut.register` then **threw** at boot and every later hotkey was lost, permanently | Pure `keyEventToAccelerator` + `acceleratorKeyName` in `hotkeys-constants.js` translate to Electron names and reject unmapped keys; `Hotkeys.rejectIfUnregisterable` dry-runs `register` in try/catch before persisting; `Hotkeys.safeRegister` wraps every real `register` | Electron probe: all 36 accelerators the mapper can emit registered, **0 threw**, while the 4 raw browser names all threw. Poisoned `settings-app.json` with `CommandOrControl+ArrowRight` and booted: logged `Invalid accelerator …`, app alive, renderer reached `renderer::ready`, remaining hotkeys registered — previously an unhandled rejection that killed prev-map and Ctrl+1..4 |
+| 2 | Per-map hotkey colliding with a system hotkey was saved but never registered | `save-hotkeys` refuses via `systemConflict()`; the registration skip branch now also `sendUpdate`s | Booted with `CommandOrControl+H` in `hotkeys.json`: skip logged and reported |
+| 3 | Renderer posted its whole cached settings object, reverting main-side writes (system hotkeys, `overlayX/Y`) | New `set-setting` IPC writes one key; `save-settings` merges; `Settings.set` adopts main's returned copy; `src/js/hotkeys.js` refreshes on `system-hotkeys-updated` | Code path; `save()` removed so nothing can replace the object wholesale |
+| 4 | Custom map names interpolated into HTML unescaped (self-XSS with `nodeIntegration`) | `src/shared/escape-html.js`, applied in `maps.js`, `custom.js`, `hotkeys.js`; selects built with `.val()`/`.text()` | 6 unit tests |
+| 5 | A single unmodified key could be bound globally | `keyEventToAccelerator` returns `no-modifier` and the UI refuses it | Unit test |
+| 6 | Validation errors closed the hotkey modal anyway | `data-bs-dismiss` removed from `#saveHotkeyBtn`; `save-hotkeys`/`save-system-hotkey` became `invoke` returning `{ok, message}`; modal closes only on `ok` | Code path |
+| 7 | README alt text and "releases page" wording | Alt text fixed; Download now points at the real Releases page (Task B) | — |
+| 8 | Dead code | Removed `downloadLogs`, the `debug-log` listener, `deleteDirectoryContents`, `displayToAccelerator`, `normalizeAccelerator`, the lobby-era `id: uuid.v4()` default and the `uuid` dependency; custom imports now keep their real extension (`extensionFor`) | `npm test`, asar no longer contains `uuid` |
+
+Tests went 42 → **55** (17 overlay-position, 19 map-catalog, 13 hotkeys/capture,
+6 escape-html).
+
+## 4d. Phase 1b — public repo and auto-update
+
+- **`electron-updater`** added as a runtime dependency.
+  `MainWindow.checkUpdates()` runs 4 s after the window shows, guarded by
+  `app.isPackaged` (no `isPackaged` override hack) **and** the new
+  `checkForUpdates` setting (default true, switch in Settings › General).
+  Status goes to the existing `update-message` toast; every error path only
+  logs.
+  Verified in dev: `Update check skipped: not a packaged build.`
+  Verified packaged against the live repo: `Checking for update` →
+  `Update check failed: No published versions on GitHub` → app still running
+  (6 processes). That is the offline/no-release path behaving correctly.
+- **electron-builder** `publish: {provider: github, owner: Davide-DevP, repo: halloween-map-overlay}`; the build now also emits `dist/latest.yml`, the feed manifest.
+- **README** gained a Download section (installer vs portable, and that the
+  portable build cannot self-update), a SmartScreen explanation, an update
+  section and a **Network use** section disclosing the single HTTPS request and
+  how to switch it off. The in-app FAQ gained a matching "Does it use the
+  internet?" entry, and the old "never talks to the network" claim was
+  corrected.
+- **Repository**: <https://github.com/Davide-DevP/halloween-map-overlay> —
+  public, default branch `main`, one commit
+  (`Initial release candidate 0.1.0`, authored `Davide-DevP`,
+  `Co-Authored-By: Claude Fable 5.1`). `HEAD == origin/main`.
+  `maps-src/` and `detection-fixtures/` are committed as project inputs;
+  `node_modules/`, `dist/`, `*.log` and `.claude/` are ignored.
+- **`.github/workflows/release.yml` is written but NOT pushed** — see §6.
+
 ## 5. Other fixes made along the way
 
 - `src/map/map_obs.html` loaded `renderer.js` (the overlay renderer) instead of
@@ -318,7 +363,25 @@ that applies to the code.
 - **Never tested against the real game.** The always-on-top behaviour over
   *Halloween: The Game* in borderless windowed mode is inherited from the
   reference implementation, not re-validated.
-- **`detection-fixtures/`** (7 game screenshots, 9.7 MB) is intentional — staged
+- **The release workflow could not be pushed.** GitHub rejects any push that
+  adds a `.github/workflows/` file unless the token has the `workflow` scope;
+  the `gh` login on this machine has `gist, read:org, repo` only
+  (`remote rejected … without workflow scope`, and the Contents API returns 404
+  for the same reason). Granting that scope needs a browser confirmation from
+  the account owner, which is not mine to do. `.github/workflows/release.yml`
+  is complete and sits in the working tree, untracked. To finish:
+  `gh auth refresh -h github.com -s workflow`, then
+  `git add .github/workflows/release.yml && git commit -m "Add release workflow" && git push`.
+  **Until then, pushing a tag does nothing** — releases must be built with
+  `npm run build:win` and uploaded with `gh release create` by hand. The
+  workflow itself is therefore also **untested**: no tag has been pushed, per
+  instruction.
+- **The auto-update path is only half-proven.** The "no releases yet" branch was
+  exercised against the live repo and behaves correctly, but an actual
+  download-and-install upgrade cannot be tested until a first release exists.
+  The `checkForUpdates` toggle was verified to be read, not clicked.
+- **`detection-fixtures/`** (8 game screenshots + a README from the owner,
+  9.7 MB) is intentional — staged
   for a future auto-detect phase. It is left untouched and excluded from the
   electron-builder `files` list, so it never reaches the installer. Nothing in
   the current code reads it. Note that auto-detection is out of scope for this
