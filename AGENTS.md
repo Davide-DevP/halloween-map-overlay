@@ -412,7 +412,7 @@ The payload 7z is therefore always `-mx=9 -md=1m -ms=off`. Measured on 0.2.1:
 
 | build | installer |
 |---|---|
-| `compression: "store"` (what is committed) | 93.6 MB |
+| `compression: "store"` (tried in 0.2.1, reverted) | 93.6 MB |
 | `ELECTRON_BUILDER_COMPRESSION_LEVEL=0` on top | 112.8 MB — `-mx=0` is pushed but `-md=1m` keeps LZMA on |
 | 0.2.0, no `compression` key | 92.7 MB |
 

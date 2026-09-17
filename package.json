@@ -21,7 +21,6 @@
   ],
   "build": {
     "productName": "Halloween Map Overlay",
-    "compression": "store",
     "appId": "com.halloweenthegame.mapoverlay",
     "win": {
       "target": [
