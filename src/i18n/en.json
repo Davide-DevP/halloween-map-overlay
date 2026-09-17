@@ -11,6 +11,7 @@
   "common.reset": "Reset",
   "common.error": "Error: {message}",
 
+  "nav.toggle": "Toggle navigation",
   "nav.settings": "Settings",
   "nav.custom": "Add custom image",
   "nav.faq": "FAQ",

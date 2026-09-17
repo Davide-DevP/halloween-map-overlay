@@ -215,8 +215,8 @@ class Hotkeys {
     }
 
     /**
-     * Every accelerator this app currently binds: the four system hotkeys plus
-     * whatever is in `hotkeys.json`.
+     * Every accelerator this app currently binds: every system hotkey in
+     * `SYSTEM_HOTKEY_DEFS` plus whatever is in `hotkeys.json`.
      * @returns {Set<string>}
      */
     ownAccelerators() {

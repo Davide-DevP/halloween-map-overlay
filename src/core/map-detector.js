@@ -48,9 +48,14 @@ const STATE_LOG_INTERVAL = 60000;
  *
  * One is not enough: the loading screens either side of a match sweep past the
  * menu's own layout, and a single frame caught mid-transition would blank the
- * overlay just as the next match starts. Two ticks is 2 s of menu at the search
- * cadence — instant to a player who has actually left the match, and longer
- * than any transition lasts.
+ * overlay just as the next match starts.
+ *
+ * `checkMenu` only runs while a map *has* been detected, and the loop is on its
+ * post-detection cadence by then, so two ticks is `DETECTED_INTERVAL` apart:
+ * the overlay clears **5–10 s** after the menu appears, depending on where in
+ * the poll the player left the match. That is longer than any transition lasts
+ * and short enough not to be noticed by someone who has actually gone back to
+ * the menu — they are not looking at the overlay.
  */
 const MENU_TICKS_TO_HIDE = 2;
 

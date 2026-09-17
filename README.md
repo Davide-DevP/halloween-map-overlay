@@ -86,8 +86,9 @@ When the game returns to its **main menu** the match is over, so the overlay
 clears itself and the detector forgets the map — the next <kbd>Tab</kbd> press
 in the next match detects it again, even if it is the same map. It waits for
 two consecutive readings of the menu so a loading screen cannot trigger it, and
-it only ever acts on a map it detected itself. Turn it off under
-**Settings → General → Clear the map back in the menu**.
+it only does this **after auto-detect has recognised a map in this match** (if
+you then pick a different map by hand, that one is cleared too). Turn it off
+under **Settings → General → Clear the map back in the menu**.
 
 How it works, in full:
 
@@ -257,6 +258,19 @@ The gallery, the creator filter, next/previous cycling, the
 new map up on their own. Commit `maps/`, `detection-fixtures/` and the
 regenerated `templates.json` together, and credit the author in the Credits
 modal, this README and `NOTICE` if the creator is new.
+
+### Teaching the detector what is *not* a map
+
+`detection-fixtures/` is also the negative test set. **Any PNG whose name does
+not start with `tab-` or `menu-` is a negative**: the map matcher must return
+nothing for it, and the menu matcher must not call it the main menu. Dropping
+one in is a data-only change — `npm test` discovers it and adds the assertions
+and a row in the printed score table, with no code edited.
+
+That is the cheap way to pin down a screen the detector has never seen. Good
+candidates: the Tab screen's **Player List** tab, the **pause menu**, a loading
+screen, a lobby, the store. Name them anything descriptive that avoids the two
+reserved prefixes — `playerlist-tab.png`, `pause-menu.png`, `lobby.png`.
 
 ## FAQ
 
