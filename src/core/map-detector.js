@@ -261,7 +261,9 @@ class MapDetector {
     async tick() {
         if (!this.running || this.busy) return;
         this.busy = true;
-        let interval = SEARCH_INTERVAL;
+        // Once a map has been detected the match is known for the rest of the
+        // game, so keep the slow cadence until clear-map / a different map.
+        let interval = this.lastDetected ? DETECTED_INTERVAL : SEARCH_INTERVAL;
         const started = Date.now();
         try {
             const win = this.findGameWindow();

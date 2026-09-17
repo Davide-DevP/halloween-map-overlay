@@ -75,7 +75,7 @@ idempotent.
 
 - `MapDetector(mainWindow, settings)` with `start()`, `stop()`, `isRunning()`.
 - Loop with `setTimeout` chaining (not `setInterval`), period 2000 ms while
-  searching, 4000 ms after a successful detection (a match lasts ~20 min).
+  searching, 5000 ms once a map has been detected (a match lasts ~20 min).
 - Each tick: locate the game window via `node-screenshots` `Window.all()`;
   if absent, skip (log "game window not found" at most once per minute);
   otherwise `await window.captureImage()`, downscale, → matcher. Never keep
@@ -143,6 +143,6 @@ developer, not with `MAP_PANEL_REL`.
 1. `npm test` passes including the fixture table above.
 2. `npm start` with `mapDetection: true` logs a capture tick without errors
    on this machine (the Tab screen will not be present, expect "no match").
-3. Packaged build runs the loop (`desktopCapturer` works when packaged).
+3. Packaged build runs the loop (the node-screenshots binary loads from `app.asar.unpacked`).
 4. README/FAQ privacy text updated; AGENTS.md documents the detector.
 5. Reviewer can run the fixture tests and reproduce the margins.

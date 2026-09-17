@@ -11,8 +11,8 @@ const defaultConfig = {
     minimizeToTray: false,
     disableFaqPopup: false,
     checkForUpdates: true,
-    // Automatic map detection. Off by default: it takes a screenshot of the
-    // selected display every 1.5 s while it is on.
+    // Automatic map detection. Off by default: it captures the game window
+    // every 2 s (5 s once a map is known) while the game is running.
     mapDetection: false,
     rotation: 0,
     monitor: 0,
