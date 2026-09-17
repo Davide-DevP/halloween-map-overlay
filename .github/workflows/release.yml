@@ -39,7 +39,23 @@ jobs:
 
       # The maps are committed, so there is no prepare-maps step here; this
       # builds exactly the images that are in the repository.
-      - name: Build and publish
-        run: npx electron-builder --win --publish always
+      # electron-builder builds only; the upload is done by gh below, because
+      # electron-builder's own uploader stalled for 30+ minutes on the ~97 MB
+      # installers twice (v0.3.1, v0.3.2) and ended in a GitHub 500.
+      - name: Build
+        run: npx electron-builder --win --publish never
+
+      - name: Upload release assets
+        shell: bash
+        run: |
+          ls -la dist
+          for f in dist/*.exe dist/*.blockmap dist/latest.yml; do
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "${{ github.ref_name }}" "$f" --clobber; then break; fi
+              echo "upload of $f failed (attempt $attempt), retrying in 30 s"; sleep 30
+              [ "$attempt" = 5 ] && exit 1
+            done
+          done
+          gh release view "${{ github.ref_name }}" --json assets --jq '.assets[] | "(.name) (.size)"'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
