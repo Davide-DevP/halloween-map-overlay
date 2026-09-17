@@ -5,6 +5,7 @@ const Maps = require("./js/maps.js");
 const Hotkeys = require("./js/hotkeys.js");
 const Options = require("./js/options.js");
 const Custom = require("./js/custom.js");
+const Detector = require("./js/detector.js");
 const {debugLog} = require("./js/logger.js");
 
 let timeoutHide = null;
@@ -21,6 +22,7 @@ const settings = new Settings();
 const maps = new Maps(settings);
 const hotkeys = new Hotkeys(maps, settings);
 const custom = new Custom(maps);
+const detector = new Detector(settings);
 
 document.addEventListener('DOMContentLoaded', async function () {
     $("#title").text("Halloween Map Overlay v" + await ipcRenderer.invoke('version'));
@@ -33,6 +35,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     await maps.renderGallery();
     await custom.generateCustomList();
     await hotkeys.loadHotkeys();
+    await detector.init();
 
     $('#loadingOverlay').slideUp();
     debugLog("renderer::ready",

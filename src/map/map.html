@@ -21,9 +21,29 @@
         justify-content: center;
         overflow: hidden;
     }
+    /* Name of the map, shown for a few seconds after an automatic switch.
+       Absolutely positioned so it cannot resize the window, which is sized to
+       the rotated map by the main process. Never rotated with the map: it has
+       to stay readable. */
+    #mapLabel {
+        position: absolute;
+        top: 2px;
+        left: 0;
+        right: 0;
+        display: none;
+        text-align: center;
+        font: 600 13px/1.4 "Segoe UI", system-ui, sans-serif;
+        color: #ffe9d2;
+        text-shadow: 0 0 4px #000, 0 0 2px #000;
+        pointer-events: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 </style>
 <body>
   <img src="" id="mainImg"/>
+  <div id="mapLabel"></div>
 </body>
 <script src="renderer.js"></script>
 </html>

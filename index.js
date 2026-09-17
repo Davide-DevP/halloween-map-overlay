@@ -34,6 +34,7 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     const Settings = require("./src/core/settings");
     const UserData = require("./src/core/user-data");
     const TrayController = require("./src/core/tray");
+    const MapDetector = require("./src/core/map-detector");
 
     const gotLock = app.requestSingleInstanceLock();
 
@@ -67,6 +68,7 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     const hotkeys = new Hotkeys(mainWindow, settings, mapLibrary);
     const userData = new UserData(mapLibrary);
     const trayController = new TrayController(mainWindow);
+    const mapDetector = new MapDetector(mainWindow, settings);
 
     app.on('second-instance', (event, argv) => {
         const args = argv.slice(1);
@@ -87,6 +89,8 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
         // The renderer also asks for these on load; registering here means the
         // global shortcuts work even if the window never finishes rendering.
         hotkeys.loadKeys()
+        // Opt-in, off by default; `mapDetection` remembers the home-page switch.
+        mapDetector.syncWithSettings()
     }
 
     app.whenReady().then(() => {
@@ -105,6 +109,7 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     })
 
     app.on('before-quit', () => {
+        mapDetector.stop();
         trayController.destroy();
     });
 }

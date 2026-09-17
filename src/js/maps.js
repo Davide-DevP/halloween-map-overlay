@@ -40,14 +40,18 @@ class Maps {
             self.renderGallery();
         });
 
-        // CLI second instance: `halloween-map-overlay.exe show-map=<key>`
-        ipcRenderer.on('show-map-command', (event, key) => {
+        // CLI second instance (`halloween-map-overlay.exe show-map=<key>`) and
+        // the automatic map detector, which reuses the same channel.
+        ipcRenderer.on('show-map-command', (event, key, opts = {}) => {
             const entry = findClosestMapMatch(key, self.catalog);
             if (!entry) {
                 debugLog("maps::show-map-command::no-match", key);
                 return;
             }
-            self.sendMap(entry.key);
+            debugLog("maps::show-map-command", entry.key, opts.fromDetector ? "(detector)" : "(cli)");
+            // An automatic switch names the map on the overlay for a moment —
+            // the player never asked for it, so it has to say what it did.
+            self.sendMap(entry.key, opts.fromDetector ? {mapLabel: entry.name} : {});
         });
 
         ipcRenderer.on('hotkey-pressed', (event, mapKey) => {
@@ -78,6 +82,16 @@ class Maps {
 
         ipcRenderer.on('next-map', () => self.step(nextMap));
         ipcRenderer.on('prev-map', () => self.step(prevMap));
+
+        // Clear (Ctrl+Shift+D) is not toggle-map: it also tells the detector to
+        // forget what it last saw, so the next Tab press re-detects even the
+        // same map. Without that the loop would see no change and the overlay
+        // would stay blank until the map actually changed.
+        ipcRenderer.on('clear-map', () => {
+            ipcRenderer.send('map-detector-reset');
+            self.lastKey = "";
+            self.sendMap("");
+        });
     }
 
     step(pick) {
@@ -167,8 +181,10 @@ class Maps {
     /**
      * Put a map on the overlay. `""` hides it.
      * @param {string} key catalogue key
+     * @param {{mapLabel?: string}} [opts] `mapLabel` names the map on the
+     *   overlay for a few seconds — used for automatic switches only.
      */
-    sendMap(key) {
+    sendMap(key, opts = {}) {
         // Leaving "set position" mode on would keep the overlay grabbing clicks
         if (this.options && this.options.setting) $("#unset-pos").click();
 
@@ -177,7 +193,7 @@ class Maps {
         this.currentKey = value;
         window.__activeMapKey = value;
 
-        ipcRenderer.send('map-change', value);
+        ipcRenderer.send('map-change', value, opts.mapLabel ? {mapLabel: opts.mapLabel} : {});
 
         // A map arriving mid-preview must not replace the sample image on screen
         if (this.options && this.options.previewActive) this.options.sendPreview();

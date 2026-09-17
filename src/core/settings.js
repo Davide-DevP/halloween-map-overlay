@@ -11,6 +11,9 @@ const defaultConfig = {
     minimizeToTray: false,
     disableFaqPopup: false,
     checkForUpdates: true,
+    // Automatic map detection. Off by default: it takes a screenshot of the
+    // selected display every 1.5 s while it is on.
+    mapDetection: false,
     rotation: 0,
     monitor: 0,
     overlayX: null,
@@ -20,7 +23,8 @@ const defaultConfig = {
     hotkeyToggleMap: 'CommandOrControl+H',
     hotkeyRotateMap: 'CommandOrControl+R',
     hotkeyNextMap: 'CommandOrControl+Right',
-    hotkeyPrevMap: 'CommandOrControl+Left'
+    hotkeyPrevMap: 'CommandOrControl+Left',
+    hotkeyClearMap: 'CommandOrControl+Shift+D'
 };
 
 class Settings {

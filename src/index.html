@@ -103,6 +103,13 @@
         kbd {
             background: #2c2522;
         }
+
+        .detector-bar {
+            border: 1px solid #332b27;
+            border-radius: 0.75rem;
+            background: var(--hmo-panel);
+            padding: 0.6rem 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -146,7 +153,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
 
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
         <div>
             <h1 class="h3 mb-1">Maps</h1>
             <p class="text-secondary mb-0 small">Showing on the overlay: <strong id="currentMap">None</strong></p>
@@ -160,6 +167,16 @@
             <button class="btn btn-outline-light" type="button" id="obsOpen">Open OBS window</button>
             <button class="btn btn-outline-danger" type="button" id="hide">Hide map</button>
         </div>
+    </div>
+
+    <div class="detector-bar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="mapDetectionCheck" role="switch">
+            <label class="form-check-label" for="mapDetectionCheck">
+                Auto-detect map <span class="text-secondary">(open the in-game map with <kbd>Tab</kbd>)</span>
+            </label>
+        </div>
+        <span class="small text-secondary" id="detectorStatus">Off</span>
     </div>
 
     <div class="row g-3" id="results"></div>
@@ -398,8 +415,18 @@
                     can draw on top of it.</p>
 
                 <h6>Can the app get me banned?</h6>
-                <p>It only displays image files that ship with it. It never reads the game's memory, never takes
-                    screenshots and never touches the game process in any way.</p>
+                <p>It only displays image files that ship with it. It never reads the game's memory, never injects
+                    anything and never touches the game process in any way.</p>
+
+                <h6>Does it take screenshots?</h6>
+                <p>Only if you switch <em>Auto-detect map</em> on, and it is <strong>off by default</strong>. While it
+                    is on, the app takes a screenshot of the display you selected under
+                    <em>Settings &rarr; Overlay &rarr; Monitor</em> every 2 seconds and compares it, on your own
+                    computer, against four small thumbnails of the in-game maps that ship inside the app. Nothing is
+                    saved to disk and nothing is uploaded — the only thing kept from a screenshot is which map it
+                    matched. Switch it off and no screenshot is ever taken. Note that taking the screenshot is
+                    currently expensive enough to make the machine stutter every couple of seconds on some systems;
+                    if you notice that, leave the switch off.</p>
 
                 <h6>Does it use the internet?</h6>
                 <p>Once, at startup: it asks GitHub whether a newer version of this app has been released, and
@@ -407,6 +434,14 @@
                     are never downloaded. You can turn the check off under
                     <em>Settings &rarr; General &rarr; Check for updates on startup</em>, after which the app makes
                     no network requests at all.</p>
+
+                <h6>How does auto-detect work?</h6>
+                <p>Switch <em>Auto-detect map</em> on above the gallery, then press <kbd>Tab</kbd> in the game once
+                    at the start of a match. The overlay switches to that map and names it for a few seconds. It
+                    only acts when it sees a <em>different</em> map, so picking one by hand or with a hotkey
+                    overrides it and it will not switch back. Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd>
+                    to clear the map and make it forget what it saw, so the next <kbd>Tab</kbd> press detects the
+                    same map again.</p>
 
                 <h6>The overlay is in the way</h6>
                 <p>Press <kbd>Ctrl</kbd> + <kbd>H</kbd> to hide it, or move and resize it under
