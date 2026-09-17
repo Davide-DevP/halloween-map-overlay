@@ -5,6 +5,7 @@ const {mapLabelMode} = require('../shared/settings-defaults');
 const i18n = require('./i18n');
 const {t, onChange} = i18n;
 const isWayland = require('../core/is-wayland');
+const {showStatus} = require('./status');
 
 /**
  * A display's label for the monitor picker. The OS usually supplies one
@@ -120,6 +121,12 @@ class Options {
         // Read by the detector loop on every tick, so this takes effect at once
         $("#hideInMenuCheck").on("input", async function () {
             await settings.set("hideInMenu", $(this).prop('checked'));
+        });
+        // userData, where `detector.log` lives. Main opens it with
+        // `shell.openPath` — the renderer never learns the path, it just asks.
+        $("#openLogFolder").on("click", async function () {
+            const result = await ipcRenderer.invoke('open-log-folder');
+            if (!result || !result.ok) showStatus(t('settings.openLogFolder.failed'));
         });
         $("#sizeRange").on("input", async function () {
             await settings.set("size", $(this).val());

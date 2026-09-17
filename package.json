@@ -1,6 +1,6 @@
 {
   "name": "halloween-map-overlay",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Transparent in-game map overlay for Halloween: The Game",
   "author": "Halloween Map Overlay contributors",
   "main": "index.js",

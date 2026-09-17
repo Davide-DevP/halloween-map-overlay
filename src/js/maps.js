@@ -4,6 +4,7 @@ const {findClosestMapMatch, nextMap, prevMap, listCreators, CUSTOM_CREATOR} = re
 const {escapeHtml} = require("../shared/escape-html");
 const {showStatus} = require("./status");
 const {t, onChange} = require("./i18n");
+const {shouldApplyDetected} = require("../shared/detector-rules");
 const {
     OPACITY_STEP,
     SIZE_STEP,
@@ -57,16 +58,33 @@ class Maps {
 
         // CLI second instance (`halloween-map-overlay.exe show-map=<key>`) and
         // the automatic map detector, which reuses the same channel.
+        //
+        // The detector now sends **every** accepted match (throttled per key in
+        // main), because main cannot know what the overlay is showing: it only
+        // knows what it last recognised, and after a manual pick those two are
+        // different. So this is where the decision is made — `currentKey` is
+        // owned here — and the answer goes back over `map-detector-applied` so
+        // the detector log records what actually happened.
         ipcRenderer.on('show-map-command', (event, key, opts = {}) => {
             const entry = findClosestMapMatch(key, self.catalog);
             if (!entry) {
                 debugLog("maps::show-map-command::no-match", key);
+                if (opts.fromDetector) ipcRenderer.send('map-detector-applied', {key, applied: false, reason: 'no-match'});
+                return;
+            }
+            if (opts.fromDetector && !shouldApplyDetected(self.currentKey, entry.key)) {
+                // Already on screen: no re-send, and above all no label flash.
+                debugLog("maps::show-map-command::same-as-current", entry.key);
+                ipcRenderer.send('map-detector-applied', {key: entry.key, applied: false, reason: 'same-as-current'});
                 return;
             }
             debugLog("maps::show-map-command", entry.key, opts.fromDetector ? "(detector)" : "(cli)");
             // An automatic switch names the map on the overlay for a moment —
-            // the player never asked for it, so it has to say what it did.
+            // the player never asked for it, so it has to say what it did. The
+            // name comes from the catalogue entry, not from the key main sent:
+            // the catalogue is the single source for a map's name.
             self.sendMap(entry.key, opts.fromDetector ? {mapLabel: entry.name} : {});
+            if (opts.fromDetector) ipcRenderer.send('map-detector-applied', {key: entry.key, applied: true});
         });
 
         ipcRenderer.on('hotkey-pressed', (event, mapKey) => {

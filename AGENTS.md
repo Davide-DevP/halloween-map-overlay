@@ -54,6 +54,12 @@ src/core/map-detector/matcher.js→ PURE matcher: grayscale, relative crop,
                                   64x64 area downsample, gradient magnitude,
                                   zero-mean NCC, Tab-screen gate, and the
                                   main-menu strip matcher. Tested.
+src/core/map-detector/log.js    → Detector event log (userData `detector.log`,
+                                  512 KB + one .1 backup). fs only, no electron:
+                                  the directory is injected. Tested.
+src/shared/detector-rules.js    → PURE cadence + throttle + the renderer's
+                                  "is this map already showing?" decision,
+                                  shared by main and the renderer. Tested.
 src/core/map-detector/templates.json → Generated, committed. 64x64 thumbnail
                                   per map, keyed by catalogue key, plus a
                                   separate `menu` section (96x12 nav strip).
@@ -124,7 +130,7 @@ test/                           → node:test unit tests for the pure modules.
   set at the top of `index.js`.
 - **Pure vs impure**: `map-catalog.js`, `overlay-position.js`,
   `hotkeys-constants.js`, `settings-defaults.js`, `i18n.js`,
-  `update-message.js` and `map-detector/matcher.js`
+  `update-message.js`, `detector-rules.js` and `map-detector/matcher.js`
   import nothing from
   electron or `fs` (`i18n.js` requires the two JSON catalogues and nothing
   else). Keep them that way — they are the only parts covered by
@@ -336,9 +342,34 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   landed in it; a bright patch over a tenth of the region would wreck a mean.
   Capturing only the game window removes that particular hazard, but the
   robustness is free, so keep it.
-- **Detection never fights the user.** A manual pick does not stop the loop; the
-  loop only acts on a map *different* from `lastDetected`. Poll **2000 ms** while
-  searching, **5000 ms** after a hit.
+- **Cadence: 700 ms while the game window exists, 2000 ms when it does not**
+  (`shared/detector-rules.js`, `tickInterval`). There is no post-detection
+  discount any more. 0.3.0 polled 2000/5000 ms and the owner's field report was
+  "the switch sometimes did not happen, or took so long I picked the map by
+  hand": a Tab press lasts 1-2 s and fell between ticks. Measured cost of the
+  new cadence on a 1920x1080 frame (headless bench over the real
+  `toGrayScaled` + `matchMap`, 20 ticks each):
+
+  | frame | blocking JS per tick | one core at 700 ms | event-loop peak drift |
+  |---|---|---|---|
+  | ordinary gameplay (fails the Tab gate) | 6.2 ms mean (5.7-9.4) | **0.9 %** | 12 ms |
+  | Tab screen (full NCC over 4 templates x 15 offsets) | 21.8 ms mean (19.8-42.2) | **3.1 %** | 25 ms |
+
+  Plus ~17 ms of *async native* capture that does not block the loop. Note the
+  0.1-0.9 ms figure quoted below for `matchMap()` is the **gated-out** case;
+  a frame that passes the Tab gate costs ~16 ms, and that is the number that
+  matters at this cadence. It is still only the second or two per match that
+  the player is actually holding Tab.
+- **Detection never fights the user, and main is not the judge of "changed".**
+  A manual pick does not stop the loop. Main sends `show-map-command` for
+  **every accepted match**, throttled to one per key per 2000 ms
+  (`SendThrottle`, so a held Tab does not spam IPC), and `src/js/maps.js`
+  drops it when `currentKey === key` (no re-send, no label flash) and reports
+  the verdict back on `map-detector-applied` for the log. 0.3.0 compared
+  `match.key !== lastDetected` in main, which is *not* what is on the overlay:
+  after a manual pick, the same map detected again looked unchanged and was
+  never re-applied. `lastDetected` now only gates the menu clear and drives the
+  status line. `shouldApplyDetected()` is pure and tested.
 - **`clear-map` (Ctrl+Shift+D) is not `toggle-map`.** It hides the map *and*
   sends `map-detector-reset`, which clears `lastDetected` and schedules an
   immediate tick. Without the reset, hiding a detected map would leave the
@@ -383,9 +414,11 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
      matcher, and an accepted match resets the counter.
   2. **Only while a map was detected.** The point is to undo an *automatic*
      switch, not to police the overlay. A manual pick outside a match survives.
-  3. **Two consecutive ticks** (`MENU_TICKS_TO_HIDE`). A loading screen sweeps
-     past the menu layout; one frame would blank the overlay as the next match
-     starts.
+  3. **Three consecutive ticks** (`MENU_TICKS_TO_HIDE`, in the pure rules
+     module). A loading screen sweeps past the menu layout; one frame would
+     blank the overlay as the next match starts. Two was tuned for the old
+     5000 ms cadence (10 s); at 700 ms three is ~2.1 s of steady menu, which a
+     transition cannot cover.
   4. **It hides through the renderer** (`menu-hide-map` → `Maps.sendMap("")`),
      not straight at the overlay window, so `Maps` keeps owning `currentKey` and
      Ctrl+H still restores the map. `lastDetected` is cleared for the same
@@ -394,7 +427,20 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
 - **`DEBUG=true` logs `enumerate=… capture=… match=… total=…` per tick** and an
   event-loop peak-drift line every 10 s. That instrumentation is what caught the
   original capture backend; leave it in.
-- **Never keep a frame.** No disk, no network, nothing beyond the tick.
+- **Never keep a frame.** No disk, no network, nothing beyond the tick. The
+  event log is the one thing the detector writes, and it holds **decisions
+  only**: ISO time, event name, map key, score/margin, tick ms. A test asserts
+  a written line carries exactly the fields it was handed and nothing else.
+- **`detector.log` in userData**, appended by `map-detector/log.js`: loop
+  start/stop, game window found/lost (edges only), every accepted match, every
+  frame that passed the Tab gate without an accepted map, every menu streak
+  change, every menu clear, every `show-map-command` sent, the renderer's
+  `applied`/`same-as-current` answer, and capture errors. Not gated on DEBUG —
+  it exists so the owner can send it after a session that misbehaved
+  (**Settings › General › Open log folder** → `shell.openPath(userData)`, IPC
+  `open-log-folder`). Rotated at 512 KB keeping one `.1` backup; `rotate()`
+  and the line format are pure enough to be unit tested against a temp dir.
+  A write failure is logged once and never breaks a tick.
 
 ### The capture path — do not make it heavier
 
@@ -691,4 +737,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-17 (0.3.0)*
+*Last updated: 2026-09-17 (0.3.1)*

@@ -49,6 +49,17 @@ class MainWindow {
         ipcMain.handle('install-update', async () => {
             return this.installUpdate();
         });
+        // Settings › General → "Open log folder". userData holds
+        // `detector.log` (and its one `.1` backup), which is what a field
+        // report about the detector is built from. `openPath` on the folder,
+        // never on the file: opening the log in whatever is registered for
+        // `.log` is a surprise, a file manager is not.
+        ipcMain.handle('open-log-folder', async () => {
+            const dir = app.getPath('userData');
+            const error = await shell.openPath(dir);
+            if (error) console.error('Could not open the log folder:', error);
+            return {ok: !error, path: dir};
+        });
         ipcMain.handle('version', async () => {
             // Read this app's package.json — app.getVersion() can pick up
             // Electron's own version (40.x) when running from `npm start`.

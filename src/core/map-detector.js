@@ -1,17 +1,18 @@
-const {ipcMain} = require('electron');
+const {ipcMain, app} = require('electron');
 const {Window} = require('node-screenshots');
 const {
     toGrayScaled, matchMap, matchMenu, DEFAULT_SIZE,
     MENU_TEMPLATE_WIDTH, MENU_TEMPLATE_HEIGHT
 } = require('./map-detector/matcher');
+const DetectorLog = require('./map-detector/log');
+const {
+    GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE, SLOW_TICK_MS,
+    tickInterval, SendThrottle
+} = require('../shared/detector-rules');
 const TEMPLATE_FILE = require('./map-detector/templates.json');
 
 const debug = process.env.DEBUG === 'true';
 
-/** Poll period while nothing has been recognised. */
-const SEARCH_INTERVAL = 2000;
-/** Poll period after a successful detection — a map lasts a whole match. */
-const DETECTED_INTERVAL = 5000;
 /**
  * Width the captured window is reduced to before anything looks at it. The
  * templates are 64x64 thumbnails of a region that is ~40 % of the frame, so
@@ -44,29 +45,13 @@ const MIN_WINDOW = {width: 320, height: 240};
 const STATE_LOG_INTERVAL = 60000;
 
 /**
- * Consecutive menu-matching ticks before the overlay is cleared.
- *
- * One is not enough: the loading screens either side of a match sweep past the
- * menu's own layout, and a single frame caught mid-transition would blank the
- * overlay just as the next match starts.
- *
- * `checkMenu` only runs while a map *has* been detected, and the loop is on its
- * post-detection cadence by then, so two ticks is `DETECTED_INTERVAL` apart:
- * the overlay clears **5–10 s** after the menu appears, depending on where in
- * the poll the player left the match. That is longer than any transition lasts
- * and short enough not to be noticed by someone who has actually gone back to
- * the menu — they are not looking at the overlay.
- */
-const MENU_TICKS_TO_HIDE = 2;
-
-/**
  * Automatic map detection (phase 2).
  *
  * Off by default (`mapDetection` setting). While on, it captures **the game's
- * own window** every 2 s, reduces it to 640 px wide, runs it through the pure
- * matcher in `map-detector/matcher.js`, and — when it sees the in-game Tab
- * screen showing a *different* map than the last one it recognised — tells the
- * renderer to switch, on the same `show-map-command` channel the CLI uses.
+ * own window** every 700 ms (2 s while the game is not running), reduces it to
+ * 640 px wide, runs it through the pure matcher in `map-detector/matcher.js`,
+ * and — when it sees the in-game Tab screen showing a map — tells the renderer
+ * to switch, on the same `show-map-command` channel the CLI uses.
  *
  * Deliberate choices:
  * - **The game window, not the display.** `desktopCapturer.getSources` (the
@@ -75,14 +60,22 @@ const MENU_TICKS_TO_HIDE = 2;
  *   window asynchronously for a fraction of that, and when the game is not
  *   running there is no window to capture, so a tick costs one cheap window
  *   enumeration and nothing else.
+ * - **One cadence while the game is up.** 0.3.0 polled every 2 s searching and
+ *   every 5 s after a hit; a Tab press lasts one or two seconds, so it often
+ *   fell entirely between two ticks and the switch never happened (or happened
+ *   so late the player had already picked the map by hand). See
+ *   `shared/detector-rules.js` for the numbers and their cost.
  * - The frame never leaves this function. It is not stored, not written to
  *   disk, not sent anywhere, and the only thing derived from it that survives
- *   the tick is a map name.
+ *   the tick is a map name. The event log in userData records decisions —
+ *   keys, scores, timings — and **never a pixel**.
  * - A manual pick by the user does **not** stop detection (the reference app
  *   works that way and it is wrong here): the user asked for "press Tab once
- *   and the overlay is right". Detection only acts on a map *different* from
- *   `lastDetected`, so overriding by hand is never fought over — the next Tab
- *   press showing the same map changes nothing.
+ *   and the overlay is right". Main therefore sends every accepted match (at
+ *   most once per 2 s per key) and the **renderer** decides whether anything
+ *   changes, because only it knows what the overlay is showing. Comparing
+ *   against `lastDetected` here is what made a manual pick permanent in 0.3.0:
+ *   the same map detected again looked unchanged and was never re-applied.
  * - `setTimeout` chaining rather than `setInterval`: a slow capture must not
  *   queue up ticks behind itself.
  */
@@ -106,6 +99,23 @@ class MapDetector {
         this.menuTicks = 0;
         /** True once the menu has cleared the overlay, until the next detection. */
         this.inMenu = false;
+        /** Whether the previous tick found the game window (null = not looked yet). */
+        this.windowSeen = null;
+        /** At most one `show-map-command` per key per SEND_THROTTLE ms. */
+        this.sendThrottle = new SendThrottle(SEND_THROTTLE);
+
+        /**
+         * Append-only event log in userData. Not gated on DEBUG: the whole
+         * point is that the owner can send it after a session that misbehaved.
+         * `app.getPath` works before `ready` (Settings already relies on it).
+         */
+        let logDir = null;
+        try {
+            logDir = app && typeof app.getPath === 'function' ? app.getPath('userData') : null;
+        } catch (err) {
+            console.error('Map detection: no userData path for the event log:', err && err.message);
+        }
+        this.log = new DetectorLog(logDir);
 
         // Stored as plain arrays in JSON; Float32Array once, here, so the hot
         // loop never re-allocates.
@@ -138,16 +148,32 @@ class MapDetector {
         // the reset the loop would see an unchanged map and do nothing, and the
         // overlay would stay blank for the rest of the match.
         ipcMain.on('map-detector-reset', () => self.resetLastDetected());
+        // What the renderer did with the last `show-map-command`. Main cannot
+        // know — it does not own `currentKey` — so the renderer reports back
+        // and the log holds the whole chain: match → send → applied/ignored.
+        ipcMain.on('map-detector-applied', (event, info) => {
+            const {key, applied, reason} = info || {};
+            self.log.write('applied', {
+                key: key || '',
+                applied: applied ? 'yes' : 'no',
+                reason: reason || (applied ? 'switched' : '')
+            });
+            if (debug) console.log(`map-detector: renderer ${applied ? 'applied' : 'ignored'} "${key}"${reason ? ` (${reason})` : ''}`);
+        });
     }
 
     /** Forget the last detection so even the same map is acted on again. */
     resetLastDetected() {
         if (!this.lastDetected) return;
+        this.log.write('reset', {was: this.lastDetected});
         this.lastDetected = null;
         this.lastAt = null;
         this.lastScore = null;
         this.menuTicks = 0;
         this.inMenu = false;
+        // The map was just cleared by hand: the next match on it must go out
+        // at once rather than waiting for the throttle window to expire.
+        this.sendThrottle.reset();
         if (debug) console.log('map-detector: last detection cleared.');
         this.sendStatus({state: this.running ? 'watching' : 'off'});
         // Look again now rather than sitting out the 5 s post-detection wait.
@@ -177,7 +203,15 @@ class MapDetector {
             return;
         }
         this.running = true;
-        console.log(`Map detection started (${Object.keys(this.templates).length} templates, every ${SEARCH_INTERVAL} ms).`);
+        console.log(`Map detection started (${Object.keys(this.templates).length} templates, every ${GAME_INTERVAL} ms while the game is running).`);
+        this.log.write('loop-start', {
+            templates: Object.keys(this.templates).length,
+            gameMs: GAME_INTERVAL,
+            idleMs: IDLE_INTERVAL,
+            version: require('../../package.json').version
+        });
+        this.windowSeen = null;
+        this.sendThrottle.reset();
         this.startLagProbe();
         this.sendStatus({state: 'watching'});
         this.schedule(0);
@@ -219,6 +253,9 @@ class MapDetector {
         this.lastDetected = null;
         this.menuTicks = 0;
         this.inMenu = false;
+        this.windowSeen = null;
+        this.sendThrottle.reset();
+        this.log.write('loop-stop');
         console.log('Map detection stopped.');
         this.sendStatus({state: 'off'});
     }
@@ -296,13 +333,15 @@ class MapDetector {
     async tick() {
         if (!this.running || this.busy) return;
         this.busy = true;
-        // Once a map has been detected the match is known for the rest of the
-        // game, so keep the slow cadence until clear-map / a different map.
-        let interval = this.lastDetected ? DETECTED_INTERVAL : SEARCH_INTERVAL;
+        // The cadence follows one thing only: is the game up? A Tab press is
+        // over in a second or two, so there is no "we already know the map"
+        // discount any more.
+        let interval = IDLE_INTERVAL;
         const started = Date.now();
         try {
             const win = this.findGameWindow();
             const enumeratedAt = Date.now();
+            this.noteWindow(!!win);
             if (!win) {
                 // Nothing to capture: a tick costs one window enumeration and
                 // stops here, so having the switch on while the game is closed
@@ -310,6 +349,7 @@ class MapDetector {
                 this.logState('lastMissingAt', 'game window not found — is Halloween: The Game running?');
                 return;
             }
+            interval = tickInterval(true);
 
             const image = await win.captureImage();
             if (!this.running) return;
@@ -342,6 +382,17 @@ class MapDetector {
 
             if (!match.accepted) {
                 if (match.gated) this.checkMenu(gray, outWidth, outHeight);
+                else {
+                    // The Tab screen was up but nothing was accepted: the one
+                    // case where "it did not switch" is the matcher's doing,
+                    // and the scores are the only way to tell why.
+                    this.log.write('no-match', {
+                        score: match.score,
+                        second: match.second,
+                        margin: match.margin,
+                        tickMs: this.lastTiming.total
+                    });
+                }
                 if (debug) console.log(`map-detector: no match (${width}x${height} → ${outWidth}x${outHeight}) ${this.timingLabel()}`);
                 return;
             }
@@ -350,25 +401,49 @@ class MapDetector {
             // matcher thought a moment ago.
             this.menuTicks = 0;
             this.inMenu = false;
-            interval = DETECTED_INTERVAL;
             this.lastScore = match.score;
             this.lastAt = Date.now();
-            if (match.key === this.lastDetected) {
-                if (debug) console.log(`map-detector: still "${match.key}" (${match.score.toFixed(3)}) ${this.timingLabel()}`);
-                this.sendStatus({state: 'detected', key: match.key, at: this.lastAt, score: match.score});
-                return;
-            }
-
+            const changed = match.key !== this.lastDetected;
+            // `lastDetected` still gates the menu clear and drives the status
+            // line — it no longer decides whether to send.
             this.lastDetected = match.key;
-            console.log(`Map detected: ${match.key} (score ${match.score.toFixed(3)}, margin ${match.margin.toFixed(3)}) ${this.timingLabel()}`);
-            if (this.mainWindow) this.mainWindow.send('show-map-command', match.key, {fromDetector: true});
+            this.log.write('match', {
+                key: match.key,
+                score: match.score,
+                margin: match.margin,
+                tickMs: this.lastTiming.total,
+                changed: changed ? 'yes' : 'no'
+            });
+            if (changed) {
+                console.log(`Map detected: ${match.key} (score ${match.score.toFixed(3)}, margin ${match.margin.toFixed(3)}) ${this.timingLabel()}`);
+            } else if (debug) {
+                console.log(`map-detector: still "${match.key}" (${match.score.toFixed(3)}) ${this.timingLabel()}`);
+            }
+            // Every accepted match is offered to the renderer, throttled per
+            // key so a held Tab does not spam IPC. The renderer drops it when
+            // that map is already on the overlay, which is the only place the
+            // answer is actually known.
+            if (this.sendThrottle.allow(match.key, this.lastAt)) {
+                this.log.write('send', {key: match.key});
+                if (this.mainWindow) this.mainWindow.send('show-map-command', match.key, {fromDetector: true});
+            }
             this.sendStatus({state: 'detected', key: match.key, at: this.lastAt, score: match.score});
         } catch (err) {
+            this.log.write('error', {message: (err && err.message) || String(err)});
             this.logState('lastErrorAt', (err && err.message) || String(err), 'error');
         } finally {
             this.busy = false;
+            const spent = Date.now() - started;
+            if (spent >= SLOW_TICK_MS) this.log.write('slow-tick', {tickMs: spent});
             this.schedule(interval);
         }
+    }
+
+    /** Log the game window appearing and disappearing — edges only. */
+    noteWindow(present) {
+        if (this.windowSeen === present) return;
+        this.windowSeen = present;
+        this.log.write(present ? 'window-found' : 'window-lost');
     }
 
     /**
@@ -402,8 +477,9 @@ class MapDetector {
             height: this.menuHeight
         });
         if (!menu.accepted) {
-            // A single non-menu frame breaks the run: the two ticks have to be
+            // A single non-menu frame breaks the run: the ticks have to be
             // consecutive or a flicker during a loading screen would count.
+            if (this.menuTicks) this.log.write('menu-streak', {ticks: 0, score: menu.score, broke: 'yes'});
             this.menuTicks = 0;
             if (debug && menu.score > 0.5) {
                 console.log(`map-detector: menu score ${menu.score.toFixed(3)} (below threshold)`);
@@ -412,6 +488,7 @@ class MapDetector {
         }
 
         this.menuTicks++;
+        this.log.write('menu-streak', {ticks: this.menuTicks, of: MENU_TICKS_TO_HIDE, score: menu.score});
         if (debug) console.log(`map-detector: menu score ${menu.score.toFixed(3)} (tick ${this.menuTicks}/${MENU_TICKS_TO_HIDE})`);
         if (this.menuTicks < MENU_TICKS_TO_HIDE) return;
 
@@ -421,6 +498,10 @@ class MapDetector {
         this.lastDetected = null;
         this.lastAt = null;
         this.lastScore = null;
+        // The map is gone from the overlay, so the next detection of it has to
+        // go out immediately rather than being eaten by the throttle.
+        this.sendThrottle.reset();
+        this.log.write('menu-clear', {was, score: menu.score});
         console.log(`Main menu detected (score ${menu.score.toFixed(3)}) — clearing "${was}" from the overlay.`);
         // Through the renderer, not straight at the overlay window: `Maps` owns
         // which map is current, and hiding behind its back would leave Ctrl+H
@@ -436,7 +517,10 @@ class MapDetector {
 }
 
 module.exports = MapDetector;
-module.exports.SEARCH_INTERVAL = SEARCH_INTERVAL;
-module.exports.DETECTED_INTERVAL = DETECTED_INTERVAL;
+// The cadence itself lives in the pure `shared/detector-rules.js`; re-exported
+// here so nothing that already reads it off the loop has to learn a new path.
+module.exports.GAME_INTERVAL = GAME_INTERVAL;
+module.exports.IDLE_INTERVAL = IDLE_INTERVAL;
+module.exports.SEND_THROTTLE = SEND_THROTTLE;
 module.exports.CAPTURE_WIDTH = CAPTURE_WIDTH;
 module.exports.MENU_TICKS_TO_HIDE = MENU_TICKS_TO_HIDE;

@@ -85,7 +85,8 @@ only hides the overlay.)
 When the game returns to its **main menu** the match is over, so the overlay
 clears itself and the detector forgets the map — the next <kbd>Tab</kbd> press
 in the next match detects it again, even if it is the same map. It waits for
-two consecutive readings of the menu so a loading screen cannot trigger it, and
+three consecutive readings of the menu (about two seconds) so a loading screen
+cannot trigger it, and
 it only does this **after auto-detect has recognised a map in this match** (if
 you then pick a different map by hand, that one is cleared too). Turn it off
 under **Settings → General → Clear the map back in the menu**.
@@ -93,8 +94,10 @@ under **Settings → General → Clear the map back in the menu**.
 How it works, in full:
 
 - While the switch is on, the app captures **the game's own window** — not your
-  screen, not any other window — every 2 seconds, and every 5 seconds once it
-  has recognised a map. The image is immediately reduced to 640 pixels wide.
+  screen, not any other window — about every 0.7 seconds while the game is
+  running, and every 2 seconds while it is not. The image is immediately
+  reduced to 640 pixels wide. (Up to 0.3.0 it was every 2 seconds, and every 5
+  once a map had been recognised, which regularly missed a short Tab press.)
 - **Only while the game is running.** If *Halloween: The Game* is not open there
   is no window to capture and nothing is captured; the app just checks whether
   the window exists, which takes a fraction of a millisecond.
@@ -104,13 +107,22 @@ How it works, in full:
   and never leaves the process; the only thing that outlives the comparison is
   the name of the map it matched.
 - It is **off by default** and captures nothing at all while it is off.
-- It only acts when it sees a map *different* from the last one it recognised,
-  so picking a map by hand or with a hotkey overrides it and is not fought over.
+- It only switches when the map it sees is **not the one already on the
+  overlay**, so a map you picked by hand is never replaced by itself — and a
+  hand-picked map *is* replaced the moment the game shows a different one.
 - It reads pixels out of the game's window, exactly like a screen recorder does.
   It does not read the game's memory, inject code or touch the game process.
 
 It needs the Tab (Objectives) screen to be visible in the game window, so the
 game has to be in **Borderless Windowed** (see the FAQ) and not minimized.
+
+**If detection misbehaves.** The app keeps a small text log of what the
+detector decided — which map, with what score, how long the check took, and
+whether the overlay actually switched. It contains no images and nothing about
+your system; it is only ever written to your own computer and is never sent
+anywhere. Open **Settings → General → Open log folder** and send
+`detector.log` (and `detector.log.1` if it is there) with your report. The file
+is capped at 512 KB with one backup, so it cannot grow without bound.
 
 ## The map name on the overlay
 
@@ -312,6 +324,20 @@ Security → Virus & threat protection → Manage settings → Exclusions** remo
 that too.
 
 ## Changelog
+
+### 0.3.1
+
+- **Auto-detect reacts to a short <kbd>Tab</kbd> press.** While the game is
+  running the check now runs about every 0.7 s instead of every 2-5 s, so a
+  one-second glance at the Objectives screen is no longer missed.
+- **A map picked by hand is no longer sticky.** If you override the detector,
+  the next time the game shows a map the overlay follows it again — including
+  the same map you had overridden.
+- **Back-in-menu clearing waits for three readings** instead of two, which the
+  faster check makes just as quick in real time and harder to fool.
+- **A log you can send.** **Settings → General → Open log folder** opens the
+  folder holding `detector.log`, a plain-text record of the detector's
+  decisions — no images, nothing sent anywhere. See *Auto-detect map*.
 
 ### 0.3.0
 

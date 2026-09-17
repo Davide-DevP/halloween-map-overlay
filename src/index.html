@@ -267,10 +267,16 @@
                             <input class="form-check-input" type="checkbox" id="checkForUpdatesCheck" role="switch">
                             <label class="form-check-label" for="checkForUpdatesCheck" data-i18n="settings.checkForUpdates">Check for updates on startup</label>
                         </div>
-                        <small class="text-secondary d-block" data-i18n="settings.checkForUpdates.help">The only network
-                            request this app makes: one HTTPS call to GitHub Releases at startup to see whether a newer
-                            version exists. Turn it off to run fully offline. Map images are never downloaded — they
-                            ship inside the app.</small>
+                        <small class="text-secondary d-block mb-3" data-i18n="settings.checkForUpdates.help">The only
+                            network request this app makes: one HTTPS call to GitHub Releases at startup to see whether
+                            a newer version exists. Turn it off to run fully offline. Map images are never downloaded —
+                            they ship inside the app.</small>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="openLogFolder"
+                                data-i18n="settings.openLogFolder">Open log folder
+                        </button>
+                        <small class="text-secondary d-block mt-2" data-i18n-html="settings.openLogFolder.help">If
+                            auto-detect misbehaves, open this folder and send <code>detector.log</code> — it records
+                            what the detector decided, never any image.</small>
                     </div>
 
                     <!-- Overlay -->
