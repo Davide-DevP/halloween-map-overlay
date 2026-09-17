@@ -436,9 +436,12 @@ switch that really stores it is `nsis.differentialPackage: false`, and
 `NsisTarget.js` makes the `Setup.exe.blockmap` conditional on that same flag
 (line ~308), so it also throws away differential updates: every future update
 would download the whole installer. The two goals are mutually exclusive as
-electron-builder stands. The key is left in as a statement of intent and
-because it does store the stub; **do not claim in a release note that it
-shrank the install freeze** until someone measures an actual install.
+electron-builder stands. The key was therefore **removed again** rather than
+left in pretending to do something. The install's cost is mostly disk anyway
+(~350 MB unpacked to temp, then copied), which no compression setting changes;
+0.2.1 makes that cost *visible* with a one-click installer window instead of
+trying to make it smaller. Do not re-add `compression` expecting a faster
+install.
 
 **The procedure, in order. Nothing else publishes anything.**
 
