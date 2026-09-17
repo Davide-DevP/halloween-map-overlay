@@ -335,7 +335,12 @@ Tests went 42 → **55** (17 overlay-position, 19 map-catalog, 13 hotkeys/captur
   `Co-Authored-By: Claude Fable 5.1`). `HEAD == origin/main`.
   `maps-src/` and `detection-fixtures/` are committed as project inputs;
   `node_modules/`, `dist/`, `*.log` and `.claude/` are ignored.
-- **`.github/workflows/release.yml` is written but NOT pushed** — see §6.
+- **`.github/workflows/release.yml`**: on a pushed `v*` tag only, windows-latest,
+  `npm ci` → `npm test` → `npx electron-builder --win --publish always` with
+  `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}` and `permissions: contents: write`.
+  It is on `main` and GitHub lists it as an active workflow. **No tag was
+  pushed**, per instruction — the first release waits on the owner's in-game
+  test.
 
 ## 5. Other fixes made along the way
 
@@ -363,19 +368,18 @@ Tests went 42 → **55** (17 overlay-position, 19 map-catalog, 13 hotkeys/captur
 - **Never tested against the real game.** The always-on-top behaviour over
   *Halloween: The Game* in borderless windowed mode is inherited from the
   reference implementation, not re-validated.
-- **The release workflow could not be pushed.** GitHub rejects any push that
-  adds a `.github/workflows/` file unless the token has the `workflow` scope;
-  the `gh` login on this machine has `gist, read:org, repo` only
-  (`remote rejected … without workflow scope`, and the Contents API returns 404
-  for the same reason). Granting that scope needs a browser confirmation from
-  the account owner, which is not mine to do. `.github/workflows/release.yml`
-  is complete and sits in the working tree, untracked. To finish:
-  `gh auth refresh -h github.com -s workflow`, then
-  `git add .github/workflows/release.yml && git commit -m "Add release workflow" && git push`.
-  **Until then, pushing a tag does nothing** — releases must be built with
-  `npm run build:win` and uploaded with `gh release create` by hand. The
-  workflow itself is therefore also **untested**: no tag has been pushed, per
-  instruction.
+- **The release workflow has never run.** No tag has been pushed, by
+  instruction, so `release.yml` is unexercised — the first `v*` tag is also the
+  first test of it. Its `npm ci` step in particular has not been proven on a
+  clean runner.
+- Worth knowing for next time: the initial push made by
+  `gh repo create --source . --push` was **rejected** for containing a workflow
+  file (*"refusing to allow an OAuth App to create or update workflow … without
+  `workflow` scope"*; the Contents API returned 404 for the same reason), yet an
+  ordinary `git push` of that same file to the now-existing repo succeeded with
+  the identical token. The workflow is on `main` and GitHub lists it as an
+  active workflow. The first commit therefore went up without `.github/`, and
+  the workflow arrived in the second.
 - **The auto-update path is only half-proven.** The "no releases yet" branch was
   exercised against the live repo and behaves correctly, but an actual
   download-and-install upgrade cannot be tested until a first release exists.

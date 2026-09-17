@@ -185,21 +185,18 @@ The tag must match the `package.json` version, or electron-builder uploads
 artifacts to a release whose name disagrees with the app. Watch the run before
 telling anyone to download: a failed publish still creates a draft release.
 
-**`.github/workflows/release.yml` is not on the remote yet.** GitHub refuses a
-push that adds or changes a workflow file unless the token carries the
-`workflow` scope, and the `gh` login here has only `gist, read:org, repo`. The
-file exists locally; to publish it, grant the scope once (a browser
-confirmation) and push:
+Gotcha: the very first push, the one `gh repo create --source . --push` makes,
+is rejected if it contains a workflow file — *"refusing to allow an OAuth App
+to create or update workflow `.github/workflows/release.yml` without `workflow`
+scope"* — even though an ordinary `git push` of the same file to the
+now-existing repo goes through with the same token. If it bites again, push the
+first commit without `.github/`, then commit and push the workflow separately.
+Should a later push hit the scope wall for real:
+`gh auth refresh -h github.com -s workflow` (needs a browser confirmation from
+the account owner).
 
-```bash
-gh auth refresh -h github.com -s workflow
-git add .github/workflows/release.yml
-git commit -m "Add release workflow"
-git push
-```
-
-Until that lands, tagging does nothing — build and upload with
-`npm run build:win` plus `gh release create` by hand.
+The workflow has **never actually run** — no tag has been pushed yet, by
+instruction. Treat the first `v*` tag as the test of it and watch the run.
 
 ## Adding maps
 
