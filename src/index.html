@@ -153,7 +153,8 @@
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
             <div>
                 <strong id="updateReadyHeadline">A new version is ready.</strong>
-                Restart to update &mdash; takes a few seconds, the app reopens by itself.
+                Restart and update &mdash; the app closes, installs for a few seconds (disk-heavy, an
+                installer window shows progress) and reopens by itself.
             </div>
             <div class="d-flex align-items-center gap-3">
                 <button type="button" class="btn btn-success btn-sm" id="updateRestart">Restart and update</button>
@@ -451,10 +452,12 @@
                 <h6>How do updates work?</h6>
                 <p>When a newer version exists it is downloaded quietly in the background, and then a green banner
                     appears at the top of this window. <strong>Nothing is installed until you press
-                    <em>Restart and update</em></strong> there (or in the tray menu): the app closes, the installer
-                    runs for a few seconds and the app opens again by itself. Press <em>Later</em> and the banner
-                    goes away for now &mdash; the update stays waiting for the next time you start the app. Closing
-                    or quitting the app never installs anything.</p>
+                    <em>Restart and update</em></strong> there (or in the tray menu). The app then closes and a small
+                    installer window appears showing progress; it works the disk hard for a few seconds, and then the
+                    app reopens by itself. You are not asked anything and Windows does not prompt for permission
+                    &mdash; it installs only for your own user account. Press <em>Later</em> and the banner goes away
+                    for now; the update stays waiting for the next time you start the app. Closing or quitting the
+                    app never installs anything.</p>
 
                 <h6>How does auto-detect work?</h6>
                 <p>Switch <em>Auto-detect map</em> on above the gallery, then press <kbd>Tab</kbd> in the game once

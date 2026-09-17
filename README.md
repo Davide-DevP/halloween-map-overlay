@@ -129,12 +129,16 @@ downloads it in the background; progress appears in the status message at the
 bottom right. **Nothing is installed until you ask for it.** Once the download
 finishes a green banner appears at the top of the app window:
 
-> Version X.Y.Z is ready. Restart to update — takes a few seconds, the app
-> reopens by itself.
+> Version X.Y.Z is ready. Restart and update — the app closes, installs for a
+> few seconds (disk-heavy, an installer window shows progress) and reopens by
+> itself.
 
-Press **Restart and update** (there, or in the tray menu) and the app closes,
-installs and starts itself back up, taking a few seconds. Press **Later** and
-the banner goes away until the next start; the downloaded update keeps waiting.
+Press **Restart and update** (there, or in the tray menu). The app closes, a
+small installer window appears and shows its progress while it unpacks — a few
+seconds of heavy disk activity — and then the app starts itself back up. You are
+not asked anything on the way through, and Windows does not raise a permission
+prompt: it is a per-user install. Press **Later** and the banner goes away until
+the next start; the downloaded update keeps waiting.
 
 **Closing or quitting the app never installs anything.** Earlier versions used
 electron-updater's default, which ran the installer silently on quit — a

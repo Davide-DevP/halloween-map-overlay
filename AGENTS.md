@@ -188,8 +188,9 @@ test/                           → node:test unit tests for the pure modules.
   of waiting for the push. `installUpdate()` sets `app.isQuiting = true` first,
   or the window's `close` handler hides the window and `quitAndInstall`'s
   `app.quit()` never completes; then it stops the detector, destroys the tray
-  and calls `autoUpdater.quitAndInstall(true, true)` (silent, force run after)
-  so the app relaunches itself. "Later" in the banner is renderer-session state
+  and calls `autoUpdater.quitAndInstall(false, true)` — **not** silent, so the
+  one-click installer shows its progress window and the disk-heavy seconds read
+  as an install rather than a freeze. "Later" in the banner is renderer-session state
   only — main and the tray keep the pending update. The
   `checkForUpdatesAndNotify` toast text is overridden too; its default promises
   an install on exit, which is now a lie.
@@ -397,6 +398,20 @@ npm run build:win      # NSIS installer + portable exe into dist/
 published by an ordinary push to `main`. It runs `npm ci`, `npm test`, then
 `npx electron-builder --win --publish always` with the workflow's own
 `GITHUB_TOKEN` (needs `permissions: contents: write`).
+
+**The NSIS build is `oneClick: true`, `perMachine: false`, and that is load
+bearing for the update flow.** `installSection.nsh` relaunches the app after a
+one-click install when `${ifNot} ${Silent}` **or** `${isForceRun}`; the
+*assisted* branch (`oneClick: false`) does so only when `isForceRun` **and**
+`Silent`. So a visible (non-silent) install under the old assisted installer
+would have left the user staring at a finish page with the app closed. Visible
+install and automatic relaunch therefore come as a pair — changing either one
+back breaks the other. `perMachine: false` with `oneClick: true` also drops
+`INSTALL_MODE_PER_ALL_USERS_REQUIRED` (`NsisTarget.js:445`, which the assisted
+build always defined), so the self-update no longer raises a UAC prompt — an
+unattended prompt would have stalled the update behind a dialog nobody sees.
+Note `allowToChangeInstallationDirectory` must be `false`: electron-builder
+refuses `oneClick: true` together with it.
 
 **`build.compression: "store"` barely does anything for the NSIS target —
 measured, not assumed.** It was set to kill the several-second 100 % CPU spike

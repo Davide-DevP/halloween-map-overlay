@@ -247,6 +247,10 @@ class MainWindow {
         // default; `installUpdate()` is now the one and only installer trigger.
         autoUpdater.autoDownload = true;
         autoUpdater.autoInstallOnAppQuit = false;
+        // With a non-silent install this, not quitAndInstall's second argument,
+        // is what relaunches the app. Default is already true; pinned so a
+        // library default cannot quietly strand the user on a closed app.
+        autoUpdater.autoRunAppAfterInstall = true;
 
         const self = this;
         // show() runs again when the window is reopened from the tray
@@ -304,6 +308,20 @@ class MainWindow {
      * `app.isQuiting` has to be set first or the main window's `close` handler
      * hides the window instead of letting it go whenever minimize-to-tray is
      * on, and `app.quit()` inside `quitAndInstall` would never complete.
+     *
+     * Why the relaunch survives a non-silent install, traced through
+     * electron-updater/electron-builder rather than assumed:
+     * - `BaseUpdater.quitAndInstall(isSilent, isForceRunAfter)` calls
+     *   `install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall)`.
+     *   With `isSilent = false` our `true` is *ignored* and
+     *   `autoRunAppAfterInstall` decides — hence it is set explicitly below.
+     * - `NsisUpdater.doInstall` then spawns the installer with
+     *   `["--updated", "--force-run"]` and no `/S`, so the UI shows.
+     * - `templates/nsis/installSection.nsh` relaunches under `ONE_CLICK` +
+     *   `RUN_AFTER_FINISH` when `${ifNot} ${Silent}` **or** `${isForceRun}`;
+     *   both hold here. The *assisted* branch (`oneClick: false`) starts the
+     *   app only when `isForceRun` **and** `Silent`, so a visible install would
+     *   not relaunch — which is why `nsis.oneClick` is now `true`.
      */
     installUpdate() {
         if (!this.pendingUpdateVersion) {
@@ -316,9 +334,12 @@ class MainWindow {
             if (mapDetector && typeof mapDetector.stop === 'function') mapDetector.stop();
             if (tray && typeof tray.destroy === 'function') tray.destroy();
             console.log(`Installing update ${this.pendingUpdateVersion} and restarting.`);
-            // (isSilent, isForceRunAfter): no installer UI, and the app comes
-            // back on its own once NSIS is done.
-            autoUpdater.quitAndInstall(true, true);
+            // (isSilent = false, isForceRunAfter = true). Not silent on purpose:
+            // the one-click installer then shows its progress window, so the
+            // several disk-heavy seconds look like an install instead of a
+            // frozen machine. See installUpdate()'s doc comment for why the
+            // second argument is belt-and-braces rather than the deciding one.
+            autoUpdater.quitAndInstall(false, true);
             return true;
         } catch (err) {
             console.error('Install update failed:', err && err.message);
