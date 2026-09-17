@@ -2,6 +2,13 @@ const {ipcRenderer} = require("electron");
 const {debugLog} = require("./logger");
 const {findClosestMapMatch, nextMap, prevMap, listCreators, CUSTOM_CREATOR} = require("../core/map-catalog");
 const {escapeHtml} = require("../shared/escape-html");
+const {showStatus} = require("./status");
+const {
+    OPACITY_STEP,
+    SIZE_STEP,
+    stepOpacity,
+    stepSize
+} = require("../shared/hotkeys-constants");
 
 /**
  * Home view: the map gallery and everything that decides which map the overlay
@@ -92,6 +99,34 @@ class Maps {
             self.lastKey = "";
             self.sendMap("");
         });
+
+        // Opacity/size from the keyboard. Same shape as rotate-map: write the
+        // setting, keep an open settings slider in step, then re-send whatever
+        // the overlay is showing so main recomputes the window bounds.
+        ipcRenderer.on('opacity-up', () => self.nudgeOpacity(OPACITY_STEP));
+        ipcRenderer.on('opacity-down', () => self.nudgeOpacity(-OPACITY_STEP));
+        ipcRenderer.on('size-up', () => self.nudgeSize(SIZE_STEP));
+        ipcRenderer.on('size-down', () => self.nudgeSize(-SIZE_STEP));
+    }
+
+    /** Ctrl+Up / Ctrl+Down: opacity in tenths, clamped to 0.1..1.0. */
+    async nudgeOpacity(delta) {
+        const next = stepOpacity(this.settings.raw("opacity"), delta);
+        await this.settings.set("opacity", next);
+        // The slider only exists while the settings modal has been built; when
+        // it is open it has to follow, or the next drag would snap back.
+        if ($("#opacityRange").length) $("#opacityRange").val(String(next));
+        this.sendMap(this.currentKey || this.lastKey);
+        showStatus(`Opacity ${Math.round(next * 100)} %`);
+    }
+
+    /** Ctrl+Shift+Up / Ctrl+Shift+Down: overlay width in 25 px steps. */
+    async nudgeSize(delta) {
+        const next = stepSize(this.settings.raw("size"), delta);
+        await this.settings.set("size", next);
+        if ($("#sizeRange").length) $("#sizeRange").val(String(next));
+        this.sendMap(this.currentKey || this.lastKey);
+        showStatus(`Size ${next} px`);
     }
 
     step(pick) {

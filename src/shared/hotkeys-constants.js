@@ -38,6 +38,32 @@ const SYSTEM_HOTKEY_DEFS = {
         defaultAccelerator: 'CommandOrControl+Shift+D',
         description: 'Clear the map and re-detect',
         action: 'clear-map'
+    },
+    // Opacity and size from the keyboard: the overlay is adjusted mid-match,
+    // when opening the settings modal means alt-tabbing out of the game.
+    'opacity-up': {
+        id: 'opacity-up',
+        defaultAccelerator: 'CommandOrControl+Up',
+        description: 'Make the overlay more opaque',
+        action: 'opacity-up'
+    },
+    'opacity-down': {
+        id: 'opacity-down',
+        defaultAccelerator: 'CommandOrControl+Down',
+        description: 'Make the overlay more transparent',
+        action: 'opacity-down'
+    },
+    'size-up': {
+        id: 'size-up',
+        defaultAccelerator: 'CommandOrControl+Shift+Up',
+        description: 'Make the overlay bigger',
+        action: 'size-up'
+    },
+    'size-down': {
+        id: 'size-down',
+        defaultAccelerator: 'CommandOrControl+Shift+Down',
+        description: 'Make the overlay smaller',
+        action: 'size-down'
     }
 };
 
@@ -47,8 +73,55 @@ const ACTION_TO_SETTING_KEY = {
     'rotate-map': 'hotkeyRotateMap',
     'next-map': 'hotkeyNextMap',
     'prev-map': 'hotkeyPrevMap',
-    'clear-map': 'hotkeyClearMap'
+    'clear-map': 'hotkeyClearMap',
+    'opacity-up': 'hotkeyOpacityUp',
+    'opacity-down': 'hotkeyOpacityDown',
+    'size-up': 'hotkeySizeUp',
+    'size-down': 'hotkeySizeDown'
 };
+
+/*
+ * ─── Overlay step hotkeys ───────────────────────────────────────────────────
+ *
+ * The bounds are shared: `src/js/maps.js` applies them when a hotkey fires and
+ * `src/index.html` uses the same numbers for the Settings sliders, so the two
+ * can never drift apart.
+ */
+const OPACITY_STEP = 0.1;
+const OPACITY_MIN = 0.1;
+const OPACITY_MAX = 1.0;
+const SIZE_STEP = 25;
+const SIZE_MIN = 50;
+const SIZE_MAX = 800;
+
+/**
+ * Nudge the overlay opacity by whole tenths.
+ *
+ * 0.1 is not representable in binary floating point, so repeated addition walks
+ * off the grid (0.7 + 0.1 = 0.7999999999999999) and the value stops matching a
+ * slider step. Rounding to one decimal after every step keeps it on 0.1..1.0.
+ *
+ * @param {number} current stored opacity (anything unusable falls back to 0.5)
+ * @param {number} delta   signed multiple of OPACITY_STEP
+ * @returns {number}
+ */
+function stepOpacity(current, delta) {
+    const base = Number.isFinite(parseFloat(current)) ? parseFloat(current) : 0.5;
+    const next = Math.round((base + delta) * 10) / 10;
+    return Math.min(OPACITY_MAX, Math.max(OPACITY_MIN, next));
+}
+
+/**
+ * Nudge the overlay width in whole pixels, clamped to the slider's own range.
+ * @param {number} current stored size (anything unusable falls back to 250)
+ * @param {number} delta   signed multiple of SIZE_STEP
+ * @returns {number}
+ */
+function stepSize(current, delta) {
+    const parsed = parseInt(current, 10);
+    const base = Number.isFinite(parsed) ? parsed : 250;
+    return Math.min(SIZE_MAX, Math.max(SIZE_MIN, base + delta));
+}
 
 /** Only the number row can be handed out as a default map binding. */
 const MAX_DEFAULT_MAP_HOTKEYS = 9;
@@ -242,6 +315,14 @@ module.exports = {
     MAX_DEFAULT_MAP_HOTKEYS,
     MODIFIER_ONLY_KEYS,
     ACCELERATOR_MODIFIERS,
+    OPACITY_STEP,
+    OPACITY_MIN,
+    OPACITY_MAX,
+    SIZE_STEP,
+    SIZE_MIN,
+    SIZE_MAX,
+    stepOpacity,
+    stepSize,
     hasModifier,
     buildDefaultMapHotkeys,
     acceleratorToDisplay,

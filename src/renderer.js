@@ -7,16 +7,11 @@ const Options = require("./js/options.js");
 const Custom = require("./js/custom.js");
 const Detector = require("./js/detector.js");
 const {debugLog} = require("./js/logger.js");
+const {showStatus} = require("./js/status.js");
 const {updateReadyHeadline} = require("./shared/update-message.js");
 
-let timeoutHide = null;
 ipcRenderer.on("update-message", async (event, message) => {
-    $("#logStatus").text(message).slideDown();
-    if (timeoutHide !== null) clearTimeout(timeoutHide);
-    timeoutHide = setTimeout(function () {
-        $("#logStatus").slideUp();
-        timeoutHide = null;
-    }, 5000);
+    showStatus(message);
 });
 
 // The toast above auto-hides after 5 s; a downloaded update is too important

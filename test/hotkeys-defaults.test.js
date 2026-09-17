@@ -8,9 +8,18 @@ const {
     acceleratorToDisplay,
     acceleratorKeyName,
     keyEventToAccelerator,
-    hasModifier
+    hasModifier,
+    OPACITY_STEP,
+    OPACITY_MIN,
+    OPACITY_MAX,
+    SIZE_STEP,
+    SIZE_MIN,
+    SIZE_MAX,
+    stepOpacity,
+    stepSize
 } = require('../src/shared/hotkeys-constants');
 const {buildCatalog} = require('../src/core/map-catalog');
+const {DEFAULT_SETTINGS} = require('../src/shared/settings-defaults');
 
 const catalog = buildCatalog([
     'deftyconchgaming/East Haddonfield.png',
@@ -27,12 +36,27 @@ function counter() {
 
 test('the system hotkeys are the documented ones', () => {
     assert.deepStrictEqual(Object.keys(SYSTEM_HOTKEY_DEFS),
-        ['toggle-map', 'rotate-map', 'next-map', 'prev-map', 'clear-map']);
+        ['toggle-map', 'rotate-map', 'next-map', 'prev-map', 'clear-map',
+            'opacity-up', 'opacity-down', 'size-up', 'size-down']);
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['toggle-map'].defaultAccelerator, 'CommandOrControl+H');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator, 'CommandOrControl+R');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['next-map'].defaultAccelerator, 'CommandOrControl+Right');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['prev-map'].defaultAccelerator, 'CommandOrControl+Left');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['clear-map'].defaultAccelerator, 'CommandOrControl+Shift+D');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-up'].defaultAccelerator, 'CommandOrControl+Up');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-down'].defaultAccelerator, 'CommandOrControl+Down');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-up'].defaultAccelerator, 'CommandOrControl+Shift+Up');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-down'].defaultAccelerator, 'CommandOrControl+Shift+Down');
+});
+
+test('every system hotkey ships a stored default accelerator', () => {
+    // `Hotkeys.getSystemHotkeys()` reads the settings key, falling back to the
+    // definition. The two must agree or a fresh install would report a binding
+    // in Settings › Hotkeys that is not the one registered.
+    for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        const settingKey = ACTION_TO_SETTING_KEY[actionId];
+        assert.strictEqual(DEFAULT_SETTINGS[settingKey], def.defaultAccelerator, actionId);
+    }
 });
 
 test('every system hotkey default is registrable and carries a modifier', () => {
@@ -96,8 +120,12 @@ test('no more than nine default bindings, whatever the catalogue holds', () => {
 });
 
 test('defaults never collide with a system hotkey', () => {
-    const defaults = buildDefaultMapHotkeys(catalog, counter());
+    // Nine numbers, so check the full Ctrl+1..Ctrl+9 range rather than only the
+    // ones this catalogue happens to hand out.
+    const many = buildCatalog(Array.from({length: 9}, (_, i) => `deftyconchgaming/Map ${String.fromCharCode(65 + i)}.png`));
+    const defaults = buildDefaultMapHotkeys(many, counter());
     const system = new Set(Object.values(SYSTEM_HOTKEY_DEFS).map(d => d.defaultAccelerator));
+    assert.strictEqual(Object.keys(defaults).length, 9);
     for (const accel of Object.keys(defaults)) {
         assert.ok(!system.has(accel), `${accel} collides with a system hotkey`);
     }
@@ -123,6 +151,59 @@ test('custom maps never get a default binding', () => {
 test('an empty catalogue produces no bindings', () => {
     assert.deepStrictEqual(buildDefaultMapHotkeys([], counter()), {});
     assert.deepStrictEqual(buildDefaultMapHotkeys(null, counter()), {});
+});
+
+// ─── Opacity / size steps ──────────────────────────────────────
+
+test('stepOpacity walks whole tenths and clamps to 0.1..1.0', () => {
+    assert.strictEqual(stepOpacity(0.5, OPACITY_STEP), 0.6);
+    assert.strictEqual(stepOpacity(0.5, -OPACITY_STEP), 0.4);
+    assert.strictEqual(stepOpacity(OPACITY_MAX, OPACITY_STEP), OPACITY_MAX);
+    assert.strictEqual(stepOpacity(OPACITY_MIN, -OPACITY_STEP), OPACITY_MIN);
+    // Stored values arrive from a range input, i.e. as strings.
+    assert.strictEqual(stepOpacity("0.3", OPACITY_STEP), 0.4);
+});
+
+test('stepOpacity never drifts off the slider grid', () => {
+    // 0.7 + 0.1 is 0.7999999999999999 in binary floating point; a stored value
+    // like that no longer equals any step of the settings slider.
+    let value = OPACITY_MIN;
+    for (let i = 0; i < 9; i++) value = stepOpacity(value, OPACITY_STEP);
+    assert.strictEqual(value, 1);
+    for (let i = 0; i < 9; i++) value = stepOpacity(value, -OPACITY_STEP);
+    assert.strictEqual(value, OPACITY_MIN);
+    for (const v of [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]) {
+        const up = stepOpacity(v, OPACITY_STEP);
+        assert.strictEqual(Math.round(up * 10), up * 10, `${v} → ${up} is off the grid`);
+    }
+});
+
+test('stepOpacity falls back to the default on an unusable stored value', () => {
+    for (const bad of [null, undefined, "", "nonsense", NaN, {}]) {
+        assert.strictEqual(stepOpacity(bad, OPACITY_STEP), 0.6, String(bad));
+    }
+});
+
+test('stepSize moves in 25 px and clamps to the slider range', () => {
+    assert.strictEqual(stepSize(250, SIZE_STEP), 275);
+    assert.strictEqual(stepSize(250, -SIZE_STEP), 225);
+    assert.strictEqual(stepSize(SIZE_MAX, SIZE_STEP), SIZE_MAX);
+    assert.strictEqual(stepSize(SIZE_MIN, -SIZE_STEP), SIZE_MIN);
+    assert.strictEqual(stepSize("125", SIZE_STEP), 150);
+    for (const bad of [null, undefined, "", "nonsense", {}]) {
+        assert.strictEqual(stepSize(bad, SIZE_STEP), 275, String(bad));
+    }
+});
+
+test('the step bounds match the settings defaults and the slider range', () => {
+    assert.strictEqual(SIZE_MIN, 50);
+    assert.strictEqual(SIZE_MAX, 800);
+    assert.strictEqual(SIZE_STEP, 25);
+    assert.strictEqual(OPACITY_STEP, 0.1);
+    // The shipped defaults have to be reachable from the steps, or the very
+    // first press would jump the value onto a different grid.
+    assert.strictEqual(stepSize(DEFAULT_SETTINGS.size, 0), DEFAULT_SETTINGS.size);
+    assert.strictEqual(stepOpacity(DEFAULT_SETTINGS.opacity, 0), DEFAULT_SETTINGS.opacity);
 });
 
 test('accelerator display conversion', () => {

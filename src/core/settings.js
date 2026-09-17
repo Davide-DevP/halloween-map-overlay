@@ -2,30 +2,9 @@ const {app, ipcMain} = require("electron");
 const fs = require("fs");
 const path = require("path");
 
-const defaultConfig = {
-    size: 250,
-    position: 1,
-    opacity: 0.5,
-    draggable: false,
-    hideOverlay: false,
-    minimizeToTray: false,
-    disableFaqPopup: false,
-    checkForUpdates: true,
-    // Automatic map detection. Off by default: it captures the game window
-    // every 2 s (5 s once a map is known) while the game is running.
-    mapDetection: false,
-    rotation: 0,
-    monitor: 0,
-    overlayX: null,
-    overlayY: null,
-    glideX: null,
-    glideY: null,
-    hotkeyToggleMap: 'CommandOrControl+H',
-    hotkeyRotateMap: 'CommandOrControl+R',
-    hotkeyNextMap: 'CommandOrControl+Right',
-    hotkeyPrevMap: 'CommandOrControl+Left',
-    hotkeyClearMap: 'CommandOrControl+Shift+D'
-};
+// The defaults themselves are pure and live in src/shared/settings-defaults.js
+// so the tests can check them without importing electron.
+const {DEFAULT_SETTINGS: defaultConfig} = require("../shared/settings-defaults");
 
 class Settings {
 
