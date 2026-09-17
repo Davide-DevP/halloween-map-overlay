@@ -368,8 +368,11 @@ hotkeys/capture, 6 escape-html).
   and writes `templates.json`. Idempotent (byte-identical on a re-run, verified
   with `diff`). Also exports `locatePanel`, which the tests reuse so they
   measure the fixtures rather than trusting a constant.
-- `src/core/map-detector.js` — the main-process loop, `desktopCapturer` →
-  matcher → `show-map-command`, plus `map-detector-start` / `-stop` / `-status`.
+- `src/core/map-detector.js` — the main-process loop, `node-screenshots`
+  game-window capture → matcher → `show-map-command`, plus
+  `map-detector-start` / `-stop` / `-status` / `-reset`. (It started out on
+  Electron's `desktopCapturer`; see "The capture backend, and why it was
+  replaced" below.)
 - `src/js/detector.js` plus a home-page switch and status line ("Off" /
   "Watching for the in-game map (Tab)…" / "Detected <Map> at HH:MM");
   `mapDetection` setting, default false.
@@ -497,59 +500,114 @@ discovers its whole matrix from `detection-fixtures/`, including a check that
 every map in `maps/` has a fixture. The procedure is written out in AGENTS.md
 and README.
 
+### The capture backend, and why it was replaced
+
+The first implementation polled Electron's `desktopCapturer.getSources`. The
+owner reported the whole PC briefly freezing at every tick, which reproduced and
+was measurable. The detector logs `enumerate=… capture=… match=… total=…` per
+tick under `DEBUG` plus a peak event-loop drift line every 10 s, which is what
+pinned it down:
+
+| Measurement | `desktopCapturer.getSources` | `node-screenshots` window capture |
+|---|---|---|
+| per tick, wall clock | **286–518 ms** | **26–37 ms** (median 31) |
+| main-thread event-loop peak drift | **152–246 ms** per 10 s | **14–16 ms** per 10 s |
+| idle-machine baseline drift, for comparison | 15 ms | 15 ms |
+| cost when the game is not running | a full display grab anyway | **0.2 ms** |
+
+`getSources` grabs *and rescales every display* on the main thread; at a 2 s
+poll that is a visible stutter on the whole machine. Window capture is not just
+faster, it is no longer on the critical path at all — the drift is now
+indistinguishable from an idle process.
+
+Where the 31 ms goes (mean of 10 real 1080p window captures, measured through
+the exact runtime code path):
+
+| Stage | Time | Blocks the main thread? |
+|---|---|---|
+| `Window.all()` + filtering | 0.2 ms | yes, negligible |
+| `captureImage()` | 16.6 ms | no — async native |
+| `toRaw()` | 2.3 ms | no — async native |
+| `toGrayScaled()` | 5.6 ms exact-ratio / ~11 ms otherwise | yes |
+| `matchMap()` (gate + 15 offsets + 4 templates) | 0.1–0.9 ms | yes |
+
+So the JS that actually blocks the event loop is **~6–11 ms per tick**, against
+a target of 30 ms. Two things got it there:
+
+- **`toGrayScaled`** fuses the luma conversion and the box average into a single
+  pass. `node-screenshots` has no resize — only `crop` — so the full-size capture
+  has to be reduced in JS; doing it as `toGray` then `resample` would read all
+  2 M pixels twice and allocate an 8 MB intermediate.
+- **A whole-number fast path** inside it. 1920→640 and 1080→360 are both exactly
+  3:1, which is what a borderless-windowed 1080p game produces, so every box
+  weight is 1 and the divisor is constant: 5.6 ms instead of ~11 ms. A test
+  asserts the fast and general paths agree to within 1e-5.
+
+Cropping before `toRaw` would shrink the pass further, but the gate regions (left
+panel, name box) and the map panel between them span most of the frame, and
+cropping would invalidate the full-frame-relative regions the whole test suite
+rests on. Not worth it at 6–11 ms.
+
+**Finding the game window.** `findGameWindow()` matches on `appName()`, not
+`title()`. Titles produce false positives immediately: while developing this, a
+terminal window called "Halloween The Game mappe" (the project folder) matched
+`/halloween/i` on its title, and so would any browser tab about the game. The
+title is consulted only when the OS reports no app name at all. An exact
+`Halloween`/`Halloween.exe` app name beats a looser match. Also excluded: this
+app's own windows (the main window is called "Halloween Map Overlay", so both a
+name test and a `process.pid` test are needed), minimized windows (Windows
+returns a stale or empty image for those), and anything under 320x240.
+
+**Packaging.** `node-screenshots` ships prebuilt NAPI binaries — no compile step,
+and no `@electron/rebuild` work — but the `.node` file cannot be read from inside
+an asar, so `build.asarUnpack` covers `node_modules/node-screenshots/**/*.node`
+and `node_modules/node-screenshots-*/**/*.node`. The loader does
+`require('node-screenshots-win32-x64-msvc')`, so the second pattern is the one
+that matters on Windows. `package-lock.json` already carries every platform's
+optional package (`node-screenshots-win32-x64-msvc`, `os: ["win32"]`,
+`cpu: ["x64"]`), so `npm ci` on the `windows-latest` runner installs it with no
+extra step in the workflow.
+
+`toRaw()` returns **RGBA**, not BGRA. That was verified rather than assumed:
+capturing one window, decoding its `toPng()` with sharp and comparing the two
+buffers over 5000 pixels where R and B actually differ gave 5000/5000 in
+RGBA order and 0/5000 in BGRA order.
+
 ### Runtime verification
 
 | Run | Result |
 |---|---|
-| `npm test` | **94 pass / 0 fail** (33 map-detector, 23 hotkeys/capture, 18 map-catalog, 14 overlay-position, 6 escape-html; ~1.9 s) |
+| `npm test` | **98 pass / 0 fail** (37 map-detector, 23 hotkeys/capture, 18 map-catalog, 14 overlay-position, 6 escape-html) |
 | `npm run prepare-detector` re-run | templates byte-identical (`diff` clean) |
-| dev, isolated `--user-data-dir`, `mapDetection: true`, `DEBUG=true`, 25 s | loop ticked 13x, `desktopCapturer` returned a source every time (`640x360 from "Intero schermo"`), `no match` each tick (the owner was not on a Tab screen), renderer reached `renderer::ready maps=4 cards=4 customs=1` and `detector::init {"running":true,…,"templates":4}`, **no stderr, no errors** |
+| dev, isolated `--user-data-dir`, `mapDetection: true`, `DEBUG=true`, 28 s | loop started (`4 templates, every 2000 ms`), `game window not found` logged **once** (the throttle works — the game was not running), renderer reached `renderer::ready maps=4 cards=4 customs=1` and `detector::init {"running":true,…,"templates":4}`, **no stderr, no errors** |
+| tick-path benchmark, 10 real 1080p window captures | the table above; event-loop peak drift 15–16 ms, equal to the idle baseline |
 | `npm run build:win` | exit 0; `Halloween Map Overlay Setup 0.2.0.exe` and `Halloween Map Overlay 0.2.0.exe` |
-| packaged `dist/win-unpacked/Halloween Map Overlay.exe`, isolated user data, 25 s | same loop, 13 ticks, `templates.json` loaded from inside the asar, **no stderr**. `desktopCapturer` needs no extra permission when packaged on Windows |
-
-### KNOWN ISSUE — the capture backend is too heavy
-
-The owner reported the whole PC briefly freezing at every capture tick. That
-reproduces and is measurable. With `DEBUG=true` the detector now logs
-`capture=… match=… total=…` per tick and a peak event-loop drift line every
-10 s. Over a 35 s isolated run:
-
-| Measurement | Value |
-|---|---|
-| `desktopCapturer.getSources` | **286–518 ms per tick** |
-| the matcher (gate + crop + 15 offsets + 4 templates) | **1–4 ms** |
-| main-thread event-loop peak drift | **152–246 ms** per 10 s window |
-
-So the image processing is free and `desktopCapturer.getSources` is the entire
-cost; it blocks the main thread for ~150 ms at a time, every poll. The poll
-period was raised from 1500 ms to 2000 ms, which reduces how often that happens
-but not the stutter itself.
-
-**This is not fixed.** The agreed fix is to capture only the game window with
-`node-screenshots` (AGENTS.md § KNOWN ISSUE has the full plan: window lookup by
-`/halloween/i`, skip the tick entirely when the game is not running, early
-downscale, `asarUnpack` for the `.node` binaries, `utilityProcess` if it is
-still slow). It could not be implemented in this pass because installing a new
-npm package was refused by the sandbox. Auto-detect is off by default and both
-the README and the in-app FAQ warn about the stutter, so nobody is exposed to it
-silently — but it should be fixed before 0.2.0 is tagged.
+| asar contents | no `.claude`; `templates.json` inside the asar; the 700 KB `node-screenshots.win32-x64-msvc.node` in `app.asar.unpacked/node_modules/node-screenshots-win32-x64-msvc/` |
+| packaged `dist/win-unpacked/Halloween Map Overlay.exe`, isolated user data, 26 s | native module loaded from `app.asar.unpacked` (the loop started and `Window.all()` enumerated windows — a module-load failure would have thrown at require time), `game window not found`, event-loop peak drift **16 ms then 14 ms**, **no stderr** |
 
 ### Not verifiable here
 
-- **Detecting a real map in a real match.** The owner was playing on this
-  machine during the test window, but no tick landed on a Tab screen, so every
-  run logged "no match". The full-frame path is covered by the fixture at three
-  resolutions and at the exact 640x360 capture size, but no screenshot taken by
-  `desktopCapturer` itself has ever been matched against a template.
-- **The home-page switch and status line** were not clicked. `detector::init`
-  proves the renderer module loads, reads the status over IPC and renders it,
-  and `map-detector-start`/`-stop` are plain `ipcMain.handle`s, but no GUI
-  interaction was possible.
+- **Detecting a real map in a real match.** The game was not running during any
+  test window, so every run logged "game window not found". The match path is
+  covered by the fixtures at four sizes and through the exact runtime
+  `toGrayScaled` → `matchMap` path, but no image captured from the live game has
+  ever been matched against a template.
+- **`captureImage()` inside the packaged app specifically.** The packaged build
+  demonstrably loads the unpacked `.node` and runs `Window.all()` through it;
+  the capture call itself was exercised from the benchmark against the same
+  binary and version, not from inside the asar-packaged process.
+- **The home-page switch, the status line, the overlay map-name label and the
+  clear-map hotkey** were never seen on screen. `detector::init` proves the
+  renderer module loads, reads the status over IPC and renders it, and the IPC
+  handlers are plain `ipcMain.handle`s, but no GUI interaction was possible.
 - **Anything but 16:9.** The regions are fractions of the frame, so 21:9 or 4:3
   would put the panel somewhere else. Untested, and no fixture exists.
 - **Non-1080p game rendering.** Every fixture came from the same 1080p machine;
   the rescale tests resample that one screenshot rather than showing the game
   actually running at another resolution.
+- **Exclusive fullscreen.** Window capture needs a window; borderless windowed
+  is required for the overlay anyway, but this has not been tested against a
+  game in exclusive fullscreen.
 - **The release workflow** still has never run — no tag has been pushed.
 
 ## 5. Other fixes made along the way

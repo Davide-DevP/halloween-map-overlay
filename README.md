@@ -9,7 +9,7 @@ It ships the map images inside the app and displays them. It does **not** read
 the game's memory, inject anything or hook the game process. Its only network
 request is the startup update check, which can be turned off — see
 [Network use](#network-use). The optional **auto-detect** feature reads the
-screen (and nothing else) while it is switched on — see
+game's own window (and nothing else) while it is switched on — see
 [Auto-detect](#auto-detect-map).
 
 ![The East Haddonfield map as shown by the overlay](maps/deftyconchgaming/East%20Haddonfield.png)
@@ -64,28 +64,25 @@ only hides the overlay.)
 
 How it works, in full:
 
-- While the switch is on, the app takes a screenshot of the display selected
-  under **Settings → Overlay → Monitor** every 2 seconds — every 5 seconds once
-  it has recognised a map — and shrinks it to 640x360.
-- It compares the in-game map panel in that thumbnail, on your own computer,
-  against four 64x64 thumbnails of the four maps that ship inside the app.
-- **Nothing is stored and nothing is sent.** The screenshot is never written to
-  disk and never leaves the process; the only thing that outlives the comparison
-  is the name of the map it matched.
-- It is **off by default** and takes no screenshot at all while it is off.
+- While the switch is on, the app captures **the game's own window** — not your
+  screen, not any other window — every 2 seconds, and every 5 seconds once it
+  has recognised a map. The image is immediately reduced to 640 pixels wide.
+- **Only while the game is running.** If *Halloween: The Game* is not open there
+  is no window to capture and nothing is captured; the app just checks whether
+  the window exists, which takes a fraction of a millisecond.
+- It compares the in-game map panel in that reduced image, on your own computer,
+  against small 64x64 thumbnails of the maps that ship inside the app.
+- **Nothing is stored and nothing is sent.** The image is never written to disk
+  and never leaves the process; the only thing that outlives the comparison is
+  the name of the map it matched.
+- It is **off by default** and captures nothing at all while it is off.
 - It only acts when it sees a map *different* from the last one it recognised,
   so picking a map by hand or with a hotkey overrides it and is not fought over.
-- It reads pixels off the screen, exactly like a screen recorder does. It does
-  not read the game's memory, inject code or touch the game process.
+- It reads pixels out of the game's window, exactly like a screen recorder does.
+  It does not read the game's memory, inject code or touch the game process.
 
-It needs the Tab (Objectives) screen to be visible on the selected display, so
-the game has to be in **Borderless Windowed** (see the FAQ) and on that monitor.
-
-> **Known issue.** Taking that screenshot currently costs about half a second of
-> main-thread time per poll, which can make the whole machine stutter every two
-> seconds while the switch is on. Capturing only the game window instead of the
-> whole display is the fix and is the next thing being worked on; until then,
-> leave auto-detect off if you notice it.
+It needs the Tab (Objectives) screen to be visible in the game window, so the
+game has to be in **Borderless Windowed** (see the FAQ) and not minimized.
 
 ## Command line
 
@@ -206,12 +203,13 @@ overlay window can draw on top of it.
 It only draws image files that ship with it. It never reads the game's memory,
 never injects anything and never touches the game process. See
 [Network use](#network-use) for the one request it does make, and
-[Auto-detect](#auto-detect-map) for the one thing that reads the screen.
+[Auto-detect](#auto-detect-map) for the one thing that reads pixels.
 
 **Does it take screenshots?**
-Only with **Auto-detect map** switched on, and that is off by default. See
-[Auto-detect](#auto-detect-map) for exactly what it captures and what happens
-to it (nothing is stored, nothing is sent).
+Only with **Auto-detect map** switched on, and that is off by default. It then
+captures the game's window every 2 seconds, and only while the game is running.
+See [Auto-detect](#auto-detect-map) for exactly what it captures and what
+happens to it (nothing is stored, nothing is sent).
 
 **The overlay is catching my mouse clicks.**
 You left "Set position" mode on. Open **Settings → Overlay** and press

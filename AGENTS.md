@@ -25,6 +25,7 @@ window with a green background for streamers.
 | Runtime | Electron 40 (Node.js, Chromium) |
 | Frontend | HTML/CSS/JS, Bootstrap 5, jQuery 4, Popper 2 |
 | Image sizing | `image-size` (runtime), `sharp` (dev only, map prep) |
+| Screen capture | `node-screenshots` (runtime, prebuilt NAPI, asarUnpacked) |
 | Build/packaging | electron-builder (NSIS + portable) |
 | Package manager | npm |
 
@@ -46,7 +47,8 @@ src/core/map-library.js         → File-system side of the catalogue: maps root
 src/core/map-catalog.js         → PURE catalogue: build from a listing, fuzzy
                                   key matching, next/prev, custom merge. Tested.
 src/core/map-detector.js        → Automatic map detection loop (main process):
-                                  desktopCapturer → matcher → show-map-command.
+                                  node-screenshots game-window capture →
+                                  matcher → show-map-command.
                                   IPC start/stop/status. Off by default.
 src/core/map-detector/matcher.js→ PURE matcher: grayscale, relative crop,
                                   64x64 area downsample, gradient magnitude,
@@ -229,9 +231,11 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
 - **The Tab-screen gate runs first** so ordinary gameplay never reaches NCC:
   ≥90 % of the lower left panel must be near-black *and* ≥2 % of the map-name
   box must be bright. Measured separation: 0.99 vs 0.27–0.65 and 0.09–0.11 vs
-  0.00. The darkness test is a *fraction*, not a mean, on purpose — the app's
-  own overlay is on screen and gets captured with everything else, and a bright
-  patch over a tenth of the region would wreck a mean.
+  0.00. The darkness test is a *fraction*, not a mean, on purpose — it was
+  written when the capture was the whole display and the app's own overlay
+  landed in it; a bright patch over a tenth of the region would wreck a mean.
+  Capturing only the game window removes that particular hazard, but the
+  robustness is free, so keep it.
 - **Detection never fights the user.** A manual pick does not stop the loop; the
   loop only acts on a map *different* from `lastDetected`. Poll **2000 ms** while
   searching, **5000 ms** after a hit.
@@ -250,42 +254,72 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
 - **Home-page status line**: "Off" / "Watching for the in-game map (Tab)…" /
   "Detected <Map> at HH:MM", driven by the `map-detector-status` push plus one
   `invoke` at startup.
-- **`DEBUG=true` logs `capture=… match=… total=…` per tick** and an event-loop
-  peak-drift line every 10 s. That is the instrumentation the capture-backend
-  work below needs; leave it in.
+- **`DEBUG=true` logs `enumerate=… capture=… match=… total=…` per tick** and an
+  event-loop peak-drift line every 10 s. That instrumentation is what caught the
+  original capture backend; leave it in.
 - **Never keep a frame.** No disk, no network, nothing beyond the tick.
 
-### KNOWN ISSUE — the capture backend is too heavy (blocking for a release)
+### The capture path — do not make it heavier
 
-Measured on this machine, `DEBUG=true`, 35 s (the numbers are in the DEBUG log:
-`capture=… match=… total=…` and a 10 s event-loop peak-drift line):
+`node-screenshots` (`Window.all()` → `captureImage()` → `toRaw()`), **not**
+Electron's `desktopCapturer`. That is not a preference, it is the whole reason
+this feature is usable:
 
-| | |
-|---|---|
-| `desktopCapturer.getSources` | **286–518 ms per tick** |
-| matcher (gate + crop + 15 offsets + 4 templates) | **1–4 ms** |
-| main-thread event-loop peak drift | **152–246 ms** per 10 s |
+| | `desktopCapturer.getSources` (first attempt) | `node-screenshots` window capture |
+|---|---|---|
+| per tick | 286–518 ms | **26–37 ms** |
+| main-thread event-loop peak drift | 152–246 ms | **15–16 ms** (= idle baseline) |
+| game not running | full-screen grab anyway | **0.2 ms** — nothing to capture |
 
-The matching is free; `desktopCapturer.getSources` is the whole cost and it
-blocks the main thread long enough to stutter the machine every poll. The agreed
-fix (owner's instruction, **not yet implemented** — `npm install` of a new
-package was refused by the sandbox) is:
+`desktopCapturer.getSources` grabs and scales *every* display on the main
+thread; at a 2 s poll it froze the machine visibly. Do not go back to it, and do
+not add a second per-tick capture.
 
-1. `node-screenshots` as a runtime dependency, with
-   `"asarUnpack": ["**/node-screenshots/**/*.node", "**/node-screenshots-*/**/*.node"]`.
-2. Capture only the **game window** — `Window.all()`, pick the one whose
-   `appName()`/`title()` matches `/halloween/i`, is not this app, and is not
-   minimized. No game window → skip the tick entirely (zero cost when the game
-   is not running), logging that state at most once a minute.
-3. `await window.captureImage()` and downscale as early as the API allows;
-   target < 30 ms per tick. If it is still slow, move the whole loop into an
-   Electron `utilityProcess` and pass results back over its MessagePort.
-4. README/FAQ then say "captures the game window … only while the game is
-   running" instead of "the selected display".
+Where the remaining time goes (mean over 10 real 1080p window captures):
+`Window.all()` 0.2 ms · `captureImage()` 16.6 ms (async, native — it does not
+block the event loop) · `toRaw()` 2.3 ms · `toGrayScaled()` 5.6–11 ms ·
+`matchMap()` 0.1–0.9 ms. So the JS that actually blocks the main thread is
+~6–11 ms per tick.
 
-The relative-region logic already tolerates a window-sized capture: it is
-relative to whatever frame it is handed, and a ±2 % vertical shift is covered by
-a test.
+Rules that keep it there:
+
+- **`toGrayScaled` is the hot spot** — it is the only thing that touches all 2 M
+  captured pixels. It fuses the luma conversion and the box average into one
+  pass on purpose; splitting it back into `toGray` + `resample` doubles the
+  reads and allocates an 8 MB intermediate. It also has a whole-number fast path
+  (1920→640 and 1080→360 are both exactly 3:1, so that is what a borderless
+  1080p game actually takes): 5.6 ms on the fast path, ~11 ms on the general
+  one. A test asserts the two agree.
+- **`node-screenshots` has no resize**, only `crop`. Cropping before `toRaw`
+  would cut the pass down further, but the gate regions (left panel, name box)
+  and the map panel span most of the frame, and cropping would invalidate the
+  full-frame-relative regions the whole test suite is built on. Not worth it at
+  6–11 ms.
+- **No game window → return immediately.** Leaving the switch on while the game
+  is closed costs one 0.2 ms window enumeration every 2 s. The "not found" state
+  is logged at most once a minute (`logState`).
+- If the JS half ever does grow past ~30 ms, move the loop into an Electron
+  `utilityProcess` and pass results back over its MessagePort rather than
+  trimming the match.
+
+**Finding the game window** (`findGameWindow`): match on `appName()`, not
+`title()`. Titles produce false positives constantly — during development a
+terminal window called "Halloween The Game mappe" (the project folder) matched
+`/halloween/i` on its title, as would any browser tab about the game. The title
+is consulted only when the OS gives no app name at all. An exact
+`Halloween`/`Halloween.exe` app name beats a looser match. Also excluded: our
+own windows (the main window is literally called "Halloween Map Overlay", so
+`OWN_NAME` and a `process.pid` check are both needed), minimized windows
+(Windows returns a stale or empty image), and anything under 320x240.
+
+**Packaging**: `node-screenshots` ships prebuilt NAPI binaries, so there is no
+compile step, but the `.node` files cannot live inside the asar —
+`build.asarUnpack` covers `node_modules/node-screenshots/**/*.node` and
+`node_modules/node-screenshots-*/**/*.node`. The loader does
+`require('node-screenshots-win32-x64-msvc')`, so it is that second pattern that
+matters on Windows. `package-lock.json` carries every platform's optional
+package, so `npm ci` on the `windows-latest` runner installs the win32-x64 one
+with no extra step.
 
 ## Adding a map (data only — no code change)
 
