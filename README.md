@@ -405,6 +405,15 @@ that too.
 
 ## Changelog
 
+### 0.3.4
+
+- **The update installer window looks like the app now.** Pressing **Restart and
+  update** used to hand you a nameless grey progress box; it now carries the app
+  icon, *Updating Halloween Map Overlay…* and *Installing version X.Y.Z — the
+  app reopens by itself*, in English or Italian depending on your Windows
+  language, so it is obvious what is running and that it will bring the app
+  back.
+
 ### 0.3.3
 
 - **Auto-detect recognises the civilian map screen.** The game draws the

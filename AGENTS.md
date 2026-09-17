@@ -828,6 +828,70 @@ unattended prompt would have stalled the update behind a dialog nobody sees.
 Note `allowToChangeInstallationDirectory` must be `false`: electron-builder
 refuses `oneClick: true` together with it.
 
+### The installer window is ours (0.3.4) — `build/installer.nsh`
+
+The one-click installer has no wizard pages to theme: `oneClick.nsh` inserts
+only `MUI_PAGE_INSTFILES` and `common.nsh` sets `ShowInstDetails nevershow`.
+What the user actually looks at is the **SpiderBanner** dialog
+`installSection.nsh` puts up right after the section starts. Dumping the only
+`RT_DIALOG` (id 104, 254x78 dlu) out of
+`nsis-resources-3.4.1/plugins/x86-unicode/SpiderBanner.dll` gives the whole
+canvas — and electron-builder uses one control of five:
+
+| id | control | rect (dlu) | who fills it |
+|---|---|---|---|
+| 1025 | static `SS_ICON` | 10,10 20x20 | `nsis.installerHeaderIcon` → `HEADER_ICO` |
+| 1000 | static | 40,10 204x11 | template: `$(installing)`; **us**: the headline |
+| 1002 | static | 40,22 204x11 | empty in the template; **us**: the sub-line |
+| 1003 | static | 10,38 234x18 | still empty — free real estate |
+| 1001 | `msctls_progress32` | 10,59 234x11 | the progress bar |
+
+`build/installer.nsh` (named explicitly as `nsis.include`, though the file name
+is also electron-builder's default) defines three things:
+
+- `customHeader` — the eight `LangString`s. It is inserted **after**
+  `!insertmacro addLangs`, which is the point at which `${LANG_ENGLISH}` and
+  `${LANG_ITALIAN}` exist. `nsis.installerLanguages` is pinned to `en_US`,
+  `it_IT` (the two the app speaks) so no other language table can reference an
+  unset string; NSIS picks the one matching the OS and falls back to the first.
+- `customCheckAppRunning` — the only hook that runs **while the banner is up
+  and before the 350 MB unpack**. `customInit` is in `.onInit` (no GUI yet) and
+  `customInstall` runs after the files are already in place, so neither can
+  touch the banner in time. This hook *replaces* the stock app-running check, so
+  the file re-inserts `IS_POWERSHELL_AVAILABLE` + `_CHECK_APP_RUNNING` itself —
+  and does the UI first, because `IS_POWERSHELL_AVAILABLE` shells out to
+  PowerShell twice and costs about a second. Defining the macro also disables
+  the `!ifmacrondef customCheckAppRunning` guard in
+  `include/allowOnlyOneInstallerInstance.nsh` that normally supplies
+  `getProcessInfo.nsh` and `Var pid`; the file provides both.
+- `hmoBannerText` — finds the banner the same way the template does (second
+  `#32770` child of `$HWNDPARENT`) and `WM_SETTEXT`s controls 1000 and 1002.
+  Guarded by `!ifndef BUILD_UNINSTALLER` (`uninstaller.nsh` inserts
+  `CHECK_APP_RUNNING` too), `!ifdef ONE_CLICK` and `${IfNot} ${Silent}`.
+
+Two traps:
+
+- **makensis runs with `-WX`.** Redefining the stock `installing` message would
+  be "LangString set multiple times", i.e. a failed build. New ids only.
+- **The strings are not greppable in the built exe.** `SetCompressor zlib`
+  (`NsisTarget.js:267`) means the NSIS header — string table and language
+  tables — is raw-deflate compressed. To prove text is in an installer: find the
+  `firstheader` (the `0xDEADBEEF` + `NullsoftInst` signature, ~85 KB in), read
+  the `int` 28 bytes later, `zlib.inflateRawSync` that block, then search the
+  result for the UTF-16LE string. Done for 0.3.4; all eight strings, the
+  `installerHeaderico.ico` file name and the absence of the German/Spanish
+  stock messages were confirmed that way.
+
+Wording branches on `${isUpdated}` — the same `--updated` flag
+`spawnInstallerAtLowPriority()` passes — so a first install does not claim to be
+updating. Control 1002 does not wrap: keep a sub-line under ~55 characters.
+
+`build/icon.ico` is electron-builder's own PNG→ICO conversion of
+`build/icon.png`, copied out of `<output>/.icon-ico/icon.ico` from an earlier
+build (7 PNG-compressed entries, 16→256). Regenerate it the same way after
+`npm run prepare-maps` changes the icon; it feeds `nsis.installerIcon`,
+`installerHeaderIcon` and `uninstallerIcon`.
+
 **`build.compression: "store"` barely does anything for the NSIS target —
 measured, not assumed.** It was set to kill the several-second 100 % CPU spike
 the owner felt while the 0.1.0 → 0.2.0 installer unpacked its ~350 MB payload.
@@ -939,4 +1003,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-17 (0.3.3)*
+*Last updated: 2026-09-17 (0.3.4)*
