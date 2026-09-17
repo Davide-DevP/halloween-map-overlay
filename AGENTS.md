@@ -52,17 +52,27 @@ src/core/map-detector.js        → Automatic map detection loop (main process):
                                   IPC start/stop/status. Off by default.
 src/core/map-detector/matcher.js→ PURE matcher: grayscale, relative crop,
                                   64x64 area downsample, gradient magnitude,
-                                  zero-mean NCC, Tab-screen gate. Tested.
+                                  zero-mean NCC, Tab-screen gate, and the
+                                  main-menu strip matcher. Tested.
 src/core/map-detector/templates.json → Generated, committed. 64x64 thumbnail
-                                  per map, keyed by catalogue key.
+                                  per map, keyed by catalogue key, plus a
+                                  separate `menu` section (96x12 nav strip).
 src/core/hotkeys.js             → globalShortcut registration + hotkeys.json.
 src/core/settings.js            → settings-app.json in userData, defaults merged.
+src/core/language.js            → Resolves the `language` setting against
+                                  app.getLocale(); `get-language`/`set-language`
+                                  IPC; what the tray translates with.
 src/core/user-data.js           → userData `custom/` read/write/delete/list.
 src/core/tray.js                → System tray icon and menu.
 src/core/utils.js               → fs helpers (recursive listing, mkdir).
 src/core/is-wayland.js          → Wayland session detection.
 src/shared/hotkeys-constants.js → PURE hotkey defs + first-run map-hotkey
-                                  defaults + accelerator formatting. Tested.
+                                  defaults + accelerator formatting +
+                                  opacity/size step maths. Tested.
+src/shared/settings-defaults.js → PURE default settings + mapLabel enum. Tested.
+src/shared/i18n.js              → PURE t(lang, key, params), msg(),
+                                  translateMessage(), resolveLanguage(). Tested.
+src/i18n/en.json, it.json       → Flat dotted key → string catalogues.
 src/shared/update-message.js    → PURE "Version X.Y.Z is ready." headline for
                                   the update banner. Tested.
 src/index.html                  → Main window markup (dark Bootstrap).
@@ -74,6 +84,10 @@ src/js/custom.js                → "Add custom image" modal.
 src/js/detector.js              → Home-page auto-detect switch + status line.
 src/js/overlay-preview.js       → Canvas sample image for the Overlay tab.
 src/js/settings.js              → Renderer mirror of the settings file.
+src/js/i18n.js                  → Renderer i18n singleton: `t()`, `applyDom()`,
+                                  `onChange()` re-render hooks.
+src/js/status.js                → The `#logStatus` toast, shared by main's
+                                  `update-message` and the renderer's own notices.
 src/js/logger.js                → debugLog.
 src/map/map.html, renderer.js   → Overlay window.
 src/map/map_obs.html, renderer_obs.js → OBS window.
@@ -109,19 +123,30 @@ test/                           → node:test unit tests for the pure modules.
   : path.join(global.dirname, "maps")` (`map-library.js`). `global.dirname` is
   set at the top of `index.js`.
 - **Pure vs impure**: `map-catalog.js`, `overlay-position.js`,
-  `hotkeys-constants.js`, `update-message.js` and `map-detector/matcher.js`
+  `hotkeys-constants.js`, `settings-defaults.js`, `i18n.js`,
+  `update-message.js` and `map-detector/matcher.js`
   import nothing from
-  electron or `fs`. Keep them that way — they are the only parts covered by
+  electron or `fs` (`i18n.js` requires the two JSON catalogues and nothing
+  else). Keep them that way — they are the only parts covered by
   tests. `map-library.js` is the
   fs-facing wrapper around `map-catalog.js`; put new file-system logic there.
+  `core/settings.js` holds only the read/write/IPC half; the default values
+  themselves live in the pure `shared/settings-defaults.js` so a test can check
+  them against the hotkey definitions and the enums.
 - **Name folding / matching**: `foldName`, `levenshtein` and
   `findClosestMapMatch` in `map-catalog.js` are the single source. Do not
   re-implement name normalisation or edit distance anywhere else.
 - **`map-change` payload**: a catalogue key, a custom-map file name, or raw
-  base64. Main resolves keys via `MapLibrary.resolve()` and treats anything it
-  cannot resolve as base64. `{preview: true}` forces the base64 path (the
-  settings preview is canvas-rendered in the renderer) and keeps the image off
-  the OBS window so it can never leak into a stream.
+  base64. Main resolves keys via `MapLibrary.resolveEntry()` (the entry, not
+  just the path — the `always` map label needs the map's *name*, and
+  re-deriving it from the payload would be a second chance to disagree with the
+  catalogue) and treats anything it cannot resolve as base64.
+  `{preview: true}` forces the base64 path (the settings preview is
+  canvas-rendered in the renderer) and keeps the image off the OBS window so it
+  can never leak into a stream. **`{preview: true}` must only ever be sent with
+  real base64**: `Options.stopPreview` used to send it with the catalogue key,
+  `imageSize` threw on the decoded garbage, and the overlay stayed on the
+  sample map. It goes through `Maps.sendMap` instead.
 - **Overlay quirks that must not be "cleaned up"** — each one is load-bearing:
   - `alwaysOnTop` level `pop-up-menu` on win32 (`screen-saver` is ignored there)
     and **re-asserted every second**, or a fullscreen game pushes it behind.
@@ -259,6 +284,18 @@ test/                           → node:test unit tests for the pure modules.
   `save-system-hotkey` re-check with the pure `hasModifier()`. With
   `nodeIntegration: true` the renderer is not a trust boundary, and Electron
   will happily register a bare `H` globally.
+- **A system hotkey that changes a setting follows `rotate-map`.** `opacity-up`
+  / `opacity-down` (Ctrl+Up/Down, 0.1 steps, 0.1..1.0) and `size-up` /
+  `size-down` (Ctrl+Shift+Up/Down, 25 px steps, 50..800) all do the same four
+  things in `src/js/maps.js`: write the setting, sync the Settings slider if it
+  exists, re-send the current map so **main** recomputes the window bounds, and
+  toast the new value. Do not resize the overlay from the renderer — only
+  `map-change` knows the rotated bounding box.
+  The step arithmetic is pure (`stepOpacity`/`stepSize`) because `0.6 + 0.1` is
+  `0.7000000000000001` and `0.7 + 0.1` is `0.7999999999999999`: without the
+  round-to-one-decimal the stored opacity drifts off the slider's own grid after
+  a couple of presses. The clamps are the slider `min`/`max` in
+  `src/index.html`; keep the three in step.
 
 ## Automatic map detection (phase 2)
 
@@ -307,16 +344,53 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   immediate tick. Without the reset, hiding a detected map would leave the
   overlay blank for the rest of the match: the loop would keep seeing the same
   map, decide nothing changed, and never re-show it.
-- **The overlay label rides on the existing `map-change` payload.** An automatic
-  switch passes `{mapLabel}` from `Maps.sendMap` → main → the overlay's
-  `map-change` as a 6th argument; `src/map/renderer.js` shows it for 3 s at the
-  map's own opacity and clears it on the next `map-change` or `map-hide`. It is
-  deliberately *not* a second IPC message — the overlay must never be able to
-  name a map it is not showing. Manual picks send no label, and the settings
-  preview never carries one.
+- **The overlay label rides on the existing `map-change` payload.** It travels
+  as the 6th and 7th arguments of the overlay's `map-change` (`mapLabel`,
+  `labelMode`), never as a second IPC message — the overlay must never be able
+  to name a map it is not showing. The `mapLabel` **setting** decides:
+  - `auto` (default, the original behaviour): a label only when the caller sent
+    one, which only an automatic detector switch does (`Maps.sendMap` passes
+    `{mapLabel: entry.name}`). `src/map/renderer.js` shows it for 3 s and
+    clears it on the next `map-change` / `map-hide`. The settings preview is
+    suppressed in this mode.
+  - `always`: the caller's label, or the name main resolved from the catalogue.
+    The overlay keeps it up (no timer).
+  - `never`: main sends an empty label, so nothing downstream has to know.
+  The OBS window gets the same two arguments and applies the same rule. The
+  label is unrotated, bottom-aligned (it lives in the 10 % of extra height the
+  rotated bounding box already has) and uses the map's own opacity.
+  The settings preview *does* now carry a label (`overlay.sampleMap`) so
+  `always` can be seen in the Overlay tab before it is turned on for real —
+  main only forwards it in `always` mode.
 - **Home-page status line**: "Off" / "Watching for the in-game map (Tab)…" /
-  "Detected <Map> at HH:MM", driven by the `map-detector-status` push plus one
-  `invoke` at startup.
+  "Back in menu — map cleared" / "Detected <Map> at HH:MM", driven by the
+  `map-detector-status` push plus one `invoke` at startup. The renderer keeps
+  the last status so it can re-render the line in a new language.
+- **The main menu ends the match** (`hideInMenu`, default **true**, Settings ›
+  General). `matcher.js` carries a second template — the menu's navigation
+  strip, `MENU_STRIP_REL` = x 45..760, y 20..68 at 1919x1079, measured off
+  `detection-fixtures/menu-main.png` — in its own `menu` section of
+  `templates.json`, keyed by nothing so it can never be a candidate in the map
+  match. It is a **96x12** thumbnail, not 64x64: the strip is ~15:1 and
+  squashing it square throws away the horizontal detail that is the whole
+  signal. Scoring is the same luminance+gradient NCC; threshold `MENU_MIN_SCORE`
+  0.75 against measured positives 0.962–1.000 and a best negative of 0.417.
+  `gradientMagnitude(thumb, width, height)` takes a height now — it defaults to
+  `width`, so the square map calls are unchanged.
+  Four guards, all load-bearing:
+  1. **Only on a tick that failed the Tab gate.** `matchMap` is called with
+     `{report: true}` so `gated` is visible; a Tab screen never reaches the menu
+     matcher, and an accepted match resets the counter.
+  2. **Only while a map was detected.** The point is to undo an *automatic*
+     switch, not to police the overlay. A manual pick outside a match survives.
+  3. **Two consecutive ticks** (`MENU_TICKS_TO_HIDE`). A loading screen sweeps
+     past the menu layout; one frame would blank the overlay as the next match
+     starts.
+  4. **It hides through the renderer** (`menu-hide-map` → `Maps.sendMap("")`),
+     not straight at the overlay window, so `Maps` keeps owning `currentKey` and
+     Ctrl+H still restores the map. `lastDetected` is cleared for the same
+     reason `clear-map` clears it: otherwise the next match on the same map
+     would look unchanged and the overlay would stay blank.
 - **`DEBUG=true` logs `enumerate=… capture=… match=… total=…` per tick** and an
   event-loop peak-drift line every 10 s. That instrumentation is what caught the
   original capture backend; leave it in.
@@ -384,6 +458,56 @@ matters on Windows. `package-lock.json` carries every platform's optional
 package, so `npm ci` on the `windows-latest` runner installs the win32-x64 one
 with no extra step.
 
+## Translation (English + Italian)
+
+`src/shared/i18n.js` is the whole mechanism: two flat JSON catalogues, dotted
+keys, `{param}` placeholders, no framework. Setting `language` = `system`
+(default), `en`, `it`.
+
+- **Everything user-facing goes through it.** The test
+  `test/i18n.test.js` scans the source for keys and fails on a key with no
+  translation, on a catalogue string nothing uses, on a key set that differs
+  between the two files, on a `{param}` one language dropped, and on a
+  `<label>`/`<button>`/`<option>`/`<th>`/`<hN>` in `src/index.html` with no
+  `data-i18n`. Nothing in the test names a key — the source *is* the list.
+- **Not translated, on purpose**: map names, creator names, the product name
+  ("Halloween Map Overlay" in the title bar, the nav brand, the preview canvas),
+  the OBS window title (renaming it would break users' existing OBS sources),
+  OS-supplied display names, and the two language names in the picker (marked
+  `data-i18n-ignore`, which is also how the test is told an element is exempt).
+- **Static markup**: `data-i18n` (text), `data-i18n-html` (strings containing
+  `<kbd>`/`<strong>`/`<a>` — the FAQ and the longer help paragraphs),
+  `data-i18n-title`, `data-i18n-placeholder`, `data-i18n-aria-label`. The `-html`
+  form only ever inserts our own catalogue strings; everything else still goes
+  through `escapeHtml`.
+- **Main never sends English.** `sendUpdate('…')` is `sendUpdate(msg('key'))`
+  and the renderer translates on arrival (`translateMessage`), so a toast that
+  is already on screen when the language changes is not stranded. The same for
+  the `{ok, message}` an IPC handler returns to the hotkey toast. The exceptions
+  are the two things **main draws itself** — the tray menu and the
+  "already running" dialog — which use `Language.t()` / `t(lang, …)`.
+- **A parameter can itself be a message.** `"X is already bound to <action>"` is
+  one sentence with a translatable noun inside it, and main does not know the
+  window's language, so the inner half travels as `{key}` too and `t()` resolves
+  it in the same pass. See `conflictMessage` in `src/core/hotkeys.js`.
+- **`SYSTEM_HOTKEY_DEFS` carries both** `description` (English, the fallback and
+  the documentation) and `descriptionKey`. A test asserts they agree, so the
+  two cannot drift.
+- **Dynamic content must re-render.** `i18n.onChange(cb)` in the renderer: the
+  gallery, both hotkey tables, the custom list, the detector status line, the
+  monitor picker, the update banner and the cached preview canvas all register
+  one. Anything built with `t()` at render time and *not* registered keeps the
+  old language until something else touches it.
+- **Resolution happens in main**, once (`src/core/language.js`,
+  `app.getLocale()` → `it*` → it). The renderer asks with `get-language`, writes
+  with `set-language`, and main pushes `language-changed` to the window and
+  rebuilds the tray from the same callback. The second-instance branch in
+  `index.js` has no `Settings`, so it uses
+  `Language.languageWithoutSettings()`, which reads the file directly rather
+  than registering a second set of IPC handlers in a process that is quitting.
+- `DEBUG=true` logs `i18n::applyDom <lang> elements=N` — a DOM that was not
+  translated otherwise looks exactly like a DOM that happens to be English.
+
 ## Adding a map (data only — no code change)
 
 The game is getting more maps; adding one must never need an edit to a source
@@ -413,8 +537,11 @@ Naming rules that make that work, do not break them:
 - `detection-fixtures/tab-fullscreen-<slug>.png` → an extra full-frame positive
   test for that same map; **not** used as a template source (so a map can have
   both a crop and a full frame without producing two templates).
+- `detection-fixtures/menu-<name>.png` → a **main-menu** positive, and the first
+  in sort order is the menu template's source. Still a map-matcher negative.
 - Any other `detection-fixtures/*.png` → a **negative**: the detector must
-  return null for it. That is where gameplay and menu screenshots go.
+  return null for it, and it must not look like the menu either. That is where
+  gameplay screenshots go.
 - The slug is resolved against the real catalogue with `findClosestMapMatch`,
   the project's single name matcher, so the creator comes from the `maps/`
   folder and the key can never drift. A slug that matches no map is ignored by
@@ -564,4 +691,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-17*
+*Last updated: 2026-09-17 (0.3.0)*

@@ -1,15 +1,24 @@
 const {app, Menu, Tray} = require('electron');
 const path = require('path');
 const fs = require("fs");
+const {t} = require('../shared/i18n');
 
 class TrayController {
     mainWindow = null;
     tray = null;
+    /** `Language` — the tray is drawn by main, so it translates for itself. */
+    language = null;
     /** Version of a downloaded update, or null. Drives the extra menu item. */
     pendingUpdateVersion = null;
 
-    constructor(mainWindow) {
+    constructor(mainWindow, language) {
         this.mainWindow = mainWindow;
+        this.language = language || null;
+    }
+
+    /** Translate for the current UI language, falling back to English. */
+    t(key) {
+        return this.language ? this.language.t(key) : t('en', key);
     }
 
     create() {
@@ -55,7 +64,7 @@ class TrayController {
         const mainWindow = this.mainWindow;
         const template = [
             {
-                label: 'Show App',
+                label: this.t('tray.show'),
                 click: function () {
                     mainWindow.show();
                     mainWindow.focus();
@@ -66,7 +75,7 @@ class TrayController {
         if (this.pendingUpdateVersion !== null) {
             template.push({type: 'separator'});
             template.push({
-                label: 'Restart and update',
+                label: this.t('tray.update'),
                 click: function () {
                     mainWindow.installUpdate();
                 }
@@ -75,7 +84,7 @@ class TrayController {
 
         template.push({type: 'separator'});
         template.push({
-            label: 'Quit',
+            label: this.t('tray.quit'),
             click: function () {
                 app.isQuiting = true;
                 app.quit();

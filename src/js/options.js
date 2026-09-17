@@ -2,10 +2,28 @@ const {ipcRenderer} = require('electron');
 const {buildPreviewImage} = require('./overlay-preview');
 const {presetToGlide} = require('../core/overlay-position');
 const {mapLabelMode} = require('../shared/settings-defaults');
+const i18n = require('./i18n');
+const {t, onChange} = i18n;
 const isWayland = require('../core/is-wayland');
 
-/** Name the sample map shows when the map label is set to "always". */
-const PREVIEW_LABEL = 'Sample map';
+/**
+ * A display's label for the monitor picker. The OS usually supplies one
+ * ("DELL U2720Q"), which is a device name and is never translated; only the
+ * generated fallback is.
+ * @param {{index, label, physicalWidth, physicalHeight, refreshRate}} display
+ */
+function displayLabel(display) {
+    if (display.label) return display.label;
+    const params = {
+        index: display.index + 1,
+        width: display.physicalWidth,
+        height: display.physicalHeight,
+        refresh: display.refreshRate
+    };
+    return display.refreshRate
+        ? t('settings.monitor.labelHz', params)
+        : t('settings.monitor.label', params);
+}
 
 /** Settings modal: General and Overlay tabs. */
 class Options {
@@ -47,15 +65,29 @@ class Options {
         $("#checkForUpdatesCheck").prop("checked", settings.raw("checkForUpdates") !== false);
         $("#hideInMenuCheck").prop("checked", settings.raw("hideInMenu") !== false);
 
-        ipcRenderer.invoke('get-displays').then(displays => {
+        // Built with .val()/.text(): a display name comes from the OS, and this
+        // app's rule is that nothing outside our own catalogues is interpolated
+        // into markup.
+        const populateMonitors = async () => {
+            const displays = await ipcRenderer.invoke('get-displays');
             const select = $("#monitorSelect");
             select.empty();
-            displays.forEach(d => {
-                select.append(`<option value="${d.index}">${d.label}</option>`);
-            });
+            displays.forEach(d => select.append($('<option>').val(d.index).text(displayLabel(d))));
             const saved = settings.raw('monitor');
             select.val(saved !== null && saved !== undefined ? saved : 0);
-        });
+        };
+        populateMonitors();
+
+        // The language select writes through its own IPC handler rather than
+        // `set-setting`, so main resolves "system" once and pushes the result
+        // back to every window and to the tray.
+        $("#languageSelect").on("input", async function () {
+            const resolved = await ipcRenderer.invoke('set-language', $(this).val());
+            await settings.refresh();
+            i18n.setLanguage(resolved);
+        }).val(settings.raw("language") || 'system');
+
+        onChange(() => populateMonitors());
 
         $("#hiddenCheck").on("input", async function () {
             await settings.set("hideOverlay", $(this).prop('checked'));
@@ -206,7 +238,7 @@ class Options {
         // The sample map has no catalogue name, so it brings its own. Main only
         // puts it on the overlay when the setting is "always" — which is the
         // point: the label can be seen here before it is turned on for real.
-        ipcRenderer.send('map-change', img, {preview: true, mapLabel: PREVIEW_LABEL});
+        ipcRenderer.send('map-change', img, {preview: true, mapLabel: t('overlay.sampleMap')});
     }
 
     stopPreview() {

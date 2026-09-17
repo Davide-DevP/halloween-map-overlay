@@ -3,9 +3,13 @@
 // picking a real map first. Rendered once on a canvas and cached as base64
 // PNG (the same format map-change already accepts).
 
+const {t, language} = require("./i18n");
+
 const SIZE = 900;
 
+// Cached per language: the watermark is the one piece of text on it.
 let cachedPreview = null;
+let cachedLanguage = null;
 
 function loadIcon() {
     return new Promise((resolve) => {
@@ -18,7 +22,7 @@ function loadIcon() {
 }
 
 async function buildPreviewImage() {
-    if (cachedPreview) return cachedPreview;
+    if (cachedPreview && cachedLanguage === language()) return cachedPreview;
 
     const canvas = document.createElement("canvas");
     canvas.width = SIZE;
@@ -51,7 +55,7 @@ async function buildPreviewImage() {
     ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
     ctx.font = "bold 150px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("PREVIEW", 0, 55);
+    ctx.fillText(t('overlay.previewWatermark'), 0, 55);
     ctx.restore();
 
     const icon = await loadIcon();
@@ -66,10 +70,12 @@ async function buildPreviewImage() {
 
     ctx.textAlign = "center";
     ctx.fillStyle = "#f0e6d8";
+    // The product name, which is not translated.
     ctx.font = "bold 78px Georgia, serif";
     ctx.fillText("Halloween Map Overlay", SIZE / 2, 730);
 
     cachedPreview = canvas.toDataURL("image/png").split(",")[1];
+    cachedLanguage = language();
     return cachedPreview;
 }
 

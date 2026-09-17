@@ -35,6 +35,8 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     const UserData = require("./src/core/user-data");
     const TrayController = require("./src/core/tray");
     const MapDetector = require("./src/core/map-detector");
+    const Language = require("./src/core/language");
+    const {t} = require("./src/shared/i18n");
 
     const gotLock = app.requestSingleInstanceLock();
 
@@ -43,12 +45,16 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
             console.log("Another instance is already running.");
             app.whenReady().then(async () => {
                 const tempWin = new BrowserWindow({show: false});
+                // No Settings instance here: this process exists only to show
+                // this box and quit, so the language is read straight off the
+                // settings file rather than building a second IPC surface.
+                const lang = Language.languageWithoutSettings();
 
                 await dialog.showMessageBox(tempWin, {
                     type: 'info',
-                    title: 'App already running',
-                    message: 'Halloween Map Overlay is already running.',
-                    buttons: ['OK']
+                    title: t(lang, 'app.alreadyRunning.title'),
+                    message: t(lang, 'app.alreadyRunning.message'),
+                    buttons: [t(lang, 'common.ok')]
                 });
 
                 app.quit();
@@ -61,13 +67,20 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     }
 
     const settings = new Settings();
+    // Changing the language has to reach the window (which re-translates its
+    // DOM) and the tray (which main draws itself) in the same breath, so the
+    // two are rebuilt from one callback rather than each polling the setting.
+    const language = new Language(settings, (lang) => {
+        mainWindow.send('language-changed', lang);
+        trayController.refreshMenu();
+    });
     const mapLibrary = new MapLibrary();
     const obsWindow = new ObsWindow();
     const overlayWindow = new OverlayWindow(settings);
-    const mainWindow = new MainWindow(obsWindow, overlayWindow, settings, mapLibrary);
+    const mainWindow = new MainWindow(obsWindow, overlayWindow, settings, mapLibrary, language);
     const hotkeys = new Hotkeys(mainWindow, settings, mapLibrary);
     const userData = new UserData(mapLibrary);
-    const trayController = new TrayController(mainWindow);
+    const trayController = new TrayController(mainWindow, language);
     const mapDetector = new MapDetector(mainWindow, settings);
 
     // Both are built after the main window. It needs the tray so a downloaded

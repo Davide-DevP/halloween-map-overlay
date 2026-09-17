@@ -8,10 +8,14 @@ const Custom = require("./js/custom.js");
 const Detector = require("./js/detector.js");
 const {debugLog} = require("./js/logger.js");
 const {showStatus} = require("./js/status.js");
+const i18n = require("./js/i18n.js");
+const {t} = i18n;
 const {updateReadyHeadline} = require("./shared/update-message.js");
 
+// Main sends `{key, params}`, not English: the language can change while a
+// toast is on screen, and main has no business knowing which one is in force.
 ipcRenderer.on("update-message", async (event, message) => {
-    showStatus(message);
+    showStatus(i18n.translateMessage(message));
 });
 
 // The toast above auto-hides after 5 s; a downloaded update is too important
@@ -19,16 +23,24 @@ ipcRenderer.on("update-message", async (event, message) => {
 // "Later" only silences it for this session — main keeps the pending version,
 // and the tray item stays there too.
 let updateDismissed = false;
+/** Kept so the banner can be re-translated when the language changes. */
+let pendingVersion = null;
 
 function showUpdateBanner(version) {
+    pendingVersion = version || null;
     if (updateDismissed) return;
     // .text(), never interpolation: the version comes off the release feed.
-    $("#updateReadyHeadline").text(updateReadyHeadline(version));
+    $("#updateReadyHeadline").text(updateReadyHeadline(i18n.language(), version));
     $("#updateReady").removeClass("d-none").hide().slideDown();
 }
 
 ipcRenderer.on("update-ready", async (event, info) => {
     showUpdateBanner(info && info.version);
+});
+
+i18n.onChange(() => {
+    if (pendingVersion === null) return;
+    $("#updateReadyHeadline").text(updateReadyHeadline(i18n.language(), pendingVersion));
 });
 
 const settings = new Settings();
@@ -38,9 +50,12 @@ const custom = new Custom(maps);
 const detector = new Detector(settings);
 
 document.addEventListener('DOMContentLoaded', async function () {
+    // The product name is not translated; the version is not text.
     $("#title").text("Halloween Map Overlay v" + await ipcRenderer.invoke('version'));
 
     await settings.init();
+    // Before anything renders: every view builds its markup with `t()`.
+    await i18n.init();
     const options = new Options(settings, maps);
     maps.setOptions(options);
 
@@ -55,7 +70,8 @@ document.addEventListener('DOMContentLoaded', async function () {
         $("#updateReady").slideUp();
     });
     $("#updateRestart").on("click", function () {
-        $(this).prop("disabled", true).text("Restarting…");
+        // No data-i18n any more once this is clicked: the app is on its way out.
+        $(this).prop("disabled", true).removeAttr("data-i18n").text(t('update.restarting'));
         ipcRenderer.invoke('install-update');
     });
     // `update-downloaded` can fire before this window finished loading (it was

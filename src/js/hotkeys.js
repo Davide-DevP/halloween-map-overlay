@@ -6,6 +6,12 @@ const {
     SYSTEM_HOTKEY_DEFS
 } = require("../shared/hotkeys-constants");
 const {escapeHtml} = require("../shared/escape-html");
+const {t, translateMessage, onChange} = require("./i18n");
+
+/** The translated name of a system hotkey action, from its definition. */
+function actionName(def) {
+    return def && def.descriptionKey ? t(def.descriptionKey) : (def && def.description) || '';
+}
 
 /** Hotkeys tab: the system hotkey table, the per-map table and key capture. */
 class Hotkeys {
@@ -21,14 +27,39 @@ class Hotkeys {
         this.recordedAccelerator = '';
         this.hotkeys = {};
         this.systemHotkeys = {};
+        // Both tables are built with t(), so both are rebuilt on a language
+        // change. The modal is left alone: if it is open the user is mid-edit.
+        onChange(() => {
+            this.updateHotkeys();
+            this.updateSystemHotkeysTable();
+            this.applyModalTitle();
+        });
     }
 
+    /**
+     * Title and placeholder of the bind modal, which JS owns rather than
+     * `data-i18n` because both depend on state: which action is being edited,
+     * and whether a key is being recorded right now.
+     */
+    applyModalTitle() {
+        const def = this.editingSystemAction ? SYSTEM_HOTKEY_DEFS[this.editingSystemAction] : null;
+        $('#addHotkeyModal .modal-title').text(def
+            ? t('hotkeys.modal.changeTitle', {action: actionName(def)})
+            : t('hotkeys.modal.title'));
+        $('#hotkeyInput').attr('placeholder',
+            this.recordingHotkey ? t('hotkeys.modal.listening') : t('hotkeys.modal.placeholder'));
+    }
+
+    /**
+     * @param {string|{key: string, params: ?Object}} message a literal, or the
+     *   `{key, params}` main sends back from an IPC handler.
+     */
     showToast(message, isSuccess = true) {
         const toastEl = document.getElementById('hotkeyToast');
         const toastBody = document.getElementById('hotkeyToastBody');
         if (!toastEl || !toastBody) return;
 
-        toastBody.textContent = message;
+        toastBody.textContent = translateMessage(message);
         toastEl.classList.remove('bg-success', 'bg-danger');
         toastEl.classList.add(isSuccess ? 'bg-success' : 'bg-danger');
 
@@ -48,7 +79,7 @@ class Hotkeys {
         const entries = Object.entries(this.hotkeys);
 
         if (!entries.length) {
-            $list.append(`<tr><td colspan="4" class="text-secondary">No map hotkeys bound.</td></tr>`);
+            $list.append(`<tr><td colspan="4" class="text-secondary">${escapeHtml(t('hotkeys.empty'))}</td></tr>`);
             return;
         }
 
@@ -64,7 +95,7 @@ class Hotkeys {
                     <td>${escapeHtml(creator)}</td>
                     <td class="text-center">
                         <button type="button" class="delete-row btn btn-sm btn-outline-danger"
-                                data-id="${escapeHtml(id)}" title="Delete binding">Delete</button>
+                                data-id="${escapeHtml(id)}" title="${escapeHtml(t('hotkeys.deleteTitle'))}">${escapeHtml(t('common.delete'))}</button>
                     </td>
                 </tr>
             `);
@@ -109,16 +140,16 @@ class Hotkeys {
 
             $list.append(`
                 <tr data-action="${escapeHtml(actionId)}">
-                    <td>${escapeHtml(def.description)}</td>
+                    <td>${escapeHtml(actionName(def))}</td>
                     <td><kbd class="system-hotkey-binding" data-action="${escapeHtml(actionId)}">${escapeHtml(acceleratorToDisplay(currentAccel))}</kbd></td>
                     <td class="text-center">
                         <button type="button" class="edit-system-btn btn btn-sm btn-outline-primary"
-                                data-action="${escapeHtml(actionId)}" title="Edit hotkey">Edit</button>
+                                data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.editTitle'))}">${escapeHtml(t('common.edit'))}</button>
                     </td>
                     <td class="text-center">
                         <button type="button" class="reset-system-btn btn btn-sm btn-outline-warning"
-                                data-action="${escapeHtml(actionId)}" title="Reset to default"
-                                ${isDefault ? 'disabled' : ''}>Reset</button>
+                                data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.resetTitle'))}"
+                                ${isDefault ? 'disabled' : ''}>${escapeHtml(t('common.reset'))}</button>
                     </td>
                 </tr>
             `);
@@ -141,10 +172,10 @@ class Hotkeys {
 
         this.editingSystemAction = actionId;
 
-        $('#addHotkeyModal .modal-title').text(`Change hotkey: ${def.description}`);
         $('#mapSelectField').hide();
 
         this.startRecording();
+        this.applyModalTitle();
 
         const self = this;
         $('#saveHotkeyBtn').off('click').on('click', function () {
@@ -159,7 +190,7 @@ class Hotkeys {
         if (!actionId) return;
 
         if (!this.recordedAccelerator) {
-            this.showToast('Press a key combination with Ctrl, Alt or Shift first.', false);
+            this.showToast(t('hotkeys.error.noKey'), false);
             return;
         }
 
@@ -173,12 +204,12 @@ class Hotkeys {
     }
 
     restoreModalDefaults() {
-        $('#addHotkeyModal .modal-title').text('Bind a map hotkey');
         $('#mapSelectField').show();
-        $('#hotkeyInput').val('').attr('placeholder', 'Press a key...');
+        $('#hotkeyInput').val('');
         this.editingSystemAction = null;
         this.recordingHotkey = false;
         this.recordedAccelerator = '';
+        this.applyModalTitle();
 
         const self = this;
         $('#saveHotkeyBtn').off('click').on('click', function () {
@@ -189,7 +220,7 @@ class Hotkeys {
     async saveHotkeyToFile() {
         const mapkey = $('#selectMap').val();
         if (!this.recordedAccelerator || !mapkey) {
-            this.showToast('Pick both a key combination and a map.', false);
+            this.showToast(t('hotkeys.error.pickBoth'), false);
             return;
         }
         const result = await ipcRenderer.invoke('save-hotkeys', {
@@ -204,6 +235,7 @@ class Hotkeys {
 
     async loadHotkeys() {
         this.populateMapSelect();
+        this.applyModalTitle();
         this.loadCapture();
 
         ipcRenderer.on('hotkey-updated', (event, hotkeys) => {
@@ -228,7 +260,7 @@ class Hotkeys {
     populateMapSelect() {
         const $select = $("#selectMap");
         if (!$select.length) return;
-        $select.empty().append($('<option>').val('').text('Select a map...'));
+        $select.empty().append($('<option>').val('').text(t('hotkeys.modal.selectMap')));
 
         const byCreator = {};
         for (const entry of this.maps.catalog) {
@@ -247,7 +279,7 @@ class Hotkeys {
     startRecording() {
         this.recordingHotkey = true;
         this.recordedAccelerator = '';
-        $('#hotkeyInput').val('').attr('placeholder', 'Listening...');
+        $('#hotkeyInput').val('').attr('placeholder', t('hotkeys.modal.listening'));
     }
 
     loadCapture() {
@@ -281,14 +313,14 @@ class Hotkeys {
             if (result.status === 'unsupported') {
                 self.recordedAccelerator = '';
                 $('#hotkeyInput').val('');
-                self.showToast(`"${result.key}" cannot be used in a shortcut.`, false);
+                self.showToast(t('hotkeys.error.unsupportedKey', {key: result.key}), false);
                 return;
             }
             if (result.status === 'no-modifier') {
                 self.recordedAccelerator = '';
                 $('#hotkeyInput').val('');
                 // A bare key would be swallowed system-wide, in game included
-                self.showToast('Add Ctrl, Alt or Shift — a single key would be captured everywhere.', false);
+                self.showToast(t('hotkeys.error.addModifier'), false);
                 return;
             }
 

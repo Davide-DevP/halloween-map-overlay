@@ -18,12 +18,15 @@ game's own window (and nothing else) while it is switched on — see
 
 - The four maps by u/deftyconchgaming bundled with the app — no download step.
 - Optional **auto-detect**: open the in-game map with <kbd>Tab</kbd> and the
-  overlay switches to that map by itself. Off by default.
+  overlay switches to that map by itself. Off by default. It also clears the
+  overlay when the game goes back to its main menu.
 - Transparent, frameless, click-through overlay that stays above the game.
 - Pick the monitor, corner, fine-grain position, size, opacity and rotation.
 - Drag the overlay into place with the mouse, or use the position sliders.
-- Global hotkeys for hide/show, rotate and next/previous map, plus one hotkey
-  per map (all rebindable).
+- Global hotkeys for hide/show, rotate, next/previous map and the overlay's
+  opacity and size, plus one hotkey per map (all rebindable).
+- Optionally keep the map's name on the overlay all the time.
+- **English and Italian**, following your system language by default.
 - Import your own map images; they show up under the **Custom** creator.
 - OBS window with a `#00ff00` background for chroma keying.
 - Minimize to the system tray.
@@ -37,16 +40,33 @@ game's own window (and nothing else) while it is switched on — see
 | Next map | <kbd>Ctrl</kbd> + <kbd>→</kbd> |
 | Previous map | <kbd>Ctrl</kbd> + <kbd>←</kbd> |
 | Clear the map and re-detect | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> |
+| More opaque (+10 %) | <kbd>Ctrl</kbd> + <kbd>↑</kbd> |
+| More transparent (−10 %) | <kbd>Ctrl</kbd> + <kbd>↓</kbd> |
+| Bigger (+25 px) | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>↑</kbd> |
+| Smaller (−25 px) | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>↓</kbd> |
 | East Haddonfield | <kbd>Ctrl</kbd> + <kbd>1</kbd> |
 | Haddonfield Heights | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
 | Haddonfield Town Center | <kbd>Ctrl</kbd> + <kbd>3</kbd> |
 | Orange Grove Estates | <kbd>Ctrl</kbd> + <kbd>4</kbd> |
+
+Opacity is clamped to 10–100 % and the size to 50–800 px, the same ranges as
+the sliders in **Settings → Overlay**; the new value appears in the status
+message at the bottom right, and the sliders follow along if the settings
+window happens to be open.
 
 All of them can be changed under **Settings → Hotkeys**. The per-map bindings
 are written once on first run — <kbd>Ctrl</kbd> + <kbd>1</kbd> to
 <kbd>Ctrl</kbd> + <kbd>9</kbd> go to the first nine maps in gallery order, so
 maps added in a later version get their own number automatically — and are
 yours to edit or delete afterwards.
+
+## Language
+
+The interface is available in **English** and **Italian**. It follows your
+system language out of the box (anything Italian gets Italian, everything else
+English) and can be pinned to one of them under **Settings → General →
+Language**. The change applies immediately, with no restart. Map names and
+creator names are never translated.
 
 ## Auto-detect map
 
@@ -61,6 +81,13 @@ switch reads *Off*, *Watching for the in-game map (Tab)…* or
 the detector forget what it last saw, so the next <kbd>Tab</kbd> press detects
 the map again even if it is the same one. (Plain <kbd>Ctrl</kbd> + <kbd>H</kbd>
 only hides the overlay.)
+
+When the game returns to its **main menu** the match is over, so the overlay
+clears itself and the detector forgets the map — the next <kbd>Tab</kbd> press
+in the next match detects it again, even if it is the same map. It waits for
+two consecutive readings of the menu so a loading screen cannot trigger it, and
+it only ever acts on a map it detected itself. Turn it off under
+**Settings → General → Clear the map back in the menu**.
 
 How it works, in full:
 
@@ -83,6 +110,14 @@ How it works, in full:
 
 It needs the Tab (Objectives) screen to be visible in the game window, so the
 game has to be in **Borderless Windowed** (see the FAQ) and not minimized.
+
+## The map name on the overlay
+
+By default the overlay names the map for about three seconds after auto-detect
+switches to it, and stays anonymous the rest of the time. **Settings → Overlay
+→ Map name on the overlay** changes that to *Always* or *Never*. The name sits
+at the bottom of the overlay window, is never rotated with the map, and uses the
+same opacity as the map. The OBS window follows the same setting.
 
 ## Command line
 
@@ -261,6 +296,28 @@ are doing. The remaining cost is your antivirus scanning the ~350 MB it unpacks
 — excluding `%LOCALAPPDATA%\Programs\Halloween Map Overlay` in **Windows
 Security → Virus & threat protection → Manage settings → Exclusions** removes
 that too.
+
+## Changelog
+
+### 0.3.0
+
+- **Italian.** The whole interface is translated, and follows your system
+  language by default — **Settings → General → Language** pins it to English or
+  Italian. Applies immediately, no restart. Map and creator names stay as they
+  are.
+- **Back-in-menu clearing.** With auto-detect on, the overlay clears itself when
+  the game returns to its main menu, and the detector forgets the map so the
+  next match is detected even if it is the same one.
+  **Settings → General** turns it off.
+- **Opacity and size hotkeys.** <kbd>Ctrl</kbd> + <kbd>↑</kbd> /
+  <kbd>↓</kbd> for opacity and <kbd>Ctrl</kbd> + <kbd>Shift</kbd> +
+  <kbd>↑</kbd> / <kbd>↓</kbd> for size, so the overlay can be adjusted without
+  leaving the game. Rebindable like every other hotkey.
+- **A permanent map name.** **Settings → Overlay → Map name on the overlay** can
+  now keep the name on screen always, or never show it at all.
+
+Older versions are listed on the
+[Releases page](https://github.com/Davide-DevP/halloween-map-overlay/releases).
 
 ## Credits
 

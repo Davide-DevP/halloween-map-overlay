@@ -3,6 +3,7 @@ const {debugLog} = require("./logger");
 const {findClosestMapMatch, nextMap, prevMap, listCreators, CUSTOM_CREATOR} = require("../core/map-catalog");
 const {escapeHtml} = require("../shared/escape-html");
 const {showStatus} = require("./status");
+const {t, onChange} = require("./i18n");
 const {
     OPACITY_STEP,
     SIZE_STEP,
@@ -27,6 +28,13 @@ class Maps {
         this.lastKey = "";
         this.thumbnails = {};
         this.init();
+        // The gallery, the creator filter and the "showing" line are all built
+        // with t(), so they have to be rebuilt when the language changes.
+        onChange(() => {
+            this.populateCreatorSelect();
+            this.renderGallery();
+            $("#currentMap").text(this.currentKey ? this.currentKey.split("/").pop() : t('home.none'));
+        });
     }
 
     setOptions(options) {
@@ -126,7 +134,7 @@ class Maps {
         // it is open it has to follow, or the next drag would snap back.
         if ($("#opacityRange").length) $("#opacityRange").val(String(next));
         this.sendMap(this.currentKey || this.lastKey);
-        showStatus(`Opacity ${Math.round(next * 100)} %`);
+        showStatus(t('toast.opacity', {percent: Math.round(next * 100)}));
     }
 
     /** Ctrl+Shift+Up / Ctrl+Shift+Down: overlay width in 25 px steps. */
@@ -135,7 +143,7 @@ class Maps {
         await this.settings.set("size", next);
         if ($("#sizeRange").length) $("#sizeRange").val(String(next));
         this.sendMap(this.currentKey || this.lastKey);
-        showStatus(`Size ${next} px`);
+        showStatus(t('toast.size', {size: next}));
     }
 
     step(pick) {
@@ -164,7 +172,7 @@ class Maps {
         const creators = listCreators(this.catalog);
         // Built with .val()/.text() so a user-typed custom creator can never
         // break out of the markup
-        select.empty().append($('<option>').val('').text('All creators'));
+        select.empty().append($('<option>').val('').text(t('home.allCreators')));
         creators.forEach(c => select.append($('<option>').val(c).text(c)));
         if (previous && creators.includes(previous)) select.val(previous);
 
@@ -189,7 +197,8 @@ class Maps {
         const $results = $("#results").empty();
 
         if (!entries.length) {
-            $results.append(`<p class="text-secondary">No maps found. Run <code>npm run prepare-maps</code> to build them.</p>`);
+            // Catalogue string, not user input — its markup is ours.
+            $results.append(`<p class="text-secondary">${t('home.noMaps')}</p>`);
             return;
         }
 
@@ -243,7 +252,8 @@ class Maps {
         if (this.options && this.options.previewActive) this.options.sendPreview();
 
         this.highlightActive();
-        $("#currentMap").text(value ? value.split("/").pop() : "None");
+        // A map name is never translated; only the "nothing showing" word is.
+        $("#currentMap").text(value ? value.split("/").pop() : t('home.none'));
         return true;
     }
 }

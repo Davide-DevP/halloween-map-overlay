@@ -1,6 +1,7 @@
 const {ipcRenderer} = require("electron");
 const {debugLog} = require("./logger");
 const {escapeHtml} = require("../shared/escape-html");
+const {t, onChange} = require("./i18n");
 
 /** Image MIME type → the extension the imported file is stored under. */
 const MIME_EXTENSIONS = {
@@ -29,6 +30,8 @@ class Custom {
 
     constructor(maps) {
         this.maps = maps;
+        // The list's "no images yet" row and its Delete buttons are built here
+        onChange(() => this.generateCustomList());
     }
 
     async getFileAsBase64($file) {
@@ -47,16 +50,16 @@ class Custom {
 
     async addCustomMap() {
         $('#loadingOverlay').slideDown();
-        $("#loadingContent").text("Saving...");
+        $("#loadingContent").text(t('app.saving'));
         try {
-            if ($("#custom_file").prop('files').length === 0) throw "Pick an image file";
-            if ($("#custom_name").val().length === 0) throw "Enter a map name";
+            if ($("#custom_file").prop('files').length === 0) throw t('custom.error.pickFile');
+            if ($("#custom_name").val().length === 0) throw t('custom.error.enterName');
 
             const file = $("#custom_file").prop('files')[0];
-            if (!/^image\//.test(file.type || '')) throw "That file is not an image";
+            if (!/^image\//.test(file.type || '')) throw t('custom.error.notAnImage');
 
             const imageBase64 = await this.getFileAsBase64($("#custom_file"));
-            if (imageBase64 === false) throw "Could not read the image";
+            if (imageBase64 === false) throw t('custom.error.unreadable');
 
             // Slashes/dots would escape the flat custom/ directory or confuse
             // the extension stripping in the catalogue.
@@ -64,7 +67,7 @@ class Custom {
                 .replace(/[\\/]/g, " ")
                 .replace(/\./g, " ")
                 .trim();
-            if (!name) throw "Enter a map name";
+            if (!name) throw t('custom.error.enterName');
 
             await ipcRenderer.invoke('write-custom-data', name + extensionFor(file), Buffer.from(imageBase64, "base64"));
             await this.maps.invalidateCache();
@@ -74,7 +77,7 @@ class Custom {
             await this.generateCustomList();
         } catch (e) {
             debugLog("custom::addCustomMap::error", e);
-            alert("Error: " + e);
+            alert(t('common.error', {message: e}));
         } finally {
             $('#loadingOverlay').slideUp();
         }
@@ -82,13 +85,13 @@ class Custom {
 
     async deleteCustomMap(fileName) {
         try {
-            if (!fileName) throw "Missing file name";
+            if (!fileName) throw t('custom.error.missingName');
             await ipcRenderer.invoke('delete-custom-data', fileName);
             await this.maps.invalidateCache();
             await this.generateCustomList();
         } catch (e) {
             debugLog("custom::deleteCustomMap::error", e);
-            alert("Error: " + e);
+            alert(t('common.error', {message: e}));
         }
     }
 
@@ -97,7 +100,7 @@ class Custom {
             const $list = $("#customList").html("");
             const files = await ipcRenderer.invoke('get-custom-photos');
             if (!files.length) {
-                $list.append(`<tr><td class="text-secondary">No custom images yet.</td></tr>`);
+                $list.append(`<tr><td class="text-secondary">${escapeHtml(t('custom.empty'))}</td></tr>`);
                 return;
             }
             for (const file of files) {
@@ -108,7 +111,7 @@ class Custom {
                     <td><img style="width: 220px" class="rounded" src="${escapeHtml(url)}" alt="${escapeHtml(name)}"></td>
                     <td class="align-middle">${escapeHtml(name)}</td>
                     <td class="align-middle">
-                        <button type="button" class="btn btn-danger btn-sm" onclick="deleteImage(this)" data-img="${escapeHtml(file)}">Delete</button>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="deleteImage(this)" data-img="${escapeHtml(file)}">${escapeHtml(t('common.delete'))}</button>
                     </td>
                 </tr>`);
             }

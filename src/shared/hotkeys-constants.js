@@ -5,30 +5,42 @@
  * renderer process. Plain CommonJS, no electron import — safe to unit test.
  */
 
-/** @type {Object<string, {id: string, defaultAccelerator: string, description: string, action: string}>} */
+/**
+ * `description` is the English name of the action and `descriptionKey` its
+ * translation key. Both are kept: the key is what the UI and the conflict
+ * messages use, the plain string is the fallback for anything that has no
+ * catalogue at hand (a log line, a future headless caller) and it doubles as
+ * documentation of what the action does right here in the definition.
+ *
+ * @type {Object<string, {id: string, defaultAccelerator: string, description: string, descriptionKey: string, action: string}>}
+ */
 const SYSTEM_HOTKEY_DEFS = {
     'toggle-map': {
         id: 'toggle-map',
         defaultAccelerator: 'CommandOrControl+H',
         description: 'Show / hide the current map',
+        descriptionKey: 'hotkeys.action.toggle-map',
         action: 'toggle-map'
     },
     'rotate-map': {
         id: 'rotate-map',
         defaultAccelerator: 'CommandOrControl+R',
         description: 'Rotate the map by 90 degrees',
+        descriptionKey: 'hotkeys.action.rotate-map',
         action: 'rotate-map'
     },
     'next-map': {
         id: 'next-map',
         defaultAccelerator: 'CommandOrControl+Right',
         description: 'Show the next map',
+        descriptionKey: 'hotkeys.action.next-map',
         action: 'next-map'
     },
     'prev-map': {
         id: 'prev-map',
         defaultAccelerator: 'CommandOrControl+Left',
         description: 'Show the previous map',
+        descriptionKey: 'hotkeys.action.prev-map',
         action: 'prev-map'
     },
     // Not the same as toggle-map: this one also makes the auto-detector forget
@@ -37,6 +49,7 @@ const SYSTEM_HOTKEY_DEFS = {
         id: 'clear-map',
         defaultAccelerator: 'CommandOrControl+Shift+D',
         description: 'Clear the map and re-detect',
+        descriptionKey: 'hotkeys.action.clear-map',
         action: 'clear-map'
     },
     // Opacity and size from the keyboard: the overlay is adjusted mid-match,
@@ -45,24 +58,28 @@ const SYSTEM_HOTKEY_DEFS = {
         id: 'opacity-up',
         defaultAccelerator: 'CommandOrControl+Up',
         description: 'Make the overlay more opaque',
+        descriptionKey: 'hotkeys.action.opacity-up',
         action: 'opacity-up'
     },
     'opacity-down': {
         id: 'opacity-down',
         defaultAccelerator: 'CommandOrControl+Down',
         description: 'Make the overlay more transparent',
+        descriptionKey: 'hotkeys.action.opacity-down',
         action: 'opacity-down'
     },
     'size-up': {
         id: 'size-up',
         defaultAccelerator: 'CommandOrControl+Shift+Up',
         description: 'Make the overlay bigger',
+        descriptionKey: 'hotkeys.action.size-up',
         action: 'size-up'
     },
     'size-down': {
         id: 'size-down',
         defaultAccelerator: 'CommandOrControl+Shift+Down',
         description: 'Make the overlay smaller',
+        descriptionKey: 'hotkeys.action.size-down',
         action: 'size-down'
     }
 };

@@ -9,8 +9,22 @@ const {
     buildDefaultMapHotkeys,
     hasModifier
 } = require("../shared/hotkeys-constants");
+const {msg} = require("../shared/i18n");
 
 const hotkeyFilePath = path.join(app.getPath('userData'), 'hotkeys.json');
+
+/**
+ * "…is already bound to <action>." The action's name is a nested message, not a
+ * string: main does not know which language the window is in, so the inner noun
+ * has to be translated at the same moment as the sentence around it.
+ */
+function conflictMessage(accelerator, actionId) {
+    const def = SYSTEM_HOTKEY_DEFS[actionId];
+    return msg('hotkeys.error.boundTo', {
+        accelerator: acceleratorToDisplay(accelerator),
+        action: def ? msg(def.descriptionKey) : actionId
+    });
+}
 
 class Hotkeys {
 
@@ -30,11 +44,11 @@ class Hotkeys {
         ipcMain.handle('save-hotkeys', async (event, payload) => {
             const {hotkey, mapkey, id: incomingId} = payload || {};
             if (!hotkey || !mapkey) {
-                return classInstance.fail('Pick both a key combination and a map.');
+                return classInstance.fail(msg('hotkeys.error.pickBoth'));
             }
 
             if (!hasModifier(hotkey)) {
-                return classInstance.fail('A hotkey needs at least one modifier (Ctrl, Alt, Shift or Super).');
+                return classInstance.fail(msg('hotkeys.error.noModifier'));
             }
 
             const conflict = classInstance.systemConflict(hotkey);
@@ -51,11 +65,11 @@ class Hotkeys {
                 fs.writeFileSync(hotkeyFilePath, JSON.stringify(saved, null, 2), "utf-8");
             } catch (err) {
                 console.error("Failed to save hotkeys:", err);
-                return classInstance.fail('Failed to save hotkey.');
+                return classInstance.fail(msg('hotkeys.error.saveFailed'));
             }
             console.log(`Saved hotkey [${id}]: ${hotkey} → ${mapkey}`);
             classInstance.loadKeys();
-            return classInstance.ok('Hotkey saved.');
+            return classInstance.ok(msg('hotkeys.saved'));
         });
 
         ipcMain.on('load-hotkeys', () => {
@@ -70,7 +84,7 @@ class Hotkeys {
                 delete saved[keyToDelete];
                 fs.writeFileSync(hotkeyFilePath, JSON.stringify(saved, null, 2), 'utf-8');
                 console.log(`Removed hotkey: ${keyToDelete} (id: ${id})`);
-                classInstance.mainWindow.sendUpdate('Hotkey deleted.');
+                classInstance.mainWindow.sendUpdate(msg('hotkeys.deleted'));
                 classInstance.loadKeys();
             } else {
                 console.warn(`No hotkey found for id ${id}`);
@@ -85,33 +99,32 @@ class Hotkeys {
         ipcMain.handle('save-system-hotkey', async (event, payload) => {
             const {actionId, accelerator} = payload || {};
             if (!actionId || !accelerator) {
-                return classInstance.fail('Failed to save hotkey: missing data.');
+                return classInstance.fail(msg('hotkeys.error.missingData'));
             }
 
             const settingKey = ACTION_TO_SETTING_KEY[actionId];
             if (!settingKey) {
                 console.warn(`save-system-hotkey: unknown actionId "${actionId}"`);
-                return classInstance.fail('Failed to save hotkey: unknown action.');
+                return classInstance.fail(msg('hotkeys.error.unknownAction'));
             }
 
             if (!hasModifier(accelerator)) {
-                return classInstance.fail('A hotkey needs at least one modifier (Ctrl, Alt, Shift or Super).');
+                return classInstance.fail(msg('hotkeys.error.noModifier'));
             }
 
             // Conflicts with the other system hotkeys
             const current = classInstance.getSystemHotkeys();
             for (const [otherActionId, otherAccel] of Object.entries(current)) {
                 if (otherActionId !== actionId && otherAccel === accelerator) {
-                    const def = SYSTEM_HOTKEY_DEFS[otherActionId];
-                    const name = def ? def.description : otherActionId;
-                    return classInstance.fail(`"${acceleratorToDisplay(accelerator)}" is already bound to "${name}".`);
+                    return classInstance.fail(conflictMessage(accelerator, otherActionId));
                 }
             }
 
             // Conflicts with per-map hotkeys
             const customHotkeys = classInstance.readHotkeyFile();
             if (customHotkeys[accelerator]) {
-                return classInstance.fail(`"${acceleratorToDisplay(accelerator)}" is already used by a map hotkey.`);
+                return classInstance.fail(msg('hotkeys.error.usedByMap',
+                    {accelerator: acceleratorToDisplay(accelerator)}));
             }
 
             const invalid = classInstance.rejectIfUnregisterable(accelerator);
@@ -119,7 +132,7 @@ class Hotkeys {
 
             classInstance.settings.set(settingKey, accelerator);
             classInstance.loadKeys();
-            return classInstance.ok('System hotkey saved.');
+            return classInstance.ok(msg('hotkeys.savedSystem'));
         });
 
         ipcMain.on('reset-system-hotkey', (event, {actionId}) => {
@@ -131,7 +144,7 @@ class Hotkeys {
             }
 
             classInstance.settings.set(settingKey, def.defaultAccelerator);
-            classInstance.mainWindow.sendUpdate('Hotkey reset to default.');
+            classInstance.mainWindow.sendUpdate(msg('hotkeys.resetToDefault'));
             classInstance.loadKeys();
         });
     }
@@ -148,15 +161,13 @@ class Hotkeys {
     }
 
     /**
-     * @returns {string|null} a conflict message when this accelerator is one of
-     *   the system hotkeys, null otherwise.
+     * @returns {{key: string, params: Object}|null} a conflict message when this
+     *   accelerator is one of the system hotkeys, null otherwise.
      */
     systemConflict(accelerator) {
         for (const [actionId, accel] of Object.entries(this.getSystemHotkeys())) {
             if (accel !== accelerator) continue;
-            const def = SYSTEM_HOTKEY_DEFS[actionId];
-            const name = def ? def.description : actionId;
-            return `"${acceleratorToDisplay(accelerator)}" is already bound to "${name}".`;
+            return conflictMessage(accelerator, actionId);
         }
         return null;
     }
@@ -192,13 +203,14 @@ class Hotkeys {
             // A throw mid-register may have left globalShortcut in a state
             // where one of our bindings is gone; rebuild them.
             this.loadKeys();
-            return `"${accelerator}" is not a key combination this app can register.`;
+            return msg('hotkeys.error.unregisterable', {accelerator});
         }
         // The probe took nothing away from us (we never hold this one), so the
         // caller's own loadKeys() after a successful save is the only one
         // needed — this used to run loadKeys three times per save.
         if (registered) globalShortcut.unregister(accelerator);
-        else this.mainWindow.sendUpdate(`"${acceleratorToDisplay(accelerator)}" is already taken by another application.`);
+        else this.mainWindow.sendUpdate(msg('hotkeys.error.takenByOther',
+            {accelerator: acceleratorToDisplay(accelerator)}));
         return null;
     }
 
@@ -264,10 +276,10 @@ class Hotkeys {
         try {
             if (globalShortcut.register(accelerator, handler)) return true;
             console.warn(`Failed to register "${accelerator}" (${label}) — already taken`);
-            if (win) win.sendUpdate(`"${acceleratorToDisplay(accelerator)}" is already taken by another application.`);
+            if (win) win.sendUpdate(msg('hotkeys.error.takenByOther', {accelerator: acceleratorToDisplay(accelerator)}));
         } catch (err) {
             console.error(`Invalid accelerator "${accelerator}" (${label}): ${err.message}`);
-            if (win) win.sendUpdate(`"${accelerator}" is not a valid shortcut — reset it in Settings › Hotkeys.`);
+            if (win) win.sendUpdate(msg('hotkeys.error.invalidSaved', {accelerator}));
         }
         return false;
     }
@@ -300,7 +312,7 @@ class Hotkeys {
         for (const [hotkey, {mapKey, id}] of Object.entries(hotkeys)) {
             if (systemAccelerators.has(hotkey)) {
                 console.warn(`Skipping map hotkey "${hotkey}" — conflicts with a system hotkey.`);
-                win.sendUpdate(`"${acceleratorToDisplay(hotkey)}" is also a system hotkey — the map binding is inactive.`);
+                win.sendUpdate(msg('hotkeys.error.systemShadowsMap', {accelerator: acceleratorToDisplay(hotkey)}));
                 continue;
             }
             this.safeRegister(hotkey, () => win.send('hotkey-pressed', mapKey), id);

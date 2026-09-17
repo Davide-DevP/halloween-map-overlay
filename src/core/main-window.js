@@ -7,6 +7,7 @@ const {imageSize} = require('image-size');
 const {autoUpdater} = require('electron-updater');
 const {computeOverlayPosition, rotatedSize} = require('./overlay-position');
 const {mapLabelMode} = require('../shared/settings-defaults');
+const {msg, t} = require('../shared/i18n');
 
 const debug = process.env.DEBUG === 'true';
 
@@ -17,6 +18,8 @@ class MainWindow {
     overlayWindow;
     settings;
     mapLibrary;
+    /** `Language`, for the one string main renders itself (the OS notification). */
+    language = null;
     /** Version string of a downloaded-but-not-installed update, or null. */
     pendingUpdateVersion = null;
     /** Absolute path of the downloaded installer (`update-downloaded` gives it). */
@@ -26,11 +29,14 @@ class MainWindow {
     /** {mapDetector, tray} — set from index.js, both built after this class. */
     shutdownHooks = {};
 
-    constructor(obsWindow, overlayWindow, settings, mapLibrary) {
+    constructor(obsWindow, overlayWindow, settings, mapLibrary, language) {
         this.obsWindow = obsWindow;
         this.overlayWindow = overlayWindow;
         this.settings = settings;
         this.mapLibrary = mapLibrary;
+        // Only needed for the native update notification, which main draws
+        // itself; everything else goes to the renderer as {key, params}.
+        this.language = language || null;
 
         ipcMain.on('obs-open', async () => {
             obsWindow.show()
@@ -55,10 +61,17 @@ class MainWindow {
                 const physicalWidth = Math.round(display.bounds.width * display.scaleFactor);
                 const physicalHeight = Math.round(display.bounds.height * display.scaleFactor);
                 const refreshRate = Math.round(display.displayFrequency);
+                // The OS label ("DELL U2720Q") is a device name and is never
+                // translated. When there is none the renderer builds one with
+                // `t()` — main has no business composing UI text it cannot
+                // re-render when the language changes.
                 return {
                     index,
                     id: display.id,
-                    label: display.label || `Display ${index + 1} (${physicalWidth}x${physicalHeight}${refreshRate ? ` @ ${refreshRate}Hz` : ''})`,
+                    label: display.label || '',
+                    physicalWidth,
+                    physicalHeight,
+                    refreshRate,
                     bounds: display.bounds
                 };
             });
@@ -281,11 +294,11 @@ class MainWindow {
         // show() runs again when the window is reopened from the tray
         if (!MainWindow._updaterBound) {
             MainWindow._updaterBound = true;
-            autoUpdater.on('checking-for-update', () => self.sendUpdate('Checking for updates…'));
-            autoUpdater.on('update-available', () => self.sendUpdate('Update available — downloading…'));
-            autoUpdater.on('update-not-available', () => self.sendUpdate('Halloween Map Overlay is up to date.'));
+            autoUpdater.on('checking-for-update', () => self.sendUpdate(msg('update.checking')));
+            autoUpdater.on('update-available', () => self.sendUpdate(msg('update.available')));
+            autoUpdater.on('update-not-available', () => self.sendUpdate(msg('update.upToDate')));
             autoUpdater.on('download-progress', (p) => {
-                self.sendUpdate(`Downloading update: ${Math.round(p.percent || 0)}%`);
+                self.sendUpdate(msg('update.downloading', {percent: Math.round(p.percent || 0)}));
             });
             autoUpdater.on('update-downloaded', (info) => {
                 const version = info && info.version ? String(info.version) : '';
@@ -295,7 +308,7 @@ class MainWindow {
                 // to the update cache. We run it ourselves — see installUpdate().
                 self.pendingInstallerPath = (info && typeof info.downloadedFile === 'string')
                     ? info.downloadedFile : null;
-                self.sendUpdate('Update downloaded — click Restart and update when you are ready.');
+                self.sendUpdate(msg('update.downloaded'));
                 // The toast auto-hides; the banner is the persistent element.
                 self.send('update-ready', {version});
                 const tray = self.shutdownHooks && self.shutdownHooks.tray;
@@ -305,16 +318,21 @@ class MainWindow {
             });
             autoUpdater.on('error', (err) => {
                 console.error('Update check failed:', err && err.message);
-                self.sendUpdate('Could not check for updates.');
+                self.sendUpdate(msg('update.checkFailed'));
             });
         }
 
         setTimeout(() => {
             // The default notification text promises an install on exit, which
             // is exactly what this no longer does — say what really happens.
+            // This one *is* translated in main: it is a native OS notification,
+            // not something a renderer draws. `{appName}` and `{version}` are
+            // electron-updater's own placeholders and survive `t()` untouched,
+            // because a placeholder with no matching parameter is left alone.
+            const lang = this.language ? this.language.current() : 'en';
             autoUpdater.checkForUpdatesAndNotify({
-                title: 'Update ready',
-                body: '{appName} {version} has been downloaded. Open the app and click "Restart and update" when it suits you.'
+                title: t(lang, 'update.notify.title'),
+                body: t(lang, 'update.notify.body')
             }).catch(err => {
                 console.error('Update check failed:', err && err.message);
             });
@@ -494,12 +512,17 @@ class MainWindow {
             console.error('Install update failed:', err && err.message);
             this.installStarted = false;
             app.isQuiting = false;
-            this.sendUpdate('Could not install the update.');
+            this.sendUpdate(msg('update.installFailed'));
             return false;
         }
     }
 
-    /** Short status line shown in the bottom-right toast of the main window. */
+    /**
+     * Short status line shown in the bottom-right toast of the main window.
+     * @param {{key: string, params: ?Object}|string} message built with `msg()`;
+     *   the renderer translates it on arrival, so a toast already on screen is
+     *   never stranded in the previous language.
+     */
     sendUpdate(message) {
         if (this.window && !this.window.isDestroyed()) {
             this.window.webContents.send('update-message', message);

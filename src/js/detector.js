@@ -1,5 +1,6 @@
 const {ipcRenderer} = require("electron");
 const {debugLog} = require("./logger");
+const {t, onChange} = require("./i18n");
 
 /**
  * Home-page switch and status line for the automatic map detection.
@@ -17,6 +18,10 @@ class Detector {
         this.lastAt = null;
         // True between "the menu cleared the map" and the next detection.
         this.inMenu = false;
+        // The last status seen, so the line can be re-rendered in the new
+        // language without waiting for the next push from main.
+        this.lastStatus = null;
+        onChange(() => this.render(this.lastStatus));
     }
 
     async init() {
@@ -48,7 +53,8 @@ class Detector {
      *          state: ?string, inMenu: ?boolean}} status
      */
     render(status) {
-        const s = status || {};
+        const s = status || this.lastStatus || {};
+        this.lastStatus = s;
         $("#mapDetectionCheck").prop("checked", !!s.running);
 
         if (s.lastDetected) {
@@ -72,24 +78,29 @@ class Detector {
             this.lastKey = null;
             this.lastAt = null;
             this.inMenu = false;
-            $("#detectorStatus").text("Off");
+            $("#detectorStatus").text(t('detector.off'));
             return;
         }
         if (this.inMenu && !this.lastKey) {
-            $("#detectorStatus").text("Back in menu — map cleared");
+            $("#detectorStatus").text(t('detector.menu'));
             return;
         }
         if (!this.lastKey) {
-            $("#detectorStatus").text("Watching for the in-game map (Tab)…");
+            $("#detectorStatus").text(t('detector.watching'));
             return;
         }
         const at = this.lastAt ? new Date(this.lastAt) : null;
-        const clock = at
-            ? ` at ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`
-            : "";
+        // The map name is never translated; only the sentence around it is.
+        const map = this.lastKey.split("/").pop();
+        const text = at
+            ? t('detector.detectedAt', {
+                map,
+                time: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`
+            })
+            : t('detector.detected', {map});
         // .text(), never interpolated markup — the key comes from main, but the
         // rule in this app is that no map name ever reaches innerHTML unescaped.
-        $("#detectorStatus").text(`Detected ${this.lastKey.split("/").pop()}${clock}`);
+        $("#detectorStatus").text(text);
     }
 }
 

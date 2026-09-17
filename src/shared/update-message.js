@@ -12,13 +12,19 @@
  * version is dropped here as well rather than being echoed back at the user.
  */
 
+const {t} = require('./i18n');
+
 const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/;
 
-/** "Version 0.2.1 is ready." — or a version-less fallback. */
-function updateReadyHeadline(version) {
+/**
+ * "Version 0.2.1 is ready." — or a version-less fallback.
+ * @param {string} lang 'en' | 'it'
+ * @param {string} version from the GitHub release feed
+ */
+function updateReadyHeadline(lang, version) {
     const value = typeof version === 'string' ? version.trim() : '';
-    if (!value || !VERSION_PATTERN.test(value)) return 'A new version is ready.';
-    return `Version ${value} is ready.`;
+    if (!value || !VERSION_PATTERN.test(value)) return t(lang, 'update.ready.headlineUnknown');
+    return t(lang, 'update.ready.headline', {version: value});
 }
 
 module.exports = {updateReadyHeadline, VERSION_PATTERN};
