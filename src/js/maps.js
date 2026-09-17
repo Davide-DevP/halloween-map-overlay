@@ -273,6 +273,15 @@ class Maps {
         if (opts.mapLabel) payload.mapLabel = opts.mapLabel;
         ipcRenderer.send('map-change', value, payload);
 
+        // Tell the detector what is on the overlay — on every send, hides
+        // included. This renderer owns `currentKey`, and the detector's
+        // "back in the menu, clear the map" check needs to know a map is up
+        // whoever put it there: gating that on the *detector's* own last
+        // detection meant a match whose map was picked by hand was never
+        // cleared in the menu (0.3.2 field log, fixed in 0.3.3). Main
+        // collapses repeats, so re-sends from a slider drag cost nothing.
+        ipcRenderer.send('map-detector-shown', {key: value || null});
+
         // A map arriving mid-preview must not replace the sample image on screen
         if (this.options && this.options.previewActive) this.options.sendPreview();
 

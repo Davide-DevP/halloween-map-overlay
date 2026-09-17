@@ -86,10 +86,11 @@ When the game returns to its **main menu** the match is over, so the overlay
 clears itself and the detector forgets the map — the next <kbd>Tab</kbd> press
 in the next match detects it again, even if it is the same map. It waits for
 three consecutive readings of the menu (about two seconds) so a loading screen
-cannot trigger it, and
-it only does this **after auto-detect has recognised a map in this match** (if
-you then pick a different map by hand, that one is cleared too). Turn it off
-under **Settings → General → Clear the map back in the menu**.
+cannot trigger it, and it only does this **while a map is on the overlay** —
+whether auto-detect put it there or you picked it by hand. (Up to 0.3.2 a map
+you had picked yourself was never cleared unless auto-detect had recognised one
+first in the same match.) Turn it off under **Settings → General → Clear the
+map back in the menu**.
 
 How it works, in full:
 
@@ -103,6 +104,16 @@ How it works, in full:
   the window exists, which takes a fraction of a millisecond.
 - It compares the in-game map panel in that reduced image, on your own computer,
   against small 64x64 thumbnails of the maps that ship inside the app.
+- **Both views of the map are recognised** (since 0.3.3). The game draws the
+  Tab map differently depending on who you are playing: Michael sees a dark
+  blue plan, a civilian sees a light street map with a red boundary and
+  building numbers. 0.3.2 only knew Michael's, so a civilian match scored too
+  low to act on even though the right map was always well ahead of the others.
+  Each map now carries one thumbnail **per view**, and on top of that a map is
+  accepted either when it matches strongly or when it is clearly ahead of every
+  other map — so a view nobody has sent a screenshot of yet is still usually
+  recognised, while a screen that merely looks vaguely map-like switches
+  nothing.
 - **Nothing is stored and nothing is sent.** The image is never written to disk
   and never leaves the process; the only thing that outlives the comparison is
   the name of the map it matched.
@@ -125,6 +136,15 @@ anywhere. Open **Settings → General → Open log folder** and send
 is capped at 512 KB with one backup, so it cannot grow without bound. Easier
 still: use **Create diagnostic report**, which puts that file and everything
 else into one zip — see [Reporting a problem](#reporting-a-problem).
+
+**If a map is still not recognised**, one screenshot fixes it for everyone:
+press <kbd>Tab</kbd> in that match, take a **full-screen screenshot**, and add
+it to `detection-fixtures/` as `tab-<role>-<map>.png` — for example
+`tab-civilian-orange-grove-estates.png` — in a pull request or attached to an
+issue. Every `tab-*` screenshot of a map is a *positive* example: the build
+step turns each one into its own thumbnail for that map (a **variant**), and
+the detector matches a map by whichever of its variants fits best. So a new
+view is simply added; it never weakens the ones already there.
 
 ## The map name on the overlay
 
@@ -295,7 +315,12 @@ source file is edited.
    `detection-fixtures/tab-<slug>.png`, where `<slug>` is the map name
    lower-cased with spaces and punctuation turned into hyphens — for example
    `Haddonfield Town Center` → `detection-fixtures/tab-haddonfield-town-center.png`.
-   A full 1920x1080 frame or a crop of the two Tab panels both work.
+   A full 1920x1080 frame or a crop of the two Tab panels both work. More than
+   one screenshot of the same map is allowed and encouraged — the game draws
+   the map panel differently per **role**, so name the extras
+   `tab-<role>-<slug>.png` (`tab-civilian-haddonfield-town-center.png`). Each
+   becomes a **variant** of that map's template and the detector scores the map
+   as the best of its variants; ideally every map has one screenshot per view.
 3. `npm run prepare-detector` — this rebuilds
    `src/core/map-detector/templates.json` from the fixtures.
 4. `npm test` — the new map is already covered; the fixtures *are* the test
@@ -339,6 +364,14 @@ captures the game's window every 2 seconds, and only while the game is running.
 See [Auto-detect](#auto-detect-map) for exactly what it captures and what
 happens to it (nothing is stored, nothing is sent).
 
+**Auto-detect does not recognise the map in my matches.**
+It should since 0.3.3, which added the civilian view of the map panel next to
+Michael's — older versions only knew Michael's and scored the other one too low
+to act on. If it still does not, send a full-screen screenshot of that
+<kbd>Tab</kbd> screen: dropped into `detection-fixtures/` as
+`tab-<role>-<map>.png` it becomes another variant of that map's template, and
+the next build recognises it. See [Auto-detect](#auto-detect-map).
+
 **The overlay is catching my mouse clicks.**
 You left "Set position" mode on. Open **Settings → Overlay** and press
 *Stop setting position*.
@@ -360,6 +393,25 @@ Security → Virus & threat protection → Manage settings → Exclusions** remo
 that too.
 
 ## Changelog
+
+### 0.3.3
+
+- **Auto-detect recognises the civilian map screen.** The game draws the
+  <kbd>Tab</kbd> map differently for a civilian than for Michael, and 0.3.2
+  only knew Michael's — so in a civilian match the right map was always in
+  front but just under the bar it needed to act, and had to be picked by hand.
+  Three of the four maps now carry both views, and a map is accepted either
+  when it matches strongly *or* when it is clearly ahead of every other map,
+  which covers the views no screenshot exists for yet.
+- **The overlay clears in the menu even when you picked the map yourself.**
+  Up to 0.3.2 that only happened if auto-detect had recognised a map first, so
+  after a hand-picked map the overlay stayed up for the rest of the session.
+- **A screenshot is enough to teach the detector a view it misses.** Every Tab
+  screenshot of a map becomes one of its templates instead of all but the first
+  being ignored — see [Auto-detect](#auto-detect-map).
+- **The detector log says more about a match it refused**: whether the frame
+  was the Tab screen and how bright the map panel was, so a dimmed or
+  mis-aligned panel is visible without anyone sending a screenshot.
 
 ### 0.3.2
 

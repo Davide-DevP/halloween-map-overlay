@@ -80,11 +80,15 @@ src/shared/redact.js            → PURE `redactHome(text, home)` → `~`. Teste
 src/js/diagnostics.js           → Renderer: crash banner, hotkey-conflict
                                   banner, the report button.
 src/shared/detector-rules.js    → PURE cadence + throttle + the renderer's
-                                  "is this map already showing?" decision,
+                                  "is this map already showing?" decision +
+                                  the menu gate (`shouldWatchMenu`),
                                   shared by main and the renderer. Tested.
-src/core/map-detector/templates.json → Generated, committed. 64x64 thumbnail
-                                  per map, keyed by catalogue key, plus a
-                                  separate `menu` section (96x12 nav strip).
+src/core/map-detector/templates.json → Generated, committed. `format: 2`: a
+                                  **list** of 64x64 thumbnails per map (one per
+                                  view: Michael, civilian, …), keyed by
+                                  catalogue key, plus a separate `menu` section
+                                  (96x12 nav strip). `templateVariants()` also
+                                  reads the pre-0.3.3 one-thumbnail shape.
 src/core/hotkeys.js             → globalShortcut registration + hotkeys.json.
 src/core/settings.js            → settings-app.json in userData, defaults merged.
 src/core/language.js            → Resolves the `language` setting against
@@ -357,6 +361,30 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   accept threshold, which is far too close for a real screen capture. With the
   gradient term the runner-up drops to ~0.50 and the margin doubles to ~0.49.
   Do not "simplify" this back to one signal.
+- **A map has one template per view** (0.3.3). The Tab map panel is drawn
+  differently for the civilian role (light street map, red boundary, grid
+  letters, building numbers) than for Michael (dark blue plan); layout and
+  orientation are identical. The civilian panel also carries **random**
+  decoration — glow spots over houses, the player arrow — which is why the
+  gradient half of the score matters: a soft blob is almost no edge. Measured:
+  three house-sized glows cost ~0.05 (0.95 → 0.91), absurd ones ~0.12, and the
+  runner-up stays near 0.47 throughout. See `templateVariants` and the fixture
+  rules below.
+- **Acceptance has two branches, and both need a margin** (`acceptMatch`, pure,
+  0.3.3): `score >= 0.80 && margin >= 0.10` **or** `score >= 0.60 && margin >=
+  0.20`. The second exists because of the owner's 0.3.2 field log: every Tab
+  press in a *civilian* match scored 0.68-0.72 with the right map 0.27-0.31
+  ahead and nothing was ever sent. It is the safety net for a view no fixture
+  covers yet (today: Haddonfield Heights has only Michael's), measured at
+  0.6879/0.2779 and 0.7623/0.3013 on the two civilian maps with their own
+  variant removed. The committed negatives, scored with the Tab
+  gate off, reach 0.09/0.13/0.28 with margins ≤ 0.035, so they miss both halves
+  of the second branch by an order of magnitude — a test asserts that fixture by
+  fixture, and the printed score table carries both thresholds in its header.
+  Do **not** replace the pair with a single lower `MIN_SCORE`: a dim frame that
+  correlates weakly with *everything* has a small margin, which is exactly what
+  the second condition catches. The result carries `acceptedBy` ('score' /
+  'margin') and it is logged as `by=` on the `match` line.
 - **Small alignment search.** A capture can be a few pixels off (a window's
   client area, a screenshot that lost a row); a 2 % vertical slip alone takes a
   correct match from 0.99 to 0.68. `matchMap` therefore tries `DEFAULT_OFFSETS`
@@ -440,8 +468,20 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   1. **Only on a tick that failed the Tab gate.** `matchMap` is called with
      `{report: true}` so `gated` is visible; a Tab screen never reaches the menu
      matcher, and an accepted match resets the counter.
-  2. **Only while a map was detected.** The point is to undo an *automatic*
-     switch, not to police the overlay. A manual pick outside a match survives.
+  2. **Only while a map is on the overlay** — `shownKey`, not `lastDetected`
+     (0.3.3). The renderer sends `map-detector-shown` `{key|null}` from **every**
+     `Maps.sendMap`, hides included, and main keeps it whether or not the loop
+     is running; `shouldWatchMenu(shownKey, hideInMenu)` is the pure gate.
+     0.3.2 gated on `lastDetected`, i.e. "did the loop recognise a map?", and
+     the field log shows the hole: through an evening of party matches the
+     matcher accepted nothing, the maps were picked by hand, `lastDetected`
+     stayed null and the menu matcher never ran once — not one `menu-streak`
+     line. `lastDetected` is now only the status line and the "changed" flag.
+     A `shownKey` change resets the streak, so a manual pick two ticks into a
+     menu streak is not taken away by the third. `menu-clear` clears `shownKey`
+     optimistically; the renderer confirms a moment later. Keys reaching
+     `detector.log` go through `logKey()` — `detector.log` is in the diagnostic
+     zip and a custom map's key is a name the user typed.
   3. **Three consecutive ticks** (`MENU_TICKS_TO_HIDE`, in the pure rules
      module). A loading screen sweeps past the menu layout; one frame would
      blank the overlay as the next match starts. Two was tuned for the old
@@ -460,10 +500,13 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   only**: ISO time, event name, map key, score/margin, tick ms. A test asserts
   a written line carries exactly the fields it was handed and nothing else.
 - **`detector.log` in userData**, appended by `map-detector/log.js`: loop
-  start/stop, game window found/lost (edges only), every accepted match, every
-  frame that passed the Tab gate without an accepted map, every menu streak
-  change, every menu clear, every `show-map-command` sent, the renderer's
-  `applied`/`same-as-current` answer, and capture errors. Not gated on DEBUG —
+  start/stop, game window found/lost (edges only), every accepted match
+  (`by=score|margin`), every frame that passed the Tab gate without an accepted
+  map (`no-match … gate=in panelMean=…`, the map panel's own mean luminance, so
+  a dimmed or slipped panel is diagnosable without a frame), every change of
+  the map on the overlay (`shown key=…`, throttled to changes), every menu
+  streak change, every menu clear, every `show-map-command` sent, the
+  renderer's `applied`/`same-as-current` answer, and capture errors. Not gated on DEBUG —
   it exists so the owner can send it after a session that misbehaved
   (**Settings › General › Open log folder** → `shell.openPath(userData)`, IPC
   `open-log-folder`). Rotated at 512 KB keeping one `.1` backup. Since 0.3.2 the writer
@@ -721,6 +764,13 @@ iterates over whatever `templates.json` holds.
 
 Naming rules that make that work, do not break them:
 - `detection-fixtures/tab-<slug>.png` → template source **and** a positive test.
+  **Several `tab-*` fixtures may resolve to one map** — anything ending in the
+  slug, by convention `tab-<role>-<slug>.png` (`tab-civilian-east-haddonfield`).
+  Each becomes a **template variant** of that map (`buildVariantsForKey`), and
+  `matchMap` scores a key as the **max** over its variants. Not an average:
+  the civilian and Michael views of one panel are different pictures (measured
+  0.69-0.76 against each other), and averaging them produces a template that
+  matches neither. 0.3.2 kept the first fixture and warned about the rest.
 - `detection-fixtures/tab-fullscreen-<slug>.png` → an extra full-frame positive
   test for that same map; **not** used as a template source (so a map can have
   both a crop and a full frame without producing two templates).
@@ -878,4 +928,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-17 (0.3.2)*
+*Last updated: 2026-09-17 (0.3.3)*

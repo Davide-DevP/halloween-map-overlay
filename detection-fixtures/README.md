@@ -20,6 +20,30 @@ Notes
 - The objectives list (top-left) appears both in gameplay and in the Tab screen;
   only the framed map-name box is unique to the Tab screen.
 - The Tab screen has "Objectives" (Q) and "Player List" (E) tabs; the map name is
-  shown on the Objectives tab.
+  shown on the Objectives tab. A newer build shows three (Objectives / Player
+  List / Perk Cards) — that strip is at the top of the *Tab* screen and must not
+  be confused with the main menu's navigation strip; the civilian fixtures score
+  0.07-0.19 against the menu template, far under its 0.75 threshold.
+- **The map panel is drawn per role** — see *Civilian view* below. Each role's
+  screenshot is its own template *variant*, named `tab-<role>-<slug>.png`; the
+  generator maps any `tab-…<slug>.png` to that map's key and the matcher scores
+  a map as the best of its variants. The random glow spots are why the gradient
+  half of the score matters: three house-sized glows cost ~0.05 of it.
 - The in-game map has the same orientation as the community maps in `maps-src/`,
   minus the coloured annotations (storm cellars, escape gates, cars).
+
+## Civilian view (added 2026-09-17, v0.3.3)
+
+The Tab map looks completely different for the civilian role: a light,
+greenish street map with a red boundary, grid letters/numbers and building
+numbers, versus Michael's dark blue rendering. Same layout and orientation.
+The yellow/blue glow spots over houses and the player arrow are random per
+match and are NOT map features. As a civilian the Tab strip has three tabs
+(Objectives / Player List / Perk Cards).
+
+| File | Expected |
+|---|---|
+| `tab-civilian-<map>.png` (panel crops, ~1410x790) | that map (civilian variant template source) |
+| `tab-fullscreen-civilian-<map>.png` (1919x1079 full frames) | that map (positives only) |
+
+All four maps have both files.

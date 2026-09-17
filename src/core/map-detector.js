@@ -1,14 +1,15 @@
 const {ipcMain, app} = require('electron');
 const {Window} = require('node-screenshots');
 const {
-    toGrayScaled, matchMap, matchMenu, DEFAULT_SIZE,
+    toGrayScaled, matchMap, matchMenu, templateVariants, DEFAULT_SIZE,
     MENU_TEMPLATE_WIDTH, MENU_TEMPLATE_HEIGHT
 } = require('./map-detector/matcher');
 const DetectorLog = require('./map-detector/log');
 const appLog = require('./app-log');
+const {CUSTOM_CREATOR} = require('./map-catalog');
 const {
     GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE, SLOW_TICK_MS,
-    tickInterval, SendThrottle
+    tickInterval, shouldWatchMenu, SendThrottle
 } = require('../shared/detector-rules');
 const TEMPLATE_FILE = require('./map-detector/templates.json');
 
@@ -44,6 +45,20 @@ const MIN_WINDOW = {width: 320, height: 240};
 
 /** "Game not running" and capture errors are states, not events: log sparsely. */
 const STATE_LOG_INTERVAL = 60000;
+
+/**
+ * A map key as `detector.log` is allowed to spell it.
+ *
+ * `detector.log` travels inside the diagnostic report, and a custom map's key
+ * is `Custom/` plus a name its owner typed — the README promises the zip
+ * carries no custom map names. Shipped keys are catalogue data and are logged
+ * in full; a custom one becomes `Custom/(custom)`, which is all the log needs
+ * (that *a* map was on the overlay), exactly like `app.log` already does.
+ */
+function logKey(key) {
+    if (!key) return '';
+    return key.startsWith(CUSTOM_CREATOR + '/') ? CUSTOM_CREATOR + '/(custom)' : key;
+}
 
 /**
  * Automatic map detection (phase 2).
@@ -96,6 +111,22 @@ class MapDetector {
         this.lastTiming = null;
         this.lagTimer = null;
 
+        /**
+         * The key the **overlay is actually showing** (`null` while hidden),
+         * as reported by the renderer over `map-detector-shown` on every
+         * `Maps.sendMap`. It is what the menu clear is gated on.
+         *
+         * 0.3.2 gated that on `lastDetected` — the map *this loop* recognised
+         * — and the owner's field log shows the hole: in a party the matcher
+         * accepted nothing, the owner set the map by hand, `lastDetected`
+         * stayed null and the overlay was therefore never cleared back in the
+         * menu (not one `menu-streak` line after the manual picks). Only the
+         * renderer knows what is on screen, so it says so; main just listens.
+         * Tracked whether or not the loop is running, so a map picked before
+         * the switch was turned on is still known.
+         */
+        this.shownKey = null;
+
         /** Consecutive ticks that matched the main menu. */
         this.menuTicks = 0;
         /** True once the menu has cleared the overlay, until the next detection. */
@@ -119,11 +150,18 @@ class MapDetector {
         this.log = new DetectorLog(logDir);
 
         // Stored as plain arrays in JSON; Float32Array once, here, so the hot
-        // loop never re-allocates.
+        // loop never re-allocates. A key holds a *list* of thumbnails since
+        // 0.3.3 — one per view of the map panel (Michael / civilian) — and
+        // `templateVariants` also accepts the single-thumbnail shape a
+        // pre-0.3.3 `templates.json` has.
         this.size = TEMPLATE_FILE.size || DEFAULT_SIZE;
         this.templates = {};
+        this.variantCount = 0;
         for (const [key, values] of Object.entries(TEMPLATE_FILE.templates || {})) {
-            this.templates[key] = Float32Array.from(values);
+            const variants = templateVariants(values);
+            if (!variants.length) continue;
+            this.templates[key] = variants;
+            this.variantCount += variants.length;
         }
         // The menu strip lives in its own section of templates.json — it is not
         // a map and must never be a candidate in the map match.
@@ -161,6 +199,33 @@ class MapDetector {
             });
             if (debug) console.log(`map-detector: renderer ${applied ? 'applied' : 'ignored'} "${key}"${reason ? ` (${reason})` : ''}`);
         });
+        // What the overlay is showing, from the one process that knows. Sent
+        // on every `Maps.sendMap`, hides included — see `noteShown`.
+        ipcMain.on('map-detector-shown', (event, info) => self.noteShown(info && info.key));
+    }
+
+    /**
+     * The renderer put a map on the overlay (or took it off).
+     *
+     * Throttled to actual changes: `sendMap` also fires on an opacity nudge, a
+     * rotation and a slider drag, all with the same key, and the log holds
+     * decisions rather than repetitions.
+     *
+     * A change here also breaks a menu streak. A player who picks a map by
+     * hand while the loop is two ticks into "this looks like the main menu"
+     * has just said what they want on screen, and letting the third tick take
+     * it away again would be the stalest kind of surprise.
+     *
+     * @param {?string} key catalogue key, or ""/null when the overlay is hidden
+     */
+    noteShown(key) {
+        const next = key || null;
+        if (next === this.shownKey) return;
+        this.shownKey = next;
+        this.menuTicks = 0;
+        if (next) this.inMenu = false;
+        this.log.write('shown', {key: logKey(next) || '(none)'});
+        if (debug) console.log(`map-detector: overlay is showing "${next || ''}"`);
     }
 
     /** Forget the last detection so even the same map is acted on again. */
@@ -210,6 +275,7 @@ class MapDetector {
         appLog.event('detector', {action: 'start'});
         this.log.write('loop-start', {
             templates: Object.keys(this.templates).length,
+            variants: this.variantCount,
             gameMs: GAME_INTERVAL,
             idleMs: IDLE_INTERVAL,
             version: require('../../package.json').version
@@ -391,10 +457,19 @@ class MapDetector {
                     // The Tab screen was up but nothing was accepted: the one
                     // case where "it did not switch" is the matcher's doing,
                     // and the scores are the only way to tell why.
+                    //
+                    // `gate=in` says explicitly what the absence of a `gated`
+                    // frame used to say implicitly (only gated-*in* frames
+                    // reach this line), and `panelMean` is the mean luminance
+                    // of the map panel itself: a panel the capture has slid
+                    // off, or one the game drew much darker than the template,
+                    // is visible in the log without ever keeping a frame.
                     this.log.write('no-match', {
                         score: match.score,
                         second: match.second,
                         margin: match.margin,
+                        gate: 'in',
+                        panelMean: match.panelMean,
                         tickMs: this.lastTiming.total
                     });
                 }
@@ -416,6 +491,7 @@ class MapDetector {
                 key: match.key,
                 score: match.score,
                 margin: match.margin,
+                by: match.acceptedBy || 'score',
                 tickMs: this.lastTiming.total,
                 changed: changed ? 'yes' : 'no'
             });
@@ -455,10 +531,16 @@ class MapDetector {
      * Back in the main menu? Clear the overlay.
      *
      * Runs only on a tick whose frame failed the Tab-screen gate, and only
-     * while a map has actually been detected — the point is to undo an
-     * automatic switch once the match it belonged to is over, not to police
-     * what the overlay shows in general. A manual pick made outside a match is
-     * therefore never taken away.
+     * while **a map is on the overlay** — there is nothing to clear otherwise.
+     *
+     * That second condition used to be `lastDetected`, i.e. "the loop
+     * recognised a map in this match". The owner's 0.3.2 field log shows why
+     * that was wrong: through a whole evening of party matches the matcher
+     * accepted nothing (see `DEFAULT_MARGIN_MIN_SCORE`), the maps were picked
+     * by hand, `lastDetected` stayed null — and the overlay was never cleared
+     * back in the menu, because the menu matcher was never even run. What is
+     * on the overlay is what matters, whoever put it there, so the gate is
+     * `shownKey`, which the renderer reports.
      *
      * `lastDetected` is cleared along with the overlay so that starting the
      * *same* map again is detected as a change; without that the loop would see
@@ -471,8 +553,8 @@ class MapDetector {
      */
     checkMenu(gray, width, height) {
         if (!this.menuTemplate) return;
-        if (!this.settings || this.settings.get('hideInMenu') === false) return;
-        if (!this.lastDetected) {
+        if (!this.settings) return;
+        if (!shouldWatchMenu(this.shownKey, this.settings.get('hideInMenu'))) {
             this.menuTicks = 0;
             return;
         }
@@ -499,14 +581,18 @@ class MapDetector {
 
         this.menuTicks = 0;
         this.inMenu = true;
-        const was = this.lastDetected;
+        const was = this.shownKey;
         this.lastDetected = null;
         this.lastAt = null;
         this.lastScore = null;
+        // Optimistic: the renderer confirms with its own `map-detector-shown`
+        // a moment later, but until it does this must not read as "a map is
+        // still up" and start a second streak.
+        this.shownKey = null;
         // The map is gone from the overlay, so the next detection of it has to
         // go out immediately rather than being eaten by the throttle.
         this.sendThrottle.reset();
-        this.log.write('menu-clear', {was, score: menu.score});
+        this.log.write('menu-clear', {was: logKey(was), score: menu.score});
         console.log(`Main menu detected (score ${menu.score.toFixed(3)}) — clearing "${was}" from the overlay.`);
         // Through the renderer, not straight at the overlay window: `Maps` owns
         // which map is current, and hiding behind its back would leave Ctrl+H

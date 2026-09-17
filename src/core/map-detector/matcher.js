@@ -88,6 +88,39 @@ const DEFAULT_MIN_SCORE = 0.80;
 const DEFAULT_MIN_MARGIN = 0.10;
 
 /**
+ * The second accept branch: a match that is **not** bright, but is a long way
+ * ahead of every other map.
+ *
+ * Field evidence, 0.3.2, the owner's `detector.log` (2026-09-17 20:23 onwards):
+ * dozens of Tab presses in a row — as it turned out, from matches played in
+ * the *civilian* role, whose map panel is drawn differently from Michael's,
+ * which is the only view the committed fixtures had — scored
+ *
+ *   score 0.68 - 0.72   runner-up 0.39 - 0.42   margin 0.27 - 0.31
+ *
+ * The right map was first every single time and nothing was ever sent, because
+ * the absolute score sits under `DEFAULT_MIN_SCORE`. Lowering that threshold
+ * outright is what the alignment search exists to avoid, so the margin carries
+ * the second branch instead: 0.60 with a 0.20 lead. The committed negatives,
+ * scored with the Tab gate switched off, reach at most
+ *
+ *   gameplay-civilian 0.09 · gameplay-killer 0.13 · menu-main 0.28
+ *
+ * with margins of 0.035 and below — an order of magnitude short of the margin
+ * branch on both numbers at once, which is what a test asserts fixture by
+ * fixture. Two independent conditions have to be met, so a frame that is
+ * merely dark (every template correlating weakly with it) cannot pass: that is
+ * exactly the shape of the negatives, where the runner-up sits right behind
+ * the leader.
+ *
+ * A template *variant* for the missing view is the real fix for a case like
+ * that (see `templateVariants`); this branch is the safety net that makes the
+ * detector useful on a view nobody has sent a screenshot of yet.
+ */
+const DEFAULT_MARGIN_MIN_SCORE = 0.60;
+const DEFAULT_MARGIN_MIN_MARGIN = 0.20;
+
+/**
  * The menu template is a *wide* thumbnail, not a square one: the strip is
  * roughly 15:1, and squashing that into 64x64 would throw away the horizontal
  * detail that is the whole signal. 96x12 keeps the aspect within a factor of
@@ -461,24 +494,84 @@ function scoreThumbnail(thumb, thumbGrad, template, size) {
 }
 
 /**
+ * The thumbnails stored for one map key, as a list — **template variants**.
+ *
+ * The same map does not look the same to everyone: the Tab screen's map panel
+ * is drawn differently for the civilian role than for Michael, which is what
+ * the owner's 0.3.2 field log was actually showing (all four committed
+ * fixtures are Michael's view; the 0.68-0.72 scores came from civilian
+ * matches). A map therefore gets one thumbnail *per view*, and the key's score
+ * is the best of them — averaging them would blur two genuinely different
+ * pictures into one that matches neither well.
+ *
+ * Accepts either shape, so a `templates.json` written before variants existed
+ * still loads:
+ *   `[0.1, 0.2, …]`        one variant  (format 1)
+ *   `[[0.1, …], [0.3, …]]` several      (format 2)
+ *
+ * @param {Float32Array|number[]|Array<Float32Array|number[]>} entry
+ * @returns {Array<Float32Array>}
+ */
+function templateVariants(entry) {
+    if (!entry || !entry.length) return [];
+    if (entry instanceof Float32Array) return [entry];
+    const first = entry[0];
+    if (Array.isArray(first) || ArrayBuffer.isView(first)) {
+        return Array.from(entry, v => (v instanceof Float32Array ? v : Float32Array.from(v)));
+    }
+    return [Float32Array.from(entry)];
+}
+
+/**
+ * Is this (score, margin) pair good enough to switch the overlay?
+ *
+ * Two branches, and a match needs only one of them:
+ *   `score`  — a bright match: score >= 0.80 with the usual 0.10 lead. What a
+ *              solo Tab screen produces (0.99 / 0.49 in the field log).
+ *   `margin` — a dim but unambiguous match: score >= 0.60 with a 0.20 lead.
+ *              What a party Tab screen produces (0.70 / 0.29).
+ *
+ * Returns the branch's name rather than `true` so the caller can log which one
+ * fired — "it switched, but only just" is a different field report from "it
+ * switched".
+ *
+ * @param {number} score the best template's score
+ * @param {number} margin best minus runner-up
+ * @param {object} [opts] `minScore`, `minMargin`, `marginMinScore`,
+ *   `marginMinMargin` — all defaulting to the constants above.
+ * @returns {?string} 'score', 'margin', or null when neither branch accepts
+ */
+function acceptMatch(score, margin, opts) {
+    const o = opts || {};
+    const minScore = o.minScore === undefined ? DEFAULT_MIN_SCORE : o.minScore;
+    const minMargin = o.minMargin === undefined ? DEFAULT_MIN_MARGIN : o.minMargin;
+    const marginMinScore = o.marginMinScore === undefined ? DEFAULT_MARGIN_MIN_SCORE : o.marginMinScore;
+    const marginMinMargin = o.marginMinMargin === undefined ? DEFAULT_MARGIN_MIN_MARGIN : o.marginMinMargin;
+    if (score >= minScore && margin >= minMargin) return 'score';
+    if (score >= marginMinScore && margin >= marginMinMargin) return 'margin';
+    return null;
+}
+
+/**
  * Match a frame against the templates.
  *
  * @param {Float32Array} gray luminance frame
  * @param {number} width
  * @param {number} height
- * @param {Object<string, number[]|Float32Array>} templates key → size*size thumbnail
+ * @param {Object<string, number[]|Float32Array|Array<number[]>>} templates key →
+ *   one size*size thumbnail, or a list of them (role variants; the key scores
+ *   as the best of its variants)
  * @param {object} [opts]
  *   `region` (default `MAP_PANEL_REL`; `null` = `gray` is already the panel),
  *   `size` (64), `minScore` (0.80), `minMargin` (0.10),
+ *   `marginMinScore` (0.60), `marginMinMargin` (0.20) — see `acceptMatch`,
  *   `gate` (default true; a caller passing a pre-cropped panel must pass false),
  *   `report` (true → always return the object, with `accepted` saying whether
  *   the thresholds were met, so the tests can print every score).
- * @returns {{key, score, second, margin, scores, accepted}|null}
+ * @returns {{key, score, second, margin, scores, accepted, acceptedBy, panelMean}|null}
  */
 function matchMap(gray, width, height, templates, opts) {
     const o = opts || {};
-    const minScore = o.minScore === undefined ? DEFAULT_MIN_SCORE : o.minScore;
-    const minMargin = o.minMargin === undefined ? DEFAULT_MIN_MARGIN : o.minMargin;
     const gate = o.gate === undefined ? true : o.gate;
     const size = o.size || DEFAULT_SIZE;
 
@@ -492,29 +585,54 @@ function matchMap(gray, width, height, templates, opts) {
     const offsets = region ? (o.offsets || DEFAULT_OFFSETS) : [null];
     const views = offsets.map(offset => {
         const thumb = frameThumbnail(gray, width, height, Object.assign({}, o, {offset}));
-        return {thumb, grad: gradientMagnitude(thumb, size)};
+        return {thumb, grad: gradientMagnitude(thumb, size), offset};
     });
 
-    // Each template keeps its best alignment. Doing it per template rather
-    // than picking one alignment for all of them costs nothing extra and
-    // cannot favour whichever map happens to be checked first.
+    // Mean luminance of the map panel as the region names it — the unshifted
+    // view, so it describes the frame rather than whichever alignment scored
+    // best. It is what tells a *dim* panel (a party Tab screen, which is what
+    // the margin accept branch exists for) from a panel the capture has slid
+    // off, and it costs one pass over 4096 floats. Logged with `no-match`.
+    const base = views.find(v => !v.offset || (!v.offset.dx && !v.offset.dy)) || views[0];
+    const panelMean = base ? mean(base.thumb) : 0;
+
+    // Each template keeps its best alignment **and its best variant**. Doing
+    // it per template rather than picking one alignment for all of them costs
+    // nothing extra and cannot favour whichever map happens to be checked
+    // first; taking the max over the variants rather than their mean is the
+    // whole point of having them (see `templateVariants`).
+    //
+    // The variants' gradients are computed once per tick, not once per
+    // alignment: that is 15 fewer `gradientMagnitude` passes per variant than
+    // the naive loop, which is what pays for a second variant existing at all.
     const scores = {};
     let bestKey = null, best = -Infinity, second = -Infinity;
     for (const key of Object.keys(templates)) {
+        const variants = templateVariants(templates[key]).map(tpl => ({tpl, grad: gradientMagnitude(tpl, size)}));
         let s = -Infinity;
-        for (const view of views) {
-            const v = scoreThumbnail(view.thumb, view.grad, templates[key], size);
-            if (v > s) s = v;
+        for (const {tpl, grad} of variants) {
+            for (const view of views) {
+                const v = (ncc(view.thumb, tpl) + ncc(view.grad, grad)) / 2;
+                if (v > s) s = v;
+            }
         }
+        if (s === -Infinity) continue;   // an entry with no thumbnail at all
         scores[key] = s;
         if (s > best) { second = best; best = s; bestKey = key; }
         else if (s > second) { second = s; }
     }
-    if (bestKey === null) return o.report ? {key: null, score: 0, second: 0, margin: 0, scores, accepted: false} : null;
+    if (bestKey === null) {
+        return o.report
+            ? {key: null, score: 0, second: 0, margin: 0, scores, accepted: false, acceptedBy: null, panelMean}
+            : null;
+    }
     if (second === -Infinity) second = 0;
 
-    const accepted = best >= minScore && (best - second) >= minMargin;
-    const result = {key: bestKey, score: best, second, margin: best - second, scores, accepted, gated: false};
+    const acceptedBy = acceptMatch(best, best - second, o);
+    const result = {
+        key: bestKey, score: best, second, margin: best - second, scores,
+        accepted: !!acceptedBy, acceptedBy, panelMean, gated: false
+    };
     if (o.report) return result;
     return accepted ? result : null;
 }
@@ -590,6 +708,8 @@ module.exports = {
     DEFAULT_SIZE,
     DEFAULT_MIN_SCORE,
     DEFAULT_MIN_MARGIN,
+    DEFAULT_MARGIN_MIN_SCORE,
+    DEFAULT_MARGIN_MIN_MARGIN,
     DEFAULT_OFFSETS,
     GATE_DARK_LEVEL,
     GATE_MIN_DARK_FRACTION,
@@ -606,6 +726,8 @@ module.exports = {
     TAB_SCREEN_GATE,
     frameThumbnail,
     scoreThumbnail,
+    templateVariants,
+    acceptMatch,
     matchMap,
     menuThumbnail,
     matchMenu

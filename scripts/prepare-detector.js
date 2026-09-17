@@ -65,7 +65,14 @@ const REF = {
  *   detection-fixtures/<anything-else>.png        negative fixture (expects null)
  *
  * `<slug>` is the map name lower-cased with non-alphanumerics turned into
- * hyphens ("Haddonfield Town Center" → `haddonfield-town-center`). The slug is
+ * hyphens ("Haddonfield Town Center" → `haddonfield-town-center`). Anything
+ * between `tab-` and the slug is free text — by convention the **role** whose
+ * view of the map panel the screenshot shows, `tab-<role>-<slug>.png`
+ * (`tab-civilian-east-haddonfield.png`). Several `tab-*` fixtures may resolve
+ * to the same map, and each one becomes a *variant* of that map's template;
+ * the matcher scores a map as the best of its variants, because the civilian
+ * and Michael views of the same panel are different pictures, not noise around
+ * one picture. The slug is
  * un-slugged and resolved against the real catalogue built from `maps/`, using
  * `findClosestMapMatch` — the project's single source of name matching — so the
  * creator folder comes from the map file and the key can never drift from the
@@ -116,6 +123,24 @@ function templateSources() {
         if (key) sources[file] = key;
     }
     return sources;
+}
+
+/**
+ * Catalogue key → every `tab-*` fixture that resolves to it, in sort order.
+ *
+ * A map may have **more than one** template fixture, and since 0.3.3 that is
+ * the documented way to teach the detector a view it does not recognise: a
+ * player whose Tab screen is not matched drops `tab-<role>-<map>.png` next to
+ * the existing `tab-<map>.png` and re-runs the generator, which appends a
+ * template variant. Up to 0.3.2 the second fixture was warned about and
+ * thrown away.
+ */
+function templateSourcesByKey() {
+    const byKey = {};
+    for (const [file, key] of Object.entries(templateSources())) {
+        (byKey[key] = byKey[key] || []).push(file);
+    }
+    return byKey;
 }
 
 /** Decode any PNG to a luminance frame using the matcher's own conversion. */
@@ -238,36 +263,63 @@ async function buildTemplate(file, size) {
     return {thumb: downsample(panel, loc.size, loc.size, size || DEFAULT_SIZE), loc, width, height, panel};
 }
 
+/**
+ * One map's template **variants**: one thumbnail per fixture, in file order.
+ *
+ * Not an average. The Tab screen's map panel is drawn differently for the
+ * civilian role than for Michael — that is what the 0.68-0.72 scores in the
+ * owner's field log turned out to be, since all four committed fixtures are
+ * Michael's view — and blending two genuinely different pictures produces one
+ * that matches neither well. Each view is kept whole and `matchMap` scores the
+ * key as the best of them.
+ *
+ * @param {string[]} files absolute paths to the fixtures
+ * @param {number} [size]
+ * @returns {Promise<{variants: Array<Float32Array>,
+ *                    parts: Array<{file, loc, panel, thumb}>}>}
+ */
+async function buildVariantsForKey(files, size) {
+    const parts = [];
+    for (const file of files) {
+        const built = await buildTemplate(file, size);
+        parts.push({file, loc: built.loc, panel: built.panel, thumb: built.thumb});
+    }
+    return {variants: parts.map(p => p.thumb), parts};
+}
+
 async function main() {
     const debugDir = process.argv.includes('--debug')
         ? process.argv[process.argv.indexOf('--debug') + 1]
         : null;
 
-    const sources = templateSources();
-    if (!Object.keys(sources).length) {
+    const byKey = templateSourcesByKey();
+    if (!Object.keys(byKey).length) {
         throw new Error(`No template fixtures found in ${FIXTURES} (expected detection-fixtures/tab-<slug>.png)`);
     }
 
     const templates = {};
-    for (const [file, key] of Object.entries(sources)) {
-        const full = path.join(FIXTURES, file);
-        if (templates[key]) {
-            console.warn(`  ! ${file} also resolves to ${key}; keeping the first fixture.`);
-            continue;
-        }
-        const {thumb, loc, panel} = await buildTemplate(full);
+    for (const [key, files] of Object.entries(byKey)) {
+        // Several fixtures for one map become several *variants* of it.
+        const {variants, parts} = await buildVariantsForKey(files.map(f => path.join(FIXTURES, f)));
         // 3 decimals: 0.001 of a luminance step is far below anything NCC can
-        // notice, and it keeps the committed file at ~20 KB per map.
-        templates[key] = Array.from(thumb, v => Math.round(v * 1000) / 1000);
-        console.log(`${file.padEnd(34)} ${loc.size}x${loc.size} at ${loc.x},${loc.y}  (dx=${loc.dx} dy=${loc.dy})  -> ${key}`);
+        // notice, and it keeps the committed file at ~20 KB per variant.
+        templates[key] = variants.map(thumb => Array.from(thumb, v => Math.round(v * 1000) / 1000));
+        files.forEach((file, i) => {
+            const {loc} = parts[i];
+            console.log(`${file.padEnd(38)} ${loc.size}x${loc.size} at ${loc.x},${loc.y}  (dx=${loc.dx} dy=${loc.dy})  -> ${key}`
+                + `  [variant ${i + 1}/${files.length}]`);
+        });
 
         if (debugDir) {
-            const bytes = Buffer.from(Array.from(panel, v => Math.max(0, Math.min(255, Math.round(v * 255)))));
-            await sharp(bytes, {raw: {width: loc.size, height: loc.size, channels: 1}})
-                .png().toFile(path.join(debugDir, 'panel-' + file));
-            const tbytes = Buffer.from(Array.from(thumb, v => Math.max(0, Math.min(255, Math.round(v * 255)))));
-            await sharp(tbytes, {raw: {width: DEFAULT_SIZE, height: DEFAULT_SIZE, channels: 1}})
-                .resize(256, 256, {kernel: 'nearest'}).png().toFile(path.join(debugDir, 'thumb-' + file));
+            for (let i = 0; i < parts.length; i++) {
+                const {loc, panel, thumb} = parts[i];
+                const bytes = Buffer.from(Array.from(panel, v => Math.max(0, Math.min(255, Math.round(v * 255)))));
+                await sharp(bytes, {raw: {width: loc.size, height: loc.size, channels: 1}})
+                    .png().toFile(path.join(debugDir, 'panel-' + files[i]));
+                const tbytes = Buffer.from(Array.from(thumb, v => Math.max(0, Math.min(255, Math.round(v * 255)))));
+                await sharp(tbytes, {raw: {width: DEFAULT_SIZE, height: DEFAULT_SIZE, channels: 1}})
+                    .resize(256, 256, {kernel: 'nearest'}).png().toFile(path.join(debugDir, 'thumb-' + files[i]));
+            }
         }
     }
 
@@ -293,6 +345,12 @@ async function main() {
     const ordered = {};
     for (const key of Object.keys(templates).sort()) ordered[key] = templates[key];
     const payload = {
+        // 2: `templates[key]` is a *list* of thumbnails (one per view of the
+        //    map panel — Michael, civilian, …) instead of a single one.
+        //    `templateVariants` in the matcher reads both shapes, so a file
+        //    written by 0.3.2 still loads; the version is here so a reader can
+        //    tell which one it is holding without sniffing the arrays.
+        format: 2,
         size: DEFAULT_SIZE,
         note: 'Generated by scripts/prepare-detector.js from detection-fixtures/. Do not edit by hand.',
         templates: ordered,
@@ -304,13 +362,15 @@ async function main() {
         } : null
     };
     fs.writeFileSync(OUT_FILE, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
-    console.log(`\nWrote ${path.relative(ROOT, OUT_FILE)} (${Object.keys(ordered).length} templates, ${DEFAULT_SIZE}x${DEFAULT_SIZE}`
+    const variantTotal = Object.values(ordered).reduce((n, list) => n + list.length, 0);
+    console.log(`\nWrote ${path.relative(ROOT, OUT_FILE)} (${Object.keys(ordered).length} templates`
+        + `, ${variantTotal} variants, ${DEFAULT_SIZE}x${DEFAULT_SIZE}`
         + `${menu ? `, plus the menu strip` : ''})`);
 }
 
 module.exports = {
-    locatePanel, loadGray, cutSquare, buildTemplate,
-    listFixtures, catalog, keyForFixture, templateSources,
+    locatePanel, loadGray, cutSquare, buildTemplate, buildVariantsForKey,
+    listFixtures, catalog, keyForFixture, templateSources, templateSourcesByKey,
     menuFixtures, buildMenuTemplate,
     REF, FIXTURES, MAPS, TEMPLATE_PREFIX, FULLSCREEN_PREFIX, MENU_PREFIX
 };

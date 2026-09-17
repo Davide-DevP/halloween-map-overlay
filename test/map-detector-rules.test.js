@@ -3,7 +3,7 @@ const assert = require('node:assert');
 
 const {
     GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE,
-    tickInterval, throttleAllows, shouldApplyDetected, SendThrottle
+    tickInterval, throttleAllows, shouldApplyDetected, shouldWatchMenu, SendThrottle
 } = require('../src/shared/detector-rules');
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -119,4 +119,34 @@ test('shouldApplyDetected: no key is never applied', () => {
     assert.strictEqual(shouldApplyDetected('a/One', ''), false);
     assert.strictEqual(shouldApplyDetected('a/One', null), false);
     assert.strictEqual(shouldApplyDetected('', null), false);
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The menu gate (0.3.3)
+ *
+ * This is the second half of the same lesson: main must judge what is on the
+ * overlay, not what main itself last recognised. In the owner's 0.3.2 log the
+ * party matcher accepted nothing, the maps were picked by hand, and because
+ * `lastDetected` stayed null the menu matcher never ran once — the overlay was
+ * never cleared for the rest of the session.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+test('shouldWatchMenu: a map on the overlay is watched, an empty one is not', () => {
+    assert.strictEqual(shouldWatchMenu('a/One', true), true);
+    assert.strictEqual(shouldWatchMenu('', true), false);
+    assert.strictEqual(shouldWatchMenu(null, true), false);
+    assert.strictEqual(shouldWatchMenu(undefined, true), false);
+});
+
+test('shouldWatchMenu: a hand-picked map is watched exactly like a detected one', () => {
+    // The whole fix: nothing here knows or cares who set the map. Main gets
+    // this key from the renderer, which is the only process that knows.
+    assert.strictEqual(shouldWatchMenu('Custom/My Map', undefined), true);
+});
+
+test('shouldWatchMenu: only an explicit false turns the feature off', () => {
+    assert.strictEqual(shouldWatchMenu('a/One', false), false);
+    // A settings file written before `hideInMenu` existed keeps the default.
+    assert.strictEqual(shouldWatchMenu('a/One', undefined), true);
+    assert.strictEqual(shouldWatchMenu('a/One', null), true);
 });

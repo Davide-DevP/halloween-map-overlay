@@ -107,6 +107,30 @@ function shouldApplyDetected(currentKey, key) {
 }
 
 /**
+ * Should this tick run the main-menu matcher at all?
+ *
+ * Two conditions, and the second is the 0.3.2 bug. The check used to be gated
+ * on the detector's own `lastDetected` — "did *I* recognise a map in this
+ * match?" — so a match whose map the player set by hand (because the matcher
+ * accepted nothing; see the party case in `matcher.js`) was never cleared when
+ * the game went back to the menu. The owner's field log shows it exactly: after
+ * the manual picks, not one `menu-streak` line for the rest of the evening.
+ *
+ * What matters is whether **a map is on the overlay**, whoever put it there,
+ * and only the renderer knows that — it reports it over `map-detector-shown`.
+ *
+ * @param {?string} shownKey the key the overlay is showing (""/null = hidden)
+ * @param {*} hideInMenu the `hideInMenu` setting; only an explicit `false`
+ *   turns the feature off, so a settings file written before it existed still
+ *   behaves like the default.
+ * @returns {boolean}
+ */
+function shouldWatchMenu(shownKey, hideInMenu) {
+    if (hideInMenu === false) return false;
+    return !!shownKey;
+}
+
+/**
  * Per-key send throttle. A plain object of key → last send time; `allow()`
  * records the send when it returns true, so callers cannot forget to.
  */
@@ -144,5 +168,6 @@ module.exports = {
     tickInterval,
     throttleAllows,
     shouldApplyDetected,
+    shouldWatchMenu,
     SendThrottle
 };
