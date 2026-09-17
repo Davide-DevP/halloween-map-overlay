@@ -131,6 +131,85 @@ function shouldWatchMenu(shownKey, hideInMenu) {
 }
 
 /**
+ * The menu-clear streak, with the transition rule that keeps it honest.
+ *
+ * Counting three consecutive menu frames is only half of it. The other half is
+ * *when the counting may start*: the overlay may be cleared only if the game
+ * has been seen **away from the menu** since the current map went up. Without
+ * that, a map picked by hand while the main menu is already on screen — the
+ * obvious moment to pick one, between matches — is taken away again ~2.1 s
+ * later, and again after the next pick, for as long as the menu is up
+ * (VERIFICATION-6, finding 2).
+ *
+ * So `sawNonMenu` is false whenever a new map appears on the overlay, any
+ * non-menu frame sets it, and only then can menu frames accumulate. The three
+ * cases, all tested:
+ *   - pick while in the menu        → menu frames never count      → no clear
+ *   - match, then back to the menu  → gameplay set the flag        → clear
+ *   - pick in the menu, leave, come back → leaving set the flag    → clear
+ *
+ * Pure: it holds two integers' worth of state and no timers, so the loop's
+ * "should the overlay be cleared now?" question is unit testable.
+ */
+class MenuStreak {
+
+    /** @param {number} [ticksToHide] consecutive menu frames required */
+    constructor(ticksToHide = MENU_TICKS_TO_HIDE) {
+        this.ticksToHide = ticksToHide;
+        this.ticks = 0;
+        this.sawNonMenu = false;
+    }
+
+    /**
+     * A different map (or nothing) is on the overlay now. The streak restarts
+     * and, above all, the game has to be seen outside the menu again before
+     * anything may be cleared.
+     */
+    noteShown() {
+        this.ticks = 0;
+        this.sawNonMenu = false;
+    }
+
+    /**
+     * A Tab screen with an accepted map: proof the player is in a match, which
+     * is as non-menu as a frame gets.
+     */
+    noteMatch() {
+        this.ticks = 0;
+        this.sawNonMenu = true;
+    }
+
+    /** Forget everything (loop stop, Ctrl+Shift+D, a menu clear just fired). */
+    reset() {
+        this.ticks = 0;
+        this.sawNonMenu = false;
+    }
+
+    /**
+     * One frame that failed the Tab-screen gate.
+     *
+     * @param {boolean} isMenu did it match the main-menu strip?
+     * @returns {{ticks: number, clear: boolean, broke: boolean, waiting: boolean}}
+     *   `clear` is the only verdict; `ticks` and `broke` are for the log, and
+     *   `waiting` means "this was the menu, but the map went up in the menu, so
+     *   it does not count".
+     */
+    note(isMenu) {
+        if (!isMenu) {
+            const broke = this.ticks > 0;
+            this.ticks = 0;
+            this.sawNonMenu = true;
+            return {ticks: 0, clear: false, broke, waiting: false};
+        }
+        if (!this.sawNonMenu) return {ticks: 0, clear: false, broke: false, waiting: true};
+        this.ticks++;
+        const clear = this.ticks >= this.ticksToHide;
+        if (clear) this.ticks = 0;
+        return {ticks: clear ? this.ticksToHide : this.ticks, clear, broke: false, waiting: false};
+    }
+}
+
+/**
  * Per-key send throttle. A plain object of key → last send time; `allow()`
  * records the send when it returns true, so callers cannot forget to.
  */
@@ -169,5 +248,6 @@ module.exports = {
     throttleAllows,
     shouldApplyDetected,
     shouldWatchMenu,
+    MenuStreak,
     SendThrottle
 };

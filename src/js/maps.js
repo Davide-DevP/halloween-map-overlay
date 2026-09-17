@@ -140,6 +140,14 @@ class Maps {
         // Opacity/size from the keyboard. Same shape as rotate-map: write the
         // setting, keep an open settings slider in step, then re-send whatever
         // the overlay is showing so main recomputes the window bounds.
+        // Say what is on the overlay once at load, before anything is clicked.
+        // A renderer that came back from a `render-process-gone` reload starts
+        // with `currentKey = ""` while main still holds the key from before the
+        // crash, and a stale `shownKey` would have the menu check clearing a
+        // map this renderer no longer knows about (VERIFICATION-6, finding 4).
+        // Main collapses repeats, so the ordinary start costs nothing.
+        ipcRenderer.send('map-detector-shown', {key: self.currentKey || null});
+
         ipcRenderer.on('opacity-up', () => self.nudgeOpacity(OPACITY_STEP));
         ipcRenderer.on('opacity-down', () => self.nudgeOpacity(-OPACITY_STEP));
         ipcRenderer.on('size-up', () => self.nudgeSize(SIZE_STEP));

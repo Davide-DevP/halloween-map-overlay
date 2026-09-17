@@ -3,7 +3,8 @@ const assert = require('node:assert');
 
 const {
     GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE,
-    tickInterval, throttleAllows, shouldApplyDetected, shouldWatchMenu, SendThrottle
+    tickInterval, throttleAllows, shouldApplyDetected, shouldWatchMenu,
+    MenuStreak, SendThrottle
 } = require('../src/shared/detector-rules');
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -149,4 +150,98 @@ test('shouldWatchMenu: only an explicit false turns the feature off', () => {
     // A settings file written before `hideInMenu` existed keeps the default.
     assert.strictEqual(shouldWatchMenu('a/One', undefined), true);
     assert.strictEqual(shouldWatchMenu('a/One', null), true);
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The menu streak and its transition rule
+ *
+ * Three menu frames in a row are not enough on their own: the game has to have
+ * been seen *away* from the menu since the current map went up. Otherwise a map
+ * picked by hand while the menu is on screen — the obvious moment to pick one —
+ * is taken away 2.1 s later, and again after the next pick (VERIFICATION-6,
+ * finding 2).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Feed n frames of one kind; returns how many of them asked for a clear. */
+function feed(streak, isMenu, n) {
+    let cleared = 0;
+    for (let i = 0; i < n; i++) if (streak.note(isMenu).clear) cleared++;
+    return cleared;
+}
+
+test('MenuStreak: a map picked while the menu is up is never cleared', () => {
+    const streak = new MenuStreak();
+    streak.noteShown();                       // the pick happened in the menu
+    assert.strictEqual(feed(streak, true, 20), 0, 'the hand-picked map was cleared');
+    // And the ticks are not silently accumulating behind the scenes.
+    assert.strictEqual(streak.ticks, 0);
+    assert.strictEqual(streak.note(true).waiting, true);
+});
+
+test('MenuStreak: a match then the menu clears after exactly three ticks', () => {
+    const streak = new MenuStreak();
+    streak.noteShown();
+    streak.noteMatch();                       // a Tab screen: definitely not the menu
+    assert.strictEqual(streak.note(true).clear, false);
+    assert.strictEqual(streak.note(true).clear, false);
+    const third = streak.note(true);
+    assert.strictEqual(third.clear, true);
+    assert.strictEqual(third.ticks, MENU_TICKS_TO_HIDE);
+});
+
+test('MenuStreak: gameplay frames alone unlock the clear', () => {
+    const streak = new MenuStreak();
+    streak.noteShown();
+    // A gated-out frame that is not the menu: ordinary gameplay.
+    assert.strictEqual(streak.note(false).clear, false);
+    assert.strictEqual(feed(streak, true, MENU_TICKS_TO_HIDE), 1);
+});
+
+test('MenuStreak: pick in the menu, leave, come back — now it clears', () => {
+    const streak = new MenuStreak();
+    streak.noteShown();
+    assert.strictEqual(feed(streak, true, 5), 0, 'cleared before the game ever left the menu');
+    streak.note(false);                       // the match started
+    assert.strictEqual(feed(streak, true, MENU_TICKS_TO_HIDE), 1, 'did not clear on the way back');
+});
+
+test('MenuStreak: the three ticks have to be consecutive', () => {
+    const streak = new MenuStreak();
+    streak.noteShown();
+    streak.noteMatch();
+    assert.strictEqual(streak.note(true).ticks, 1);
+    assert.strictEqual(streak.note(true).ticks, 2);
+    // A loading screen sweeping past the menu layout.
+    const broken = streak.note(false);
+    assert.strictEqual(broken.broke, true);
+    assert.strictEqual(broken.clear, false);
+    assert.strictEqual(streak.note(true).ticks, 1);
+    assert.strictEqual(feed(streak, true, MENU_TICKS_TO_HIDE - 1), 1);
+});
+
+test('MenuStreak: a new map revokes the right to clear until the game moves', () => {
+    const streak = new MenuStreak();
+    streak.noteShown();
+    streak.noteMatch();
+    assert.strictEqual(streak.note(true).ticks, 1);
+    // The player picks another map by hand, two ticks into the streak.
+    streak.noteShown();
+    assert.strictEqual(feed(streak, true, 10), 0, 'the new pick was cleared by the old streak');
+});
+
+test('MenuStreak: reset forgets the streak and the transition', () => {
+    const streak = new MenuStreak();
+    streak.noteMatch();
+    streak.note(true);
+    streak.reset();
+    assert.strictEqual(streak.ticks, 0);
+    assert.strictEqual(streak.sawNonMenu, false);
+    assert.strictEqual(feed(streak, true, 10), 0);
+});
+
+test('MenuStreak: the tick count is configurable and honoured', () => {
+    const streak = new MenuStreak(2);
+    streak.noteMatch();
+    assert.strictEqual(streak.note(true).clear, false);
+    assert.strictEqual(streak.note(true).clear, true);
 });

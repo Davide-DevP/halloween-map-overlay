@@ -9,7 +9,7 @@ const appLog = require('./app-log');
 const {CUSTOM_CREATOR} = require('./map-catalog');
 const {
     GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE, SLOW_TICK_MS,
-    tickInterval, shouldWatchMenu, SendThrottle
+    tickInterval, shouldWatchMenu, MenuStreak, SendThrottle
 } = require('../shared/detector-rules');
 const TEMPLATE_FILE = require('./map-detector/templates.json');
 
@@ -127,8 +127,12 @@ class MapDetector {
          */
         this.shownKey = null;
 
-        /** Consecutive ticks that matched the main menu. */
-        this.menuTicks = 0;
+        /**
+         * The menu streak *and* the transition rule that guards it: a map may
+         * only be cleared once the game has been seen away from the menu since
+         * that map went up. Pure, in `shared/detector-rules.js`.
+         */
+        this.menuStreak = new MenuStreak(MENU_TICKS_TO_HIDE);
         /** True once the menu has cleared the overlay, until the next detection. */
         this.inMenu = false;
         /** Whether the previous tick found the game window (null = not looked yet). */
@@ -222,7 +226,10 @@ class MapDetector {
         const next = key || null;
         if (next === this.shownKey) return;
         this.shownKey = next;
-        this.menuTicks = 0;
+        // A new map on the overlay restarts the streak *and* withdraws the
+        // right to clear until the game is seen outside the menu again — a map
+        // picked by hand while the menu is up must not be taken away 2 s later.
+        this.menuStreak.noteShown();
         if (next) this.inMenu = false;
         this.log.write('shown', {key: logKey(next) || '(none)'});
         if (debug) console.log(`map-detector: overlay is showing "${next || ''}"`);
@@ -235,7 +242,7 @@ class MapDetector {
         this.lastDetected = null;
         this.lastAt = null;
         this.lastScore = null;
-        this.menuTicks = 0;
+        this.menuStreak.reset();
         this.inMenu = false;
         // The map was just cleared by hand: the next match on it must go out
         // at once rather than waiting for the throttle window to expire.
@@ -269,7 +276,8 @@ class MapDetector {
             return;
         }
         this.running = true;
-        console.log(`Map detection started (${Object.keys(this.templates).length} templates, every ${GAME_INTERVAL} ms while the game is running).`);
+        console.log(`Map detection started (${Object.keys(this.templates).length} templates, `
+            + `${this.variantCount} variants, every ${GAME_INTERVAL} ms while the game is running).`);
         // The detail stays in detector.log; app.log only records that the
         // feature was on, so a report can be read without the other file.
         appLog.event('detector', {action: 'start'});
@@ -321,7 +329,7 @@ class MapDetector {
         if (!this.running) return;
         this.running = false;
         this.lastDetected = null;
-        this.menuTicks = 0;
+        this.menuStreak.reset();
         this.inMenu = false;
         this.windowSeen = null;
         this.sendThrottle.reset();
@@ -478,8 +486,10 @@ class MapDetector {
             }
 
             // A Tab screen is proof the player is in a match, whatever the menu
-            // matcher thought a moment ago.
-            this.menuTicks = 0;
+            // matcher thought a moment ago — and it is the clearest possible
+            // "not in the menu", so the map about to go up may be cleared when
+            // the match ends.
+            this.menuStreak.noteMatch();
             this.inMenu = false;
             this.lastScore = match.score;
             this.lastAt = Date.now();
@@ -555,7 +565,7 @@ class MapDetector {
         if (!this.menuTemplate) return;
         if (!this.settings) return;
         if (!shouldWatchMenu(this.shownKey, this.settings.get('hideInMenu'))) {
-            this.menuTicks = 0;
+            this.menuStreak.reset();
             return;
         }
 
@@ -563,23 +573,28 @@ class MapDetector {
             width: this.menuWidth,
             height: this.menuHeight
         });
+        // The streak, the "a non-menu frame breaks it" rule and the transition
+        // rule all live in the pure `MenuStreak`; this half only logs and acts.
+        const verdict = this.menuStreak.note(menu.accepted);
         if (!menu.accepted) {
-            // A single non-menu frame breaks the run: the ticks have to be
-            // consecutive or a flicker during a loading screen would count.
-            if (this.menuTicks) this.log.write('menu-streak', {ticks: 0, score: menu.score, broke: 'yes'});
-            this.menuTicks = 0;
+            if (verdict.broke) this.log.write('menu-streak', {ticks: 0, score: menu.score, broke: 'yes'});
             if (debug && menu.score > 0.5) {
                 console.log(`map-detector: menu score ${menu.score.toFixed(3)} (below threshold)`);
             }
             return;
         }
+        if (verdict.waiting) {
+            // The menu is up, but this map went up *during* it — a pick between
+            // matches. Nothing is taken away until the game leaves the menu.
+            if (debug) console.log(`map-detector: menu score ${menu.score.toFixed(3)} (map picked in the menu; not counting)`);
+            return;
+        }
 
-        this.menuTicks++;
-        this.log.write('menu-streak', {ticks: this.menuTicks, of: MENU_TICKS_TO_HIDE, score: menu.score});
-        if (debug) console.log(`map-detector: menu score ${menu.score.toFixed(3)} (tick ${this.menuTicks}/${MENU_TICKS_TO_HIDE})`);
-        if (this.menuTicks < MENU_TICKS_TO_HIDE) return;
+        this.log.write('menu-streak', {ticks: verdict.ticks, of: MENU_TICKS_TO_HIDE, score: menu.score});
+        if (debug) console.log(`map-detector: menu score ${menu.score.toFixed(3)} (tick ${verdict.ticks}/${MENU_TICKS_TO_HIDE})`);
+        if (!verdict.clear) return;
 
-        this.menuTicks = 0;
+        this.menuStreak.reset();
         this.inMenu = true;
         const was = this.shownKey;
         this.lastDetected = null;

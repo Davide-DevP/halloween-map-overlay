@@ -101,24 +101,39 @@ const DEFAULT_MIN_MARGIN = 0.10;
  * The right map was first every single time and nothing was ever sent, because
  * the absolute score sits under `DEFAULT_MIN_SCORE`. Lowering that threshold
  * outright is what the alignment search exists to avoid, so the margin carries
- * the second branch instead: 0.60 with a 0.20 lead. The committed negatives,
- * scored with the Tab gate switched off, reach at most
+ * the second branch instead: 0.60 with a 0.15 lead.
  *
- *   gameplay-civilian 0.09 · gameplay-killer 0.13 · menu-main 0.28
+ * Why 0.15 and not the 0.20 this shipped with first. The stand-in for "a view
+ * nobody has sent a screenshot of" is one of the committed civilian frames
+ * matched with **its own** variant removed (the other maps keep theirs), and
+ * re-measuring that (VERIFICATION-6, finding 1) gives
  *
- * with margins of 0.035 and below — an order of magnitude short of the margin
- * branch on both numbers at once, which is what a test asserts fixture by
- * fixture. Two independent conditions have to be met, so a frame that is
- * merely dark (every template correlating weakly with it) cannot pass: that is
- * exactly the shape of the negatives, where the runner-up sits right behind
- * the leader.
+ *   East Haddonfield        0.6879 / margin 0.2194   (640x360: 0.6905 / 0.2228)
+ *   Haddonfield Heights     0.6972 / margin 0.1956   (640x360: 0.7031 / 0.2036)
+ *   Haddonfield Town Center 0.7623 / margin 0.2792   (640x360: 0.7669 / 0.2826)
+ *   Orange Grove Estates    0.6644 / margin 0.2493   (640x360: 0.6738 / 0.2528)
  *
- * A template *variant* for the missing view is the real fix for a case like
- * that (see `templateVariants`); this branch is the safety net that makes the
- * detector useful on a view nobody has sent a screenshot of yet.
+ * — a worst case of 0.196, i.e. at 0.20 the branch rejected one of the four at
+ * full resolution and accepted another by 0.004. The committed negatives,
+ * scored with the Tab gate switched off, sit at
+ *
+ *   gameplay-civilian 0.136 / 0.052 · gameplay-killer 0.160 / 0.004
+ *   menu-main 0.279 / 0.023
+ *
+ * so 0.15 is still ~3x the worst negative margin *and* 0.32 under the score
+ * floor, which a test asserts fixture by fixture. Two independent conditions
+ * have to be met, so a frame that is merely dark (every template correlating
+ * weakly with it) cannot pass: that is exactly the shape of the negatives,
+ * where the runner-up sits right behind the leader.
+ *
+ * It is still **best effort**, not a guarantee: a view the templates have
+ * never seen lands wherever it lands, and 0.196 was the worst of four. The
+ * real fix for a missing view is a template *variant* for it (see
+ * `templateVariants`); this branch is what keeps the detector useful until
+ * someone sends that screenshot.
  */
 const DEFAULT_MARGIN_MIN_SCORE = 0.60;
-const DEFAULT_MARGIN_MIN_MARGIN = 0.20;
+const DEFAULT_MARGIN_MIN_MARGIN = 0.15;
 
 /**
  * The menu template is a *wide* thumbnail, not a square one: the strip is
@@ -528,7 +543,7 @@ function templateVariants(entry) {
  * Two branches, and a match needs only one of them:
  *   `score`  — a bright match: score >= 0.80 with the usual 0.10 lead. What a
  *              solo Tab screen produces (0.99 / 0.49 in the field log).
- *   `margin` — a dim but unambiguous match: score >= 0.60 with a 0.20 lead.
+ *   `margin` — a dim but unambiguous match: score >= 0.60 with a 0.15 lead.
  *              What a party Tab screen produces (0.70 / 0.29).
  *
  * Returns the branch's name rather than `true` so the caller can log which one
@@ -564,7 +579,7 @@ function acceptMatch(score, margin, opts) {
  * @param {object} [opts]
  *   `region` (default `MAP_PANEL_REL`; `null` = `gray` is already the panel),
  *   `size` (64), `minScore` (0.80), `minMargin` (0.10),
- *   `marginMinScore` (0.60), `marginMinMargin` (0.20) — see `acceptMatch`,
+ *   `marginMinScore` (0.60), `marginMinMargin` (0.15) — see `acceptMatch`,
  *   `gate` (default true; a caller passing a pre-cropped panel must pass false),
  *   `report` (true → always return the object, with `accepted` saying whether
  *   the thresholds were met, so the tests can print every score).

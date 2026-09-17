@@ -483,8 +483,10 @@ test('acceptMatch: a dim match needs BOTH halves of the margin branch', () => {
     assert.strictEqual(M.acceptMatch(0.59, 0.40), null);
     // Bright enough for the second branch, but the runner-up is right behind:
     // the shape of every negative fixture, and of a frame that correlates
-    // weakly with everything.
-    assert.strictEqual(M.acceptMatch(0.70, 0.19), null);
+    // weakly with everything. 0.14 is just under the 0.15 lead the branch
+    // wants; 0.196 (the worst "unseen view" case) is just over it.
+    assert.strictEqual(M.acceptMatch(0.70, 0.14), null);
+    assert.strictEqual(M.acceptMatch(0.6972, 0.1956), 'margin');
     // ...and the first branch still needs its own margin.
     assert.strictEqual(M.acceptMatch(0.85, 0.09), null);
     // The exact corner of the second branch accepts.

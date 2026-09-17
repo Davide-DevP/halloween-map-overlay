@@ -372,13 +372,17 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   rules below.
 - **Acceptance has two branches, and both need a margin** (`acceptMatch`, pure,
   0.3.3): `score >= 0.80 && margin >= 0.10` **or** `score >= 0.60 && margin >=
-  0.20`. The second exists because of the owner's 0.3.2 field log: every Tab
+  0.15`. The second exists because of the owner's 0.3.2 field log: every Tab
   press in a *civilian* match scored 0.68-0.72 with the right map 0.27-0.31
   ahead and nothing was ever sent. All four maps now ship both views, so this
-  branch is the safety net for the *next* view nobody has sent a screenshot of:
-  measured on the civilian frames with their own variant removed, they score
-  0.6631-0.7623 with margins of 0.2493-0.3052, i.e. exactly the field numbers,
-  and they are accepted. The committed negatives, scored with the Tab
+  branch is **best effort** for the *next* view nobody has sent a screenshot
+  of, not a guarantee. The stand-in for that case is a civilian frame matched
+  with its own variant removed, and it measures (full res / 640x360, margins):
+  0.2194/0.2228, **0.1956**/0.2036, 0.2792/0.2826, 0.2493/0.2528 — which is why
+  the lead is 0.15 and not the 0.20 0.3.3 first shipped with (VERIFICATION-6,
+  finding 1: at 0.20 one of the four was rejected at full resolution and another
+  passed by 0.004). 0.15 is still ~3x the worst negative margin (0.052 with the
+  Tab gate off) and 0.32 under the score floor. The committed negatives, scored with the Tab
   gate off, reach 0.09/0.13/0.28 with margins ≤ 0.035, so they miss both halves
   of the second branch by an order of magnitude — a test asserts that fixture by
   fixture, and the printed score table carries both thresholds in its header.
@@ -478,16 +482,22 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
      matcher accepted nothing, the maps were picked by hand, `lastDetected`
      stayed null and the menu matcher never ran once — not one `menu-streak`
      line. `lastDetected` is now only the status line and the "changed" flag.
-     A `shownKey` change resets the streak, so a manual pick two ticks into a
-     menu streak is not taken away by the third. `menu-clear` clears `shownKey`
-     optimistically; the renderer confirms a moment later. Keys reaching
-     `detector.log` go through `logKey()` — `detector.log` is in the diagnostic
-     zip and a custom map's key is a name the user typed.
-  3. **Three consecutive ticks** (`MENU_TICKS_TO_HIDE`, in the pure rules
-     module). A loading screen sweeps past the menu layout; one frame would
-     blank the overlay as the next match starts. Two was tuned for the old
-     5000 ms cadence (10 s); at 700 ms three is ~2.1 s of steady menu, which a
-     transition cannot cover.
+     `menu-clear` clears `shownKey` optimistically; the renderer confirms a
+     moment later, and it also reports its state once on load, so a renderer
+     that came back from a crash reload cannot leave `shownKey` stale. Keys
+     reaching `detector.log` go through `logKey()` — `detector.log` is in the
+     diagnostic zip and a custom map's key is a name the user typed.
+  3. **A transition, not just a count** — `MenuStreak` in the pure rules
+     module. Three *consecutive* menu ticks (`MENU_TICKS_TO_HIDE`; a loading
+     screen sweeps past the menu layout, and at 700 ms three is ~2.1 s of
+     steady menu), **and** the game must have been seen away from the menu
+     since the current map went up (`sawNonMenu`: cleared by `noteShown()`,
+     set by any non-menu gated-out frame and by `noteMatch()`). Without that
+     second half, a map picked by hand while the menu is already on screen —
+     the obvious moment to pick one — was cleared 2.1 s later, and again after
+     the next pick (VERIFICATION-6, finding 2). The three cases are unit
+     tested: pick-in-menu → no clear; match → menu → clear; pick-in-menu →
+     leave → return → clear.
   4. **It hides through the renderer** (`menu-hide-map` → `Maps.sendMap("")`),
      not straight at the overlay window, so `Maps` keeps owning `currentKey` and
      Ctrl+H still restores the map. `lastDetected` is cleared for the same

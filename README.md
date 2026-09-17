@@ -89,8 +89,11 @@ three consecutive readings of the menu (about two seconds) so a loading screen
 cannot trigger it, and it only does this **while a map is on the overlay** —
 whether auto-detect put it there or you picked it by hand. (Up to 0.3.2 a map
 you had picked yourself was never cleared unless auto-detect had recognised one
-first in the same match.) Turn it off under **Settings → General → Clear the
-map back in the menu**.
+first in the same match.) A map you pick **while the menu is already up** is
+left alone: the overlay is only cleared once the game has been seen away from
+the menu since that map went up, so choosing the next map between matches is
+never undone. Turn it off under **Settings → General → Clear the map back in
+the menu**.
 
 How it works, in full:
 
@@ -360,9 +363,17 @@ never injects anything and never touches the game process. See
 
 **Does it take screenshots?**
 Only with **Auto-detect map** switched on, and that is off by default. It then
-captures the game's window every 2 seconds, and only while the game is running.
-See [Auto-detect](#auto-detect-map) for exactly what it captures and what
-happens to it (nothing is stored, nothing is sent).
+captures the game's window about every 0.7 seconds while the game is running,
+and every 2 seconds while it is not (when there is no window to capture and
+nothing is captured). See [Auto-detect](#auto-detect-map) for exactly what it
+captures and what happens to it (nothing is stored, nothing is sent).
+
+**Auto-detect took my map away when I went back to the menu.**
+That is *Clear the map back in the menu* doing its job: when the game returns
+to the main menu the match is over, so the overlay clears itself after about
+two seconds of menu. It only does that to a map that was on the overlay while
+you were **in** a match — a map you pick while the menu is already on screen
+stays. Turn the whole thing off under **Settings → General**.
 
 **Auto-detect does not recognise the map in my matches.**
 It should since 0.3.3, which added the civilian view of the map panel next to
