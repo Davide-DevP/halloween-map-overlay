@@ -114,6 +114,7 @@ if (isWayland() && !process.argv.includes('--ozone-platform=x11')) {
     })
 
     app.on('before-quit', () => {
+        overlayWindow.close();
         mapDetector.stop();
         trayController.destroy();
     });

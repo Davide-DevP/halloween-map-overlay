@@ -314,6 +314,13 @@ class MainWindow {
     /** Stop the detector and drop the tray icon before the app goes away. */
     runShutdownHooks() {
         const {mapDetector, tray} = this.shutdownHooks || {};
+        // Overlay first: it is the always-on-top, click-through window, and it
+        // must be gone before anything slow runs so the desktop stays responsive.
+        try {
+            if (this.overlayWindow && typeof this.overlayWindow.close === 'function') this.overlayWindow.close();
+        } catch (err) {
+            console.error('Overlay close failed during shutdown:', err && err.message);
+        }
         try {
             if (mapDetector && typeof mapDetector.stop === 'function') mapDetector.stop();
         } catch (err) {

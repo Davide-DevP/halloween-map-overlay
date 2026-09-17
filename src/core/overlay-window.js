@@ -50,7 +50,12 @@ class OverlayWindow {
         this.window.setAlwaysOnTop(true, alwaysOnTopLevel);
         this.window.setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true});
         this.window.setSkipTaskbar(true);
-        this.window.setIgnoreMouseEvents(true, { forward: true });
+        // Click-through WITHOUT `forward: true`. On Windows, forwarding installs a
+        // low-level mouse hook (WH_MOUSE_LL) in this process; whenever the main
+        // thread is busy (quit, install, a capture tick) every mouse move waits on
+        // that hook and the cursor stutters system-wide. The overlay never needs
+        // hover events, so the hook is pure cost.
+        this.window.setIgnoreMouseEvents(true);
 
         // On Windows, periodically re-assert always-on-top to prevent the game
         // or other HWND_TOPMOST windows from pushing the overlay behind them.

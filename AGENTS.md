@@ -125,8 +125,14 @@ test/                           → node:test unit tests for the pure modules.
 - **Overlay quirks that must not be "cleaned up"** — each one is load-bearing:
   - `alwaysOnTop` level `pop-up-menu` on win32 (`screen-saver` is ignored there)
     and **re-asserted every second**, or a fullscreen game pushes it behind.
-  - `setIgnoreMouseEvents(true, {forward: true})`, `focusable: false`,
+  - `setIgnoreMouseEvents(true)` **without** `forward: true`, `focusable: false`,
     `skipTaskbar: true` — otherwise the overlay eats the player's clicks.
+    `forward: true` (what the reference uses) installs a WH_MOUSE_LL hook in
+    this process on Windows; every mouse move then waits on our main thread,
+    and the cursor stuttered system-wide for ~10 s during quit/update in
+    0.2.3. The overlay needs no hover events, so the hook was pure cost.
+    On quit and on install the overlay window is closed **first**
+    (`runShutdownHooks()`, `before-quit`) for the same reason.
   - The window is sized to the **rotated** bounding box, `+5` px wide and
     `*1.1` tall, so rotated maps do not clip.
 - **Catalogue caching**: `MapLibrary` caches the listing. Anything that adds or
