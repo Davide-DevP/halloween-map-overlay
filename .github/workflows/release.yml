@@ -16,9 +16,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
@@ -28,6 +28,14 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      # Create the release first so electron-builder only uploads into it.
+      # Letting electron-builder create it raced on v0.2.0 and produced two
+      # release objects for the same tag (assets split between them).
+      - name: Create GitHub release
+        run: gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --notes "See README.md for install and update notes." --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # The maps are committed, so there is no prepare-maps step here; this
       # builds exactly the images that are in the repository.
