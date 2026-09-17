@@ -453,11 +453,16 @@
                 <p>When a newer version exists it is downloaded quietly in the background, and then a green banner
                     appears at the top of this window. <strong>Nothing is installed until you press
                     <em>Restart and update</em></strong> there (or in the tray menu). The app then closes and a small
-                    installer window appears showing progress; it works the disk hard for a few seconds, and then the
-                    app reopens by itself. You are not asked anything and Windows does not prompt for permission
-                    &mdash; it installs only for your own user account. Press <em>Later</em> and the banner goes away
-                    for now; the update stays waiting for the next time you start the app. Closing or quitting the
-                    app never installs anything.</p>
+                    installer window appears showing progress; it works the disk for a few seconds, and then the
+                    app reopens by itself. The installer runs at <strong>low priority</strong>, so the rest of the PC
+                    stays responsive while it unpacks. You are not asked anything and Windows does not prompt for
+                    permission &mdash; it installs only for your own user account. Press <em>Later</em> and the banner
+                    goes away for now; the update stays waiting for the next time you start the app. Closing or
+                    quitting the app never installs anything.</p>
+                <p>If an update still drags, what is left is usually your antivirus reading every unpacked file.
+                    Adding <code>%LOCALAPPDATA%\Programs\Halloween Map Overlay</code> to the exclusions under
+                    <em>Windows Security &rarr; Virus &amp; threat protection &rarr; Manage settings &rarr;
+                    Exclusions</em> removes that cost.</p>
 
                 <h6>How does auto-detect work?</h6>
                 <p>Switch <em>Auto-detect map</em> on above the gallery, then press <kbd>Tab</kbd> in the game once

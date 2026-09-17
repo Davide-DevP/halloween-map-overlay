@@ -186,11 +186,10 @@ test/                           → node:test unit tests for the pure modules.
   trigger — via `ipcMain.handle('install-update')`. A renderer that loads after
   the download (reopened from the tray) asks with `get-pending-update` instead
   of waiting for the push. `installUpdate()` sets `app.isQuiting = true` first,
-  or the window's `close` handler hides the window and `quitAndInstall`'s
-  `app.quit()` never completes; then it stops the detector, destroys the tray
-  and calls `autoUpdater.quitAndInstall(false, true)` — **not** silent, so the
-  one-click installer shows its progress window and the disk-heavy seconds read
-  as an install rather than a freeze. "Later" in the banner is renderer-session state
+  or the window's `close` handler hides the window and `app.quit()` never
+  completes; then it stops the detector, destroys the tray, launches the
+  installer itself (see below) and quits. **electron-updater does the check and
+  the download; it does not do the install.** "Later" in the banner is renderer-session state
   only — main and the tray keep the pending update. The
   `checkForUpdatesAndNotify` toast text is overridden too; its default promises
   an install on exit, which is now a lie.
@@ -200,6 +199,41 @@ test/                           → node:test unit tests for the pure modules.
   only logs: being offline must never be more than a toast. This is the app's
   **only** network request — if you add another one, the README "Network use"
   section and the in-app FAQ both have to change.
+- **The installer runs at idle priority, launched by us, not by
+  electron-updater.** `NsisUpdater.doInstall` spawns it at normal priority, and
+  unpacking ~350 MB (7z to temp, copy into the install dir, Defender reading
+  every file) saturates the disk hard enough to make the owner's mouse cursor
+  stutter for seconds — I/O, not CPU (Discord audio stayed clean).
+  `spawnInstallerAtLowPriority()` therefore runs
+  `cmd.exe /c start "" /LOW /B "<installer>" --updated --force-run` with
+  `{detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true}`
+  then `unref()`. Details that are all load-bearing:
+  - `start /LOW` = `IDLE_PRIORITY_CLASS`, and Windows derives the **I/O**
+    priority from the priority class — that is the whole point. Node's `spawn`
+    has no priority option, and `os.setPriority` only works after the fact (it
+    is still called on `child.pid`, which is the transient cmd, as a freebie).
+  - `""` is the title `start` always eats first; drop it and the quoted
+    installer path becomes the window title and nothing runs.
+  - `/B` suppresses a new **console** only — a GUI app still shows its window,
+    so the one-click installer's progress dialog appears as before (verified
+    with `start "" /LOW /B notepad.exe` → visible window, `PriorityClass` Idle).
+  - `windowsVerbatimArguments: true` is what makes a path with spaces work; the
+    args mirror `NsisUpdater.doInstall` for non-silent + force-run (`--updated`,
+    `--force-run`, **no** `/S`). `/D=` and `--package-file=` are only added
+    there for a custom install dir or a web installer; this build has neither.
+  - The **relaunched app does not inherit idle priority**: `StartApp`
+    (`templates/nsis/common.nsh`) uses `${StdUtils.ExecShellAsUser}`, so the new
+    instance is started by the shell, not as a child of the installer.
+  - The installer path comes from the `update-downloaded` event's
+    `info.downloadedFile` (`electron-updater/out/types.d.ts`
+    `UpdateDownloadedEvent`), stored as `pendingInstallerPath`; the fallback is
+    `autoUpdater.downloadedUpdateHelper.file`.
+  - Non-win32, no path, missing file or a throw → fall back to
+    `autoUpdater.quitAndInstall(false, true)` and log why. A `spawn` failure is
+    reported **asynchronously** via an `'error'` event, so the child gets a
+    listener — an unhandled one is an uncaught exception.
+  - `installStarted` guards a double click on the banner; electron-updater's own
+    `quitAndInstallCalled` no longer covers us.
 - **Only the NSIS build self-updates.** The portable exe has nothing installed
   to replace; that is stated in the README. `app.isPackaged` is true in the
   portable build as well and electron-updater 6.x has **no** portable guard of
@@ -440,8 +474,9 @@ electron-builder stands. The key was therefore **removed again** rather than
 left in pretending to do something. The install's cost is mostly disk anyway
 (~350 MB unpacked to temp, then copied), which no compression setting changes;
 0.2.1 makes that cost *visible* with a one-click installer window instead of
-trying to make it smaller. Do not re-add `compression` expecting a faster
-install.
+trying to make it smaller, and 0.2.3 makes it cheap for everything *else* on the
+machine by running the installer at idle priority. Do not re-add `compression`
+expecting a faster install.
 
 **The procedure, in order. Nothing else publishes anything.**
 

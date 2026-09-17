@@ -109,8 +109,9 @@ Get the latest build from the
 
 Both downloads are about 95 MB and unpack to roughly 350 MB on disk.
 Installing — including a self-update — spends a few seconds unpacking that
-payload and pegs a core while it does. That is exactly why the app no longer
-installs an update behind your back when you close it; see **Updates** below.
+payload. That is exactly why the app no longer installs an update behind your
+back when you close it, and why the self-update runs the installer at low
+priority; see **Updates** below.
 
 Or build it yourself (below).
 
@@ -135,10 +136,18 @@ finishes a green banner appears at the top of the app window:
 
 Press **Restart and update** (there, or in the tray menu). The app closes, a
 small installer window appears and shows its progress while it unpacks — a few
-seconds of heavy disk activity — and then the app starts itself back up. You are
-not asked anything on the way through, and Windows does not raise a permission
-prompt: it is a per-user install. Press **Later** and the banner goes away until
-the next start; the downloaded update keeps waiting.
+seconds of heavy disk activity — and then the app starts itself back up. The
+installer is launched at **low (idle) process priority**, which on Windows also
+lowers its disk priority, so the unpack stays out of the way and the rest of the
+PC keeps responding while it runs. You are not asked anything on the way
+through, and Windows does not raise a permission prompt: it is a per-user
+install. Press **Later** and the banner goes away until the next start; the
+downloaded update keeps waiting.
+
+If the update still feels heavy, most of what is left is your antivirus reading
+every unpacked file. Adding the install folder
+`%LOCALAPPDATA%\Programs\Halloween Map Overlay` to **Windows Security → Virus &
+threat protection → Manage settings → Exclusions** removes that cost.
 
 **Closing or quitting the app never installs anything.** Earlier versions used
 electron-updater's default, which ran the installer silently on quit — a
@@ -244,6 +253,14 @@ chroma-key filter for the green background.
 **Where are my settings stored?**
 In the app's userData directory (`%APPDATA%/halloween-map-overlay` on Windows):
 `settings-app.json`, `hotkeys.json` and imported images under `custom/`.
+
+**Does updating slow my PC down?**
+It should not: the update installer is started at low (idle) priority, so
+Windows gives it leftover CPU and disk instead of competing with whatever you
+are doing. The remaining cost is your antivirus scanning the ~350 MB it unpacks
+— excluding `%LOCALAPPDATA%\Programs\Halloween Map Overlay` in **Windows
+Security → Virus & threat protection → Manage settings → Exclusions** removes
+that too.
 
 ## Credits
 

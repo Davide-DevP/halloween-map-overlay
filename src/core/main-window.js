@@ -1,6 +1,8 @@
 const {BrowserWindow, app, shell, ipcMain, screen} = require("electron");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
+const {spawn} = require("child_process");
 const {imageSize} = require('image-size');
 const {autoUpdater} = require('electron-updater');
 const {computeOverlayPosition, rotatedSize} = require('./overlay-position');
@@ -16,6 +18,10 @@ class MainWindow {
     mapLibrary;
     /** Version string of a downloaded-but-not-installed update, or null. */
     pendingUpdateVersion = null;
+    /** Absolute path of the downloaded installer (`update-downloaded` gives it). */
+    pendingInstallerPath = null;
+    /** Set once the installer has been launched, so the banner cannot fire twice. */
+    installStarted = false;
     /** {mapDetector, tray} — set from index.js, both built after this class. */
     shutdownHooks = {};
 
@@ -265,6 +271,11 @@ class MainWindow {
             autoUpdater.on('update-downloaded', (info) => {
                 const version = info && info.version ? String(info.version) : '';
                 self.pendingUpdateVersion = version || null;
+                // `UpdateDownloadedEvent.downloadedFile` (electron-updater
+                // out/types.d.ts) is the absolute path of the .exe just written
+                // to the update cache. We run it ourselves — see installUpdate().
+                self.pendingInstallerPath = (info && typeof info.downloadedFile === 'string')
+                    ? info.downloadedFile : null;
                 self.sendUpdate('Update downloaded — click Restart and update when you are ready.');
                 // The toast auto-hides; the banner is the persistent element.
                 self.send('update-ready', {version});
@@ -300,6 +311,99 @@ class MainWindow {
         this.shutdownHooks = hooks || {};
     }
 
+    /** Stop the detector and drop the tray icon before the app goes away. */
+    runShutdownHooks() {
+        const {mapDetector, tray} = this.shutdownHooks || {};
+        try {
+            if (mapDetector && typeof mapDetector.stop === 'function') mapDetector.stop();
+        } catch (err) {
+            console.error('Detector stop failed during install:', err && err.message);
+        }
+        try {
+            if (tray && typeof tray.destroy === 'function') tray.destroy();
+        } catch (err) {
+            console.error('Tray destroy failed during install:', err && err.message);
+        }
+    }
+
+    /**
+     * Launch the downloaded NSIS installer at **idle** process priority.
+     *
+     * electron-updater would run it at normal priority
+     * (`NsisUpdater.doInstall` → `spawnLog(installerPath, args)`), and
+     * unpacking ~350 MB (7z to temp, then a copy into the install dir, with
+     * Defender reading every file) saturates the disk hard enough to make the
+     * mouse cursor stutter for several seconds. Windows derives the I/O
+     * priority from the process priority class, so running the installer at
+     * IDLE_PRIORITY_CLASS is what actually keeps the desktop responsive; it is
+     * not a CPU trick.
+     *
+     * `cmd.exe /c start "" /LOW /B <installer> --updated --force-run`:
+     * - `start /LOW` is the only way to set another process's priority class at
+     *   creation time from Node — `child_process.spawn` has no priority option,
+     *   and `os.setPriority` can only be applied *after* the process exists (it
+     *   is still called below on whatever pid we get, as a cheap extra).
+     * - `""` is the window title `start` always consumes first; without it the
+     *   quoted installer path would be eaten as the title.
+     * - `/B` only suppresses a new *console*; a GUI app still shows its window,
+     *   so the installer's progress dialog appears exactly as before (verified
+     *   with `start "" /LOW /B notepad.exe`).
+     * - `windowsVerbatimArguments` keeps our own quoting, which is what makes a
+     *   path with spaces (`...\Halloween Map Overlay Setup 0.2.3.exe`) work.
+     * - The args mirror `NsisUpdater.doInstall` for a non-silent force-run
+     *   install: `--updated`, `--force-run`, no `/S`. `/D=` and
+     *   `--package-file=` are only added there for a custom install directory
+     *   or a web installer, neither of which this build uses.
+     *
+     * The relaunched app does **not** inherit idle priority: the NSIS template
+     * restarts it with `${StdUtils.ExecShellAsUser}` (`templates/nsis/common.nsh`
+     * `StartApp`), i.e. through the shell, not as a child of the installer.
+     *
+     * @returns {boolean} true if the installer was started.
+     */
+    spawnInstallerAtLowPriority() {
+        if (process.platform !== 'win32') {
+            // `start /LOW` is a cmd.exe builtin. Everywhere else electron-updater
+            // is not running an NSIS installer either — let it do its own thing.
+            return false;
+        }
+        const installerPath = this.pendingInstallerPath
+            || (autoUpdater.downloadedUpdateHelper && autoUpdater.downloadedUpdateHelper.file)
+            || null;
+        if (!installerPath) {
+            console.error('No installer path from update-downloaded; falling back to electron-updater.');
+            return false;
+        }
+        if (!fs.existsSync(installerPath)) {
+            console.error(`Downloaded installer is gone (${installerPath}); falling back to electron-updater.`);
+            return false;
+        }
+        const args = ['/c', 'start', '""', '/LOW', '/B', `"${installerPath}"`, '--updated', '--force-run'];
+        const child = spawn('cmd.exe', args, {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true,
+            windowsVerbatimArguments: true
+        });
+        // `spawn` reports a failed launch asynchronously; an 'error' event with
+        // no listener is an uncaught exception, and by then we are already
+        // quitting, so there is nothing left to fall back to but a log line.
+        child.on('error', (err) => {
+            console.error('Installer launcher failed:', err && err.message);
+        });
+        // Belt and braces: this is almost certainly the short-lived cmd.exe
+        // rather than the installer, and `start /LOW` has already done the real
+        // work, but it costs nothing if the pid ever is the installer's.
+        try {
+            if (child.pid) os.setPriority(child.pid, os.constants.priority.PRIORITY_LOW);
+        } catch (err) {
+            console.log('setPriority on the installer launcher failed (harmless):', err && err.message);
+        }
+        child.unref();
+        console.log(`Installer started at low priority: ${installerPath}`);
+        return true;
+    }
+
     /**
      * Run the downloaded installer and relaunch. The only caller-facing entry
      * point for installing an update: the home-page banner (`install-update`)
@@ -307,42 +411,62 @@ class MainWindow {
      *
      * `app.isQuiting` has to be set first or the main window's `close` handler
      * hides the window instead of letting it go whenever minimize-to-tray is
-     * on, and `app.quit()` inside `quitAndInstall` would never complete.
+     * on, and `app.quit()` never completes.
+     *
+     * electron-updater is kept for the check and the download only; the install
+     * itself is `spawnInstallerAtLowPriority()`, so the unpack cannot starve the
+     * desktop of disk I/O. If that spawn cannot happen (no path, file deleted,
+     * spawn threw) we fall back to `autoUpdater.quitAndInstall(false, true)`,
+     * which installs at normal priority — a stuttery update beats no update.
      *
      * Why the relaunch survives a non-silent install, traced through
      * electron-updater/electron-builder rather than assumed:
-     * - `BaseUpdater.quitAndInstall(isSilent, isForceRunAfter)` calls
-     *   `install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall)`.
-     *   With `isSilent = false` our `true` is *ignored* and
-     *   `autoRunAppAfterInstall` decides — hence it is set explicitly below.
-     * - `NsisUpdater.doInstall` then spawns the installer with
-     *   `["--updated", "--force-run"]` and no `/S`, so the UI shows.
+     * - `NsisUpdater.doInstall` spawns the installer with
+     *   `["--updated", "--force-run"]` and no `/S`, so the UI shows. Our own
+     *   spawn passes exactly those.
      * - `templates/nsis/installSection.nsh` relaunches under `ONE_CLICK` +
      *   `RUN_AFTER_FINISH` when `${ifNot} ${Silent}` **or** `${isForceRun}`;
      *   both hold here. The *assisted* branch (`oneClick: false`) starts the
      *   app only when `isForceRun` **and** `Silent`, so a visible install would
      *   not relaunch — which is why `nsis.oneClick` is now `true`.
+     * - On the fallback path `BaseUpdater.quitAndInstall(isSilent,
+     *   isForceRunAfter)` calls
+     *   `install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall)`,
+     *   so with `isSilent = false` our `true` is ignored and
+     *   `autoRunAppAfterInstall` (pinned in `checkUpdates()`) decides.
      */
     installUpdate() {
         if (!this.pendingUpdateVersion) {
             console.log('Install update requested with no update pending.');
             return false;
         }
+        if (this.installStarted) {
+            console.log('Install update ignored: the installer is already running.');
+            return true;
+        }
+        const version = this.pendingUpdateVersion;
         try {
+            if (this.spawnInstallerAtLowPriority()) {
+                this.installStarted = true;
+                app.isQuiting = true;
+                this.runShutdownHooks();
+                console.log(`Installing update ${version} at low priority and restarting.`);
+                app.quit();
+                return true;
+            }
+        } catch (err) {
+            console.error('Low-priority installer launch failed:', err && err.message);
+        }
+        try {
+            this.installStarted = true;
             app.isQuiting = true;
-            const {mapDetector, tray} = this.shutdownHooks || {};
-            if (mapDetector && typeof mapDetector.stop === 'function') mapDetector.stop();
-            if (tray && typeof tray.destroy === 'function') tray.destroy();
-            console.log(`Installing update ${this.pendingUpdateVersion} and restarting.`);
-            // (isSilent = false, isForceRunAfter = true). Not silent on purpose:
-            // the one-click installer then shows its progress window, so the
-            // several disk-heavy seconds look like an install instead of a
-            // frozen machine. See installUpdate()'s doc comment for why the
-            // second argument is belt-and-braces rather than the deciding one.
+            this.runShutdownHooks();
+            console.log(`Installing update ${version} through electron-updater (normal priority).`);
             autoUpdater.quitAndInstall(false, true);
             return true;
         } catch (err) {
             console.error('Install update failed:', err && err.message);
+            this.installStarted = false;
             app.isQuiting = false;
             this.sendUpdate('Could not install the update.');
             return false;
