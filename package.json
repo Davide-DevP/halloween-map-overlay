@@ -1,0 +1,76 @@
+{
+  "name": "halloween-map-overlay",
+  "version": "0.1.0",
+  "description": "Transparent in-game map overlay for Halloween: The Game",
+  "author": "Halloween Map Overlay contributors",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/**/*.test.js\"",
+    "prepare-maps": "node scripts/prepare-maps.js",
+    "build:win": "electron-builder -w",
+    "build": "electron-builder -w"
+  },
+  "keywords": [
+    "halloween-the-game",
+    "overlay",
+    "map",
+    "electron"
+  ],
+  "build": {
+    "productName": "Halloween Map Overlay",
+    "appId": "com.halloweenthegame.mapoverlay",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "maps",
+        "to": "maps"
+      }
+    ],
+    "files": [
+      "!maps-src/*",
+      "!maps/*",
+      "!docs/*",
+      "!dist/*",
+      "!scripts/*",
+      "!test/*",
+      "!detection-fixtures/*",
+      "!.git/*",
+      "!.idea/*",
+      "!.github/*",
+      "!.vscode/*"
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Davide-DevP",
+      "repo": "halloween-map-overlay"
+    }
+  },
+  "devDependencies": {
+    "electron": "^40.4.1",
+    "electron-builder": "^26.15.0",
+    "sharp": "^0.34.5"
+  },
+  "dependencies": {
+    "@popperjs/core": "^2.11.8",
+    "bootstrap": "^5.3.8",
+    "electron-updater": "^6.7.3",
+    "image-size": "^2.0.2",
+    "jquery": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Davide-DevP/halloween-map-overlay.git"
+  }
+}
