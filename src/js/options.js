@@ -43,8 +43,9 @@ class Options {
         $("#minimizeToTrayCheck").prop("checked", settings.raw("minimizeToTray") === true);
         $("#hiddenCheck").prop("checked", settings.raw("hideOverlay") === true);
         $("#disableFaqPopupCheck").prop("checked", settings.raw("disableFaqPopup") === true);
-        // Defaults to on: only an explicit false turns the update check off
+        // Both default to on: only an explicit false turns them off
         $("#checkForUpdatesCheck").prop("checked", settings.raw("checkForUpdates") !== false);
+        $("#hideInMenuCheck").prop("checked", settings.raw("hideInMenu") !== false);
 
         ipcRenderer.invoke('get-displays').then(displays => {
             const select = $("#monitorSelect");
@@ -83,6 +84,10 @@ class Options {
         $("#checkForUpdatesCheck").on("input", async function () {
             // Takes effect on the next start — the check runs once at startup
             await settings.set("checkForUpdates", $(this).prop('checked'));
+        });
+        // Read by the detector loop on every tick, so this takes effect at once
+        $("#hideInMenuCheck").on("input", async function () {
+            await settings.set("hideInMenu", $(this).prop('checked'));
         });
         $("#sizeRange").on("input", async function () {
             await settings.set("size", $(this).val());

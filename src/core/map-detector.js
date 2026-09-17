@@ -1,6 +1,9 @@
 const {ipcMain} = require('electron');
 const {Window} = require('node-screenshots');
-const {toGrayScaled, matchMap, DEFAULT_SIZE} = require('./map-detector/matcher');
+const {
+    toGrayScaled, matchMap, matchMenu, DEFAULT_SIZE,
+    MENU_TEMPLATE_WIDTH, MENU_TEMPLATE_HEIGHT
+} = require('./map-detector/matcher');
 const TEMPLATE_FILE = require('./map-detector/templates.json');
 
 const debug = process.env.DEBUG === 'true';
@@ -39,6 +42,17 @@ const MIN_WINDOW = {width: 320, height: 240};
 
 /** "Game not running" and capture errors are states, not events: log sparsely. */
 const STATE_LOG_INTERVAL = 60000;
+
+/**
+ * Consecutive menu-matching ticks before the overlay is cleared.
+ *
+ * One is not enough: the loading screens either side of a match sweep past the
+ * menu's own layout, and a single frame caught mid-transition would blank the
+ * overlay just as the next match starts. Two ticks is 2 s of menu at the search
+ * cadence — instant to a player who has actually left the match, and longer
+ * than any transition lasts.
+ */
+const MENU_TICKS_TO_HIDE = 2;
 
 /**
  * Automatic map detection (phase 2).
@@ -83,6 +97,11 @@ class MapDetector {
         this.lastTiming = null;
         this.lagTimer = null;
 
+        /** Consecutive ticks that matched the main menu. */
+        this.menuTicks = 0;
+        /** True once the menu has cleared the overlay, until the next detection. */
+        this.inMenu = false;
+
         // Stored as plain arrays in JSON; Float32Array once, here, so the hot
         // loop never re-allocates.
         this.size = TEMPLATE_FILE.size || DEFAULT_SIZE;
@@ -90,6 +109,12 @@ class MapDetector {
         for (const [key, values] of Object.entries(TEMPLATE_FILE.templates || {})) {
             this.templates[key] = Float32Array.from(values);
         }
+        // The menu strip lives in its own section of templates.json — it is not
+        // a map and must never be a candidate in the map match.
+        const menu = TEMPLATE_FILE.menu || null;
+        this.menuTemplate = menu && Array.isArray(menu.template) ? Float32Array.from(menu.template) : null;
+        this.menuWidth = (menu && menu.width) || MENU_TEMPLATE_WIDTH;
+        this.menuHeight = (menu && menu.height) || MENU_TEMPLATE_HEIGHT;
 
         const self = this;
         ipcMain.handle('map-detector-start', async () => {
@@ -116,20 +141,23 @@ class MapDetector {
         this.lastDetected = null;
         this.lastAt = null;
         this.lastScore = null;
+        this.menuTicks = 0;
+        this.inMenu = false;
         if (debug) console.log('map-detector: last detection cleared.');
         this.sendStatus({state: this.running ? 'watching' : 'off'});
         // Look again now rather than sitting out the 5 s post-detection wait.
         if (this.running) this.schedule(0);
     }
 
-    /** @returns {{running, lastDetected, lastAt, lastScore, templates}} */
+    /** @returns {{running, lastDetected, lastAt, lastScore, templates, inMenu}} */
     status() {
         return {
             running: this.running,
             lastDetected: this.lastDetected,
             lastAt: this.lastAt,
             lastScore: this.lastScore,
-            templates: Object.keys(this.templates).length
+            templates: Object.keys(this.templates).length,
+            inMenu: this.inMenu
         };
     }
 
@@ -184,6 +212,8 @@ class MapDetector {
         if (!this.running) return;
         this.running = false;
         this.lastDetected = null;
+        this.menuTicks = 0;
+        this.inMenu = false;
         console.log('Map detection stopped.');
         this.sendStatus({state: 'off'});
     }
@@ -294,7 +324,10 @@ class MapDetector {
             const outWidth = CAPTURE_WIDTH;
             const outHeight = Math.max(1, Math.round(CAPTURE_WIDTH * height / width));
             const gray = toGrayScaled(raw, width, height, outWidth, outHeight, 'rgba');
-            const match = matchMap(gray, outWidth, outHeight, this.templates, {size: this.size});
+            // `report` so the Tab-screen gate's verdict is visible here: a frame
+            // that failed the gate is the only one worth showing the menu
+            // matcher, and running it on a Tab screen would be pure cost.
+            const match = matchMap(gray, outWidth, outHeight, this.templates, {size: this.size, report: true});
             this.lastTiming = {
                 enumerate: enumeratedAt - started,
                 capture: capturedAt - enumeratedAt,
@@ -302,11 +335,16 @@ class MapDetector {
                 total: Date.now() - started
             };
 
-            if (!match) {
+            if (!match.accepted) {
+                if (match.gated) this.checkMenu(gray, outWidth, outHeight);
                 if (debug) console.log(`map-detector: no match (${width}x${height} → ${outWidth}x${outHeight}) ${this.timingLabel()}`);
                 return;
             }
 
+            // A Tab screen is proof the player is in a match, whatever the menu
+            // matcher thought a moment ago.
+            this.menuTicks = 0;
+            this.inMenu = false;
             interval = DETECTED_INTERVAL;
             this.lastScore = match.score;
             this.lastAt = Date.now();
@@ -328,6 +366,64 @@ class MapDetector {
         }
     }
 
+    /**
+     * Back in the main menu? Clear the overlay.
+     *
+     * Runs only on a tick whose frame failed the Tab-screen gate, and only
+     * while a map has actually been detected — the point is to undo an
+     * automatic switch once the match it belonged to is over, not to police
+     * what the overlay shows in general. A manual pick made outside a match is
+     * therefore never taken away.
+     *
+     * `lastDetected` is cleared along with the overlay so that starting the
+     * *same* map again is detected as a change; without that the loop would see
+     * no difference and the overlay would stay blank for the whole next match —
+     * exactly the trap `clear-map` already has to avoid.
+     *
+     * @param {Float32Array} gray the reduced capture
+     * @param {number} width
+     * @param {number} height
+     */
+    checkMenu(gray, width, height) {
+        if (!this.menuTemplate) return;
+        if (!this.settings || this.settings.get('hideInMenu') === false) return;
+        if (!this.lastDetected) {
+            this.menuTicks = 0;
+            return;
+        }
+
+        const menu = matchMenu(gray, width, height, this.menuTemplate, {
+            width: this.menuWidth,
+            height: this.menuHeight
+        });
+        if (!menu.accepted) {
+            // A single non-menu frame breaks the run: the two ticks have to be
+            // consecutive or a flicker during a loading screen would count.
+            this.menuTicks = 0;
+            if (debug && menu.score > 0.5) {
+                console.log(`map-detector: menu score ${menu.score.toFixed(3)} (below threshold)`);
+            }
+            return;
+        }
+
+        this.menuTicks++;
+        if (debug) console.log(`map-detector: menu score ${menu.score.toFixed(3)} (tick ${this.menuTicks}/${MENU_TICKS_TO_HIDE})`);
+        if (this.menuTicks < MENU_TICKS_TO_HIDE) return;
+
+        this.menuTicks = 0;
+        this.inMenu = true;
+        const was = this.lastDetected;
+        this.lastDetected = null;
+        this.lastAt = null;
+        this.lastScore = null;
+        console.log(`Main menu detected (score ${menu.score.toFixed(3)}) — clearing "${was}" from the overlay.`);
+        // Through the renderer, not straight at the overlay window: `Maps` owns
+        // which map is current, and hiding behind its back would leave Ctrl+H
+        // toggling a map that is not on screen.
+        if (this.mainWindow) this.mainWindow.send('menu-hide-map');
+        this.sendStatus({state: 'menu'});
+    }
+
     sendStatus(payload) {
         if (!this.mainWindow) return;
         this.mainWindow.send('map-detector-status', Object.assign(this.status(), payload));
@@ -338,3 +434,4 @@ module.exports = MapDetector;
 module.exports.SEARCH_INTERVAL = SEARCH_INTERVAL;
 module.exports.DETECTED_INTERVAL = DETECTED_INTERVAL;
 module.exports.CAPTURE_WIDTH = CAPTURE_WIDTH;
+module.exports.MENU_TICKS_TO_HIDE = MENU_TICKS_TO_HIDE;

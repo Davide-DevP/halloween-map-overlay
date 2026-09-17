@@ -100,6 +100,15 @@ class Maps {
             self.sendMap("");
         });
 
+        // The detector saw the game's main menu again: the match this map
+        // belonged to is over. `lastKey` is deliberately kept, so Ctrl+H still
+        // brings the same map back if the player wants it.
+        ipcRenderer.on('menu-hide-map', () => {
+            if (self.currentKey === "") return;
+            debugLog("maps::menu-hide-map", self.currentKey);
+            self.sendMap("");
+        });
+
         // Opacity/size from the keyboard. Same shape as rotate-map: write the
         // setting, keep an open settings slider in step, then re-send whatever
         // the overlay is showing so main recomputes the window bounds.

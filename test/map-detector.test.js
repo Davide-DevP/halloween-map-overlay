@@ -6,7 +6,8 @@ const sharp = require('sharp');
 const M = require('../src/core/map-detector/matcher');
 const {
     locatePanel, cutSquare, listFixtures, catalog, keyForFixture, templateSources,
-    FIXTURES, TEMPLATE_PREFIX, FULLSCREEN_PREFIX
+    menuFixtures, buildMenuTemplate,
+    FIXTURES, TEMPLATE_PREFIX, FULLSCREEN_PREFIX, MENU_PREFIX
 } = require('../scripts/prepare-detector');
 const TEMPLATE_FILE = require('../src/core/map-detector/templates.json');
 
@@ -14,6 +15,10 @@ const TEMPLATES = {};
 for (const [key, values] of Object.entries(TEMPLATE_FILE.templates)) TEMPLATES[key] = Float32Array.from(values);
 const KEYS = Object.keys(TEMPLATES).sort();
 const SIZE = TEMPLATE_FILE.size;
+
+const MENU = TEMPLATE_FILE.menu || null;
+const MENU_TEMPLATE = MENU && Array.isArray(MENU.template) ? Float32Array.from(MENU.template) : null;
+const MENU_OPTS = MENU ? {width: MENU.width, height: MENU.height} : {};
 
 /*
  * Nothing below names a map. The fixtures in `detection-fixtures/` are the
@@ -28,6 +33,9 @@ const SOURCES = templateSources();
 const FIXTURE_FILES = listFixtures();
 const FULLSCREEN_FIXTURES = FIXTURE_FILES.filter(f => f.startsWith(FULLSCREEN_PREFIX));
 const NEGATIVE_FIXTURES = FIXTURE_FILES.filter(f => !f.startsWith(TEMPLATE_PREFIX));
+/** `menu-*.png` is a main-menu positive; every other fixture is a menu negative. */
+const MENU_FIXTURES = menuFixtures();
+const MENU_NEGATIVE_FIXTURES = FIXTURE_FILES.filter(f => !f.startsWith(MENU_PREFIX));
 
 /** The catalogue key a `tab-fullscreen-<slug>.png` fixture should detect. */
 function fullscreenKey(file) {
@@ -65,8 +73,34 @@ function record(label, expected, result) {
     return result;
 }
 
+/** Menu-matcher scores, printed as their own table under the map one. */
+const menuRows = [];
+
+function recordMenu(label, expected, result) {
+    menuRows.push({label, expected, score: result.score, accepted: result.accepted});
+    return result;
+}
+
 // Printed once the whole file has run, whatever order node:test chose.
-process.on('exit', printReport);
+process.on('exit', () => {
+    printReport();
+    printMenuReport();
+});
+
+function printMenuReport() {
+    if (!menuRows.length) return;
+    const pad = (s, n) => String(s).padEnd(n);
+    console.log(`\n  Main-menu detector — fixture scores (accept at ${M.MENU_MIN_SCORE})\n`);
+    console.log('  ' + pad('fixture', 52) + pad('expected', 12) + pad('menu?', 10)
+        + pad('score', 10) + 'margin to threshold');
+    console.log('  ' + '-'.repeat(110));
+    for (const {label, expected, score, accepted} of menuRows) {
+        const margin = score - M.MENU_MIN_SCORE;
+        console.log('  ' + pad(label, 52) + pad(expected, 12) + pad(accepted ? 'menu' : 'no', 10)
+            + pad(score.toFixed(4), 10) + (margin >= 0 ? '+' : '') + margin.toFixed(4));
+    }
+    console.log('');
+}
 
 function printReport() {
     if (!rows.length) return;
@@ -428,6 +462,118 @@ test('templates reproduce from the fixtures (prepare-detector is idempotent)', a
                 `${key}[${i}]: stored ${stored[i]} vs rebuilt ${thumb[i]}`);
         }
     }
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The main menu (SPEC-0.3 §1)
+ *
+ * Same fixture-driven rule as the map matcher: `menu-*.png` is a positive,
+ * everything else in detection-fixtures/ is a negative. Adding another menu
+ * screenshot therefore adds a test case and nothing else has to be edited.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+test('templates.json carries one menu strip template', () => {
+    assert.ok(MENU, 'templates.json has no menu section — run `npm run prepare-detector`');
+    assert.strictEqual(MENU.width, M.MENU_TEMPLATE_WIDTH);
+    assert.strictEqual(MENU.height, M.MENU_TEMPLATE_HEIGHT);
+    assert.strictEqual(MENU_TEMPLATE.length, MENU.width * MENU.height);
+    assert.ok(MENU_FIXTURES.includes(MENU.source), `menu source ${MENU.source} is not a menu fixture`);
+    for (const v of MENU_TEMPLATE) assert.ok(v >= 0 && v <= 1, `menu template value ${v} outside 0..1`);
+    // The menu must never be a candidate in the map match.
+    assert.ok(!Object.prototype.hasOwnProperty.call(TEMPLATE_FILE.templates, 'menu'));
+});
+
+test('the menu template reproduces from its fixture (prepare-detector is idempotent)', async () => {
+    const built = await buildMenuTemplate();
+    assert.ok(built, 'no menu fixture');
+    for (let i = 0; i < MENU_TEMPLATE.length; i++) {
+        assert.ok(Math.abs(MENU_TEMPLATE[i] - built.thumb[i]) <= 0.0006,
+            `menu[${i}]: stored ${MENU_TEMPLATE[i]} vs rebuilt ${built.thumb[i]}`);
+    }
+});
+
+for (const name of MENU_FIXTURES) {
+    test(`menu: ${name} is recognised as the main menu`, async () => {
+        const f = await loadFrame(fixture(name));
+        const r = recordMenu(name, 'menu', M.matchMenu(f.gray, f.width, f.height, MENU_TEMPLATE, MENU_OPTS));
+        assert.ok(r.accepted, `score ${r.score.toFixed(4)} < ${M.MENU_MIN_SCORE}`);
+    });
+}
+
+for (const name of MENU_NEGATIVE_FIXTURES) {
+    test(`menu negative: ${name} is not the main menu`, async () => {
+        const f = await loadFrame(fixture(name));
+        const r = recordMenu(name, 'not menu', M.matchMenu(f.gray, f.width, f.height, MENU_TEMPLATE, MENU_OPTS));
+        assert.ok(!r.accepted, `score ${r.score.toFixed(4)} >= ${M.MENU_MIN_SCORE}`);
+    });
+}
+
+// The runtime never sees a native-resolution frame: it matches a 640 px wide
+// reduction of the game window, whatever the game is actually running at.
+for (const [w, h] of [[1920, 1080], [1280, 720], [2560, 1440], [640, 360]]) {
+    for (const name of MENU_FIXTURES) {
+        test(`menu: ${name} rescaled to ${w}x${h} is still the main menu`, async () => {
+            const f = await rescaled(name, w, h);
+            const r = recordMenu(`${name} @ ${w}x${h}`, 'menu',
+                M.matchMenu(f.gray, f.width, f.height, MENU_TEMPLATE, MENU_OPTS));
+            assert.ok(r.accepted, `score ${r.score.toFixed(4)} < ${M.MENU_MIN_SCORE}`);
+        });
+    }
+}
+
+test('menu: the strip survives the runtime capture path', async () => {
+    // toGrayScaled straight off raw window pixels, exactly like a tick.
+    const buf = await sharp(fixture(MENU_FIXTURES[0])).resize(1920, 1080, {fit: 'fill'}).png().toBuffer();
+    const {data, info} = await sharp(buf).ensureAlpha().raw().toBuffer({resolveWithObject: true});
+    const outW = 640, outH = Math.round(640 * info.height / info.width);
+    const gray = M.toGrayScaled(data, info.width, info.height, outW, outH, 'rgba');
+    const r = recordMenu(`${MENU_FIXTURES[0]} → ${outW}x${outH} (runtime path)`, 'menu',
+        M.matchMenu(gray, outW, outH, MENU_TEMPLATE, MENU_OPTS));
+    assert.ok(r.accepted, `score ${r.score.toFixed(4)} < ${M.MENU_MIN_SCORE}`);
+    // ...and the same frame must not look like a map.
+    assert.strictEqual(M.matchMap(gray, outW, outH, TEMPLATES), null);
+});
+
+test('menu: the positives clear the negatives by a wide margin', async () => {
+    let worstPositive = Infinity;
+    for (const name of MENU_FIXTURES) {
+        const f = await loadFrame(fixture(name));
+        worstPositive = Math.min(worstPositive, M.matchMenu(f.gray, f.width, f.height, MENU_TEMPLATE, MENU_OPTS).score);
+    }
+    let bestNegative = -Infinity;
+    for (const name of MENU_NEGATIVE_FIXTURES) {
+        const f = await loadFrame(fixture(name));
+        bestNegative = Math.max(bestNegative, M.matchMenu(f.gray, f.width, f.height, MENU_TEMPLATE, MENU_OPTS).score);
+    }
+    // The threshold has to sit inside the gap, not at one edge of it: the
+    // selected tab's highlight box slides along the strip and only one menu
+    // screenshot exists to measure that from.
+    assert.ok(worstPositive > M.MENU_MIN_SCORE + 0.15,
+        `worst positive ${worstPositive.toFixed(4)} is too close to ${M.MENU_MIN_SCORE}`);
+    assert.ok(bestNegative < M.MENU_MIN_SCORE - 0.15,
+        `best negative ${bestNegative.toFixed(4)} is too close to ${M.MENU_MIN_SCORE}`);
+});
+
+test('menu: no template means no menu, never a crash', () => {
+    const flat = new Float32Array(640 * 360);
+    for (const empty of [null, undefined, [], new Float32Array(0)]) {
+        const r = M.matchMenu(flat, 640, 360, empty, MENU_OPTS);
+        assert.strictEqual(r.accepted, false, String(empty));
+        assert.strictEqual(r.score, -1);
+    }
+});
+
+test('menu: gradientMagnitude handles a non-square thumbnail', () => {
+    // A 4x2 ramp: the square form would read it as 2x2 (sqrt of the length)
+    // and silently mis-index every row.
+    const a = Float32Array.from([0, 1, 2, 3, 3, 2, 1, 0]);
+    const g = M.gradientMagnitude(a, 4, 2);
+    assert.strictEqual(g.length, 8);
+    for (const v of g) assert.ok(Number.isFinite(v) && v >= 0, String(v));
+    // The square call still works the way the map templates use it.
+    const sq = M.gradientMagnitude(Float32Array.from({length: 16}, (_, i) => i), 4);
+    assert.strictEqual(sq.length, 16);
+    assert.deepStrictEqual(Array.from(M.gradientMagnitude(a, 4, 2)), Array.from(g));
 });
 
 test('every map in maps/ has a detection fixture', () => {

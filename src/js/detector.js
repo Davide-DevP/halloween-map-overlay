@@ -15,6 +15,8 @@ class Detector {
         this.settings = settings;
         this.lastKey = null;
         this.lastAt = null;
+        // True between "the menu cleared the map" and the next detection.
+        this.inMenu = false;
     }
 
     async init() {
@@ -40,9 +42,10 @@ class Detector {
     }
 
     /**
-     * "Off" / "Watching for the in-game map (Tab)…" / "Detected <Map> at 12:04".
+     * "Off" / "Watching for the in-game map (Tab)…" / "Back in menu — map
+     * cleared" / "Detected <Map> at 12:04".
      * @param {{running: boolean, lastDetected: ?string, lastAt: ?number,
-     *          state: ?string}} status
+     *          state: ?string, inMenu: ?boolean}} status
      */
     render(status) {
         const s = status || {};
@@ -51,15 +54,29 @@ class Detector {
         if (s.lastDetected) {
             this.lastKey = s.lastDetected;
             this.lastAt = s.lastAt;
+            this.inMenu = false;
+        } else if (s.state === 'menu') {
+            this.lastKey = null;
+            this.lastAt = null;
+            this.inMenu = true;
         } else if (s.state === 'watching') {
             // Ctrl+Shift+D cleared the last detection; go back to watching.
             this.lastKey = null;
             this.lastAt = null;
+            this.inMenu = false;
+        } else if (s.inMenu !== undefined) {
+            // The one `invoke` at startup, which carries no `state`.
+            this.inMenu = !!s.inMenu;
         }
         if (!s.running) {
             this.lastKey = null;
             this.lastAt = null;
+            this.inMenu = false;
             $("#detectorStatus").text("Off");
+            return;
+        }
+        if (this.inMenu && !this.lastKey) {
+            $("#detectorStatus").text("Back in menu — map cleared");
             return;
         }
         if (!this.lastKey) {

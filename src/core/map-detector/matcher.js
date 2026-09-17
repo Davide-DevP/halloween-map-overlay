@@ -59,9 +59,68 @@ const NAME_BOX_REL = {
     h: 47 / 1078     // 0.043599
 };
 
+/**
+ * The main menu's navigation strip, top left: the `Q` / `E` shoulder badges
+ * around "MICHAEL'S STORY · MULTIPLAYER · CHARACTERS · GRAVEYARD".
+ *
+ * Measured from `detection-fixtures/menu-main.png` (1919x1079) by scanning the
+ * top-left corner: rows 22..64 carry the strip (row means jump from ~0.6/255
+ * above it to 9-41/255 across it and back to ~1/255 by row 66), and columns
+ * 45..760 span the two badges and everything between them (the `Q` badge peaks
+ * at x 50-60 and the `E` badge at x 730-745, both ~82/255 against a near-black
+ * background). The region below is that box rounded outward by a couple of
+ * pixels: x 45..760, y 20..68.
+ *
+ * The 3D scene behind the menu changes with the selected tab, the time of day
+ * in the render and the player's cosmetics — the strip does not. The selected
+ * tab's highlight box does move along the strip, which is why the accept
+ * threshold is nowhere near 1.0 (see MENU_MIN_SCORE).
+ */
+const MENU_STRIP_REL = {
+    x: 45 / 1919,    // 0.023450
+    y: 20 / 1079,    // 0.018536
+    w: 715 / 1919,   // 0.372590
+    h: 48 / 1079     // 0.044486
+};
+
 const DEFAULT_SIZE = 64;
 const DEFAULT_MIN_SCORE = 0.80;
 const DEFAULT_MIN_MARGIN = 0.10;
+
+/**
+ * The menu template is a *wide* thumbnail, not a square one: the strip is
+ * roughly 15:1, and squashing that into 64x64 would throw away the horizontal
+ * detail that is the whole signal. 96x12 keeps the aspect within a factor of
+ * two and still averages several source pixels per cell at the 640 px wide
+ * frame the detector actually works on (the strip is ~238x16 there).
+ */
+const MENU_TEMPLATE_WIDTH = 96;
+const MENU_TEMPLATE_HEIGHT = 12;
+
+/**
+ * Accept threshold for the menu. Measured over the committed fixtures:
+ *
+ *   menu-main.png, native and rescaled to 640x360 … 2560x1440   0.962 - 1.000
+ *   the highest anything else reaches (a full-frame Tab screen)  0.416
+ *
+ * 0.75 therefore sits in an enormous gap, which is deliberate: the selected
+ * tab's highlight box slides along the strip, and only one menu fixture exists
+ * to measure that from. Two consecutive positive ticks are required on top of
+ * this, so the cost of the threshold being slightly generous is bounded.
+ */
+const MENU_MIN_SCORE = 0.75;
+
+/**
+ * Alignment search for the menu strip, in fractions of the frame. Smaller than
+ * the map panel's: the strip is anchored to the top-left corner of the screen
+ * rather than centred, so a capture that is off by a window border moves it far
+ * less, and the region is short enough that a 2 % vertical slip would leave it
+ * entirely.
+ */
+const MENU_OFFSETS = [];
+for (const dy of [-0.01, -0.005, 0, 0.005, 0.01]) {
+    for (const dx of [-0.01, -0.005, 0, 0.005, 0.01]) MENU_OFFSETS.push({dx, dy});
+}
 
 /**
  * Small alignment search, in fractions of the frame.
@@ -277,7 +336,7 @@ function resample(gray, width, height, outWidth, outHeight) {
 }
 
 /**
- * Sobel-style gradient magnitude of a square thumbnail, as a same-sized array.
+ * Sobel-style gradient magnitude of a thumbnail, as a same-sized array.
  *
  * The raw luminance thumbnails of the four maps all share the same layout (a
  * pale road network on a dark ground inside a dark square), so plain NCC on
@@ -285,12 +344,16 @@ function resample(gray, width, height, outWidth, outHeight) {
  * magnitude keys on *where the edges are* instead of how bright the area is,
  * which is what actually differs between the maps; averaging the two NCCs
  * roughly doubles the separation. Border pixels are replicated.
+ *
+ * `height` defaults to `width`, so the square map thumbnails call this as
+ * `gradientMagnitude(thumb, 64)`; the wide menu strip passes both.
  */
-function gradientMagnitude(thumb, size) {
-    const n = size || Math.round(Math.sqrt(thumb.length));
-    const at = (x, y) => thumb[Math.min(n - 1, Math.max(0, y)) * n + Math.min(n - 1, Math.max(0, x))];
-    const out = new Float32Array(n * n);
-    for (let y = 0; y < n; y++) {
+function gradientMagnitude(thumb, width, height) {
+    const n = width || Math.round(Math.sqrt(thumb.length));
+    const h = height || n;
+    const at = (x, y) => thumb[Math.min(h - 1, Math.max(0, y)) * n + Math.min(n - 1, Math.max(0, x))];
+    const out = new Float32Array(n * h);
+    for (let y = 0; y < h; y++) {
         for (let x = 0; x < n; x++) {
             const gx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1))
                 - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
@@ -456,10 +519,74 @@ function matchMap(gray, width, height, templates, opts) {
     return accepted ? result : null;
 }
 
+/*
+ * ─── The main menu ──────────────────────────────────────────────────────────
+ *
+ * Same two-signal NCC as the map matcher, on a different region and with one
+ * template instead of several, so there is no runner-up and no margin — only a
+ * score against a threshold. The detector requires two consecutive positive
+ * ticks on top of that; see `src/core/map-detector.js`.
+ */
+
+/**
+ * Reduce a frame to the wide thumbnail the menu template is stored as.
+ * @param {Float32Array} gray
+ * @param {number} width
+ * @param {number} height
+ * @param {object} [opts] `{width, height, offset}` — template dimensions and an
+ *   alignment offset in fractions of the frame.
+ * @returns {Float32Array}
+ */
+function menuThumbnail(gray, width, height, opts) {
+    const o = opts || {};
+    const tw = o.width || MENU_TEMPLATE_WIDTH;
+    const th = o.height || MENU_TEMPLATE_HEIGHT;
+    const offset = o.offset;
+    const region = offset
+        ? {x: MENU_STRIP_REL.x + offset.dx, y: MENU_STRIP_REL.y + offset.dy, w: MENU_STRIP_REL.w, h: MENU_STRIP_REL.h}
+        : MENU_STRIP_REL;
+    const c = cropRegion(gray, width, height, region);
+    return resample(c.data, c.width, c.height, tw, th);
+}
+
+/**
+ * Is this frame the game's main menu?
+ *
+ * @param {Float32Array} gray luminance frame
+ * @param {number} width
+ * @param {number} height
+ * @param {number[]|Float32Array} template the stored strip thumbnail
+ * @param {object} [opts] `width`/`height` (template dimensions),
+ *   `minScore` (0.75), `offsets`.
+ * @returns {{score: number, accepted: boolean}} `score` is -1 with no template.
+ */
+function matchMenu(gray, width, height, template, opts) {
+    const o = opts || {};
+    if (!template || !template.length) return {score: -1, accepted: false};
+    const tw = o.width || MENU_TEMPLATE_WIDTH;
+    const th = o.height || MENU_TEMPLATE_HEIGHT;
+    const minScore = o.minScore === undefined ? MENU_MIN_SCORE : o.minScore;
+    const tpl = template instanceof Float32Array ? template : Float32Array.from(template);
+    const tplGrad = gradientMagnitude(tpl, tw, th);
+
+    let best = -Infinity;
+    for (const offset of (o.offsets || MENU_OFFSETS)) {
+        const thumb = menuThumbnail(gray, width, height, {width: tw, height: th, offset});
+        const score = (ncc(thumb, tpl) + ncc(gradientMagnitude(thumb, tw, th), tplGrad)) / 2;
+        if (score > best) best = score;
+    }
+    return {score: best, accepted: best >= minScore};
+}
+
 module.exports = {
     MAP_PANEL_REL,
     LEFT_PANEL_REL,
     NAME_BOX_REL,
+    MENU_STRIP_REL,
+    MENU_TEMPLATE_WIDTH,
+    MENU_TEMPLATE_HEIGHT,
+    MENU_MIN_SCORE,
+    MENU_OFFSETS,
     DEFAULT_SIZE,
     DEFAULT_MIN_SCORE,
     DEFAULT_MIN_MARGIN,
@@ -479,5 +606,7 @@ module.exports = {
     TAB_SCREEN_GATE,
     frameThumbnail,
     scoreThumbnail,
-    matchMap
+    matchMap,
+    menuThumbnail,
+    matchMenu
 };
