@@ -211,6 +211,39 @@ class MainWindow {
         });
     }
 
+    /**
+     * Reload the main window after its renderer died — **never from inside the
+     * `render-process-gone` handler**.
+     *
+     * Navigating while Chromium is still tearing the dead RenderFrameHost down
+     * takes the *whole app* with it: on Electron 40.10.6 a synchronous
+     * `reload()` in that handler killed the browser, GPU, utility and even the
+     * untouched overlay renderer within ~6 s, with a `STATUS_BREAKPOINT`
+     * (0x80000003 — a Chromium `CHECK`) exit code and no chance for the queued
+     * log line to reach disk. Reproduced 4/4 on packaged builds. It is
+     * Electron issue #19887 ("App crash after render process crash"), and the
+     * fix in PR #53924 is exactly this: post the navigation after the teardown.
+     *
+     * So: one tick later, out of the callback, and only if the window is still
+     * there. 100 ms is not a magic number — anything that leaves the current
+     * stack works — but it is comfortably past the teardown and invisible to a
+     * person watching the window come back.
+     *
+     * This is also why 0.3.1's behaviour (no handler at all → dead window,
+     * living app) must not be *worse* after adding recovery: the overlay has
+     * to survive, because the player is mid-match.
+     */
+    scheduleRendererReload() {
+        setTimeout(() => {
+            try {
+                if (this.window && !this.window.isDestroyed()) this.window.reload();
+            } catch (err) {
+                console.error('Renderer reload failed:', err && err.message);
+                appLog.error('render-process-gone', {reload: 'failed', message: (err && err.message) || String(err)});
+            }
+        }, 100);
+    }
+
     /** One log line per *distinct* map change. See `lastLoggedMap`. */
     logMapChange(key, source) {
         if (this.lastLoggedMap && this.lastLoggedMap.key === key && this.lastLoggedMap.source === source) return;
@@ -286,16 +319,17 @@ class MainWindow {
                 exitCode: details && details.exitCode,
                 repeat: recent ? 'yes' : 'no'
             });
+            // Straight to disk, synchronously, before anything else is
+            // attempted. This handler is rare, the append is one small write,
+            // and the whole point of the line is that it survives whatever
+            // happens next — the buffered 500 ms batch would not.
+            appLog.flush();
             // `clean-exit` is the window being closed normally on some
             // platforms; there is nothing to recover from.
             if (reason === 'clean-exit') return;
             this.lastRendererGone = now;
             if (!recent) {
-                try {
-                    this.window.reload();
-                } catch (err) {
-                    console.error('Renderer reload failed:', err && err.message);
-                }
+                this.scheduleRendererReload();
                 return;
             }
             appLog.fatal('render-process-gone', new Error(`the main window died twice in ${RENDERER_CRASH_WINDOW_MS / 1000} s (${reason})`), {quit: false});
@@ -307,9 +341,14 @@ class MainWindow {
         // that keeps dying is what a "the overlay flickers" report looks like
         // from the inside. Bound once — `show()` runs again every time the
         // window is reopened from the tray.
+        //
+        // `clean-exit` is skipped: a utility process finishing normally is not
+        // an incident, and logging it at error level would teach a reader to
+        // ignore the level.
         if (!MainWindow._childGoneBound) {
             MainWindow._childGoneBound = true;
             app.on('child-process-gone', (event, details) => {
+                if (details && details.reason === 'clean-exit') return;
                 appLog.error('child-process-gone', {
                     type: (details && details.type) || '',
                     reason: (details && details.reason) || '',

@@ -573,12 +573,48 @@ local file, and the user decides whether to send it.
   - `render-process-gone` → reload the window **once** (a lone renderer death is
     normally a GPU hiccup); a second within 60 s is a crash loop, so it becomes
     a crash file and a quit. `reason === 'clean-exit'` is not a crash.
+  - **Never navigate from inside a `render-process-gone` handler.** This is the
+    one that bites. A synchronous `webContents.reload()` there kills the
+    *entire app* on Electron 40.10.6: browser, GPU, utility **and the untouched
+    overlay renderer**, gone within ~6 s, exit code `0x80000003`
+    (`STATUS_BREAKPOINT`, a Chromium `CHECK`), with no JS running afterwards —
+    so the queued log line never reaches disk and the next start shows no crash
+    notice. Reproduced 4/4 on packaged builds; it is Electron issue #19887 and
+    the fix in PR #53924 (post the navigation after the dead frame host is torn
+    down). `MainWindow.scheduleRendererReload()` therefore defers with a 100 ms
+    `setTimeout` and re-checks `isDestroyed()`; the overlay window does the
+    same. Note the failure mode is *worse than doing nothing*: 0.3.1 had no
+    handler and survived a renderer death with a dead window and a live
+    overlay.
+  - `appLog.flush()` runs **synchronously** right after the
+    `render-process-gone` line. It is rare, it is one small append, and the
+    whole value of the line is that it outlives whatever happens next.
   - At most 5 crash files. The name carries the time and sorts chronologically
     as a plain string — `lastCrashSeen` (a setting) is compared against it with
     `>=`, no date parsing, nothing a copied file can make lie.
+- **A `process.on('uncaughtException')` listener changes what a sync write
+  costs.** Electron's default was a dialog and a living app; now an unhandled
+  throw in main writes a crash file and exits. So **every synchronous fs write
+  reachable from a synchronous handler must be wrapped**: `Settings.write()`
+  (the overlay `moved` handler calls it on every drag) and both `hotkeys.json`
+  writes are, and a new one must be. `ipcMain.handle` bodies are safe — a throw
+  there is a rejected invoke — which is why `user-data.js` needs nothing.
 - **The report is a file list, not a directory walk.** `LOG_FILES` in
-  `diagnostics.js` plus the `crash-*.txt` plus a generated `system.txt` — so
-  "no screenshots, no maps" is checkable by reading one constant.
+  `diagnostics.js` plus the `crash-*.txt` plus two generated texts
+  (`system.txt` and a redacted `hotkeys.json`) — so "no screenshots, no maps"
+  is checkable by reading one constant.
+- **`hotkeys.json` is redacted on its way into the zip**, which is why it is
+  *not* in `LOG_FILES`: every entry names the map it is bound to, and a custom
+  map's key is `Custom/` + a name the user typed. `redactCustomMapKeys`
+  (`shared/redact.js`, pure, keyed on the catalogue's own `CUSTOM_CREATOR`)
+  rewrites those to `Custom/(custom)`. Textual, not parse-and-rewrite: a
+  `hotkeys.json` that will not parse is itself worth seeing in a report and has
+  to be redacted too. The README's "no custom map names" is a promise, so it is
+  kept rather than softened.
+- **The success toast names the folder the file is actually in.**
+  `diagnostics.created` (Desktop) vs `diagnostics.createdFallback` (next to the
+  logs) — after the userData fallback, saying "Desktop" sends the user looking
+  where the file is not.
   `buildDiagnosticReport({files, texts, outDir})` is fs-only and never throws;
   a missing file is a `skipped` entry, not a failure. Desktop, falling back to
   userData (a redirected OneDrive Desktop must not lose the report).
@@ -593,9 +629,17 @@ local file, and the user decides whether to send it.
   records every failure on `Hotkeys.conflicts`, rebuilt from scratch on each
   `loadKeys()`; the toast is suppressed while `bulkLoading` is true, because a
   reload binds a dozen accelerators at once and five toasts a session is
-  something a user learns to dismiss without reading. The renderer both listens
-  for `hotkey-conflicts` and asks with `get-hotkey-conflicts`, since
-  registration happens before the window finishes loading.
+  something a user learns to dismiss without reading. That gate covers the
+  `systemShadowsMap` toast too. The renderer both listens for
+  `hotkey-conflicts` and asks with `get-hotkey-conflicts`, since registration
+  happens before the window finishes loading.
+- **A persisting conflict is logged once, not once per reload.** `loadKeys()`
+  runs at least twice per start (`createWindow`, then the renderer's
+  `load-hotkeys`) and again after every hotkey edit. `noteConflict` skips the
+  log line when the accelerator was already failing at the end of the previous
+  load (`previousConflicts`), so a Discord user gets N lines on the first load
+  and nothing after — a *new* conflict is still news. The banner is rebuilt
+  from `conflicts` regardless.
 - **The renderer never writes the log.** It has `nodeIntegration: true` and
   could, but two processes appending to one file with two size caches lose
   lines at the rotation boundary. `window.onerror` and `unhandledrejection` are

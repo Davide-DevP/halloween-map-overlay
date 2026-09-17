@@ -58,7 +58,10 @@ function formatCrashReport(info = {}) {
     const at = info.at instanceof Date ? info.at : new Date(info.at || Date.now());
     const home = info.home || null;
     const lines = [
-        'Halloween Map Overlay — crash report',
+        // ASCII only: this file is opened by double-clicking it on a Windows box,
+        // and a plain-text file with no BOM still renders an em dash as mojibake
+        // in older viewers. Nothing else in it is non-ASCII either.
+        'Halloween Map Overlay - crash report',
         `time      ${at.toISOString()}`,
         `version   ${info.version || 'unknown'}`,
         `electron  ${info.electron || 'unknown'}`,

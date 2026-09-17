@@ -10,7 +10,8 @@ const {
     crashFileName, formatCrashReport, listCrashFiles, pruneCrashFiles,
     writeCrashReport, pendingCrash, MAX_CRASH_FILES
 } = require('../src/core/diagnostics/crash');
-const {redactHome} = require('../src/shared/redact');
+const {redactHome, redactCustomMapKeys} = require('../src/shared/redact');
+const {CUSTOM_CREATOR} = require('../src/core/map-catalog');
 
 function tempDir() {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'hmo-diagnostics-'));
@@ -280,4 +281,59 @@ test('redactHome: a home directory with regex metacharacters is a literal', () =
 
 test('redactHome tolerates a trailing separator on the home path', () => {
     assert.strictEqual(redactHome('/home/marco/x', '/home/marco/'), '~/x');
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Custom map names in hotkeys.json — the file goes into the report verbatim
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+test('redactCustomMapKeys: a custom map name never reaches the report', () => {
+    const file = JSON.stringify({
+        'CommandOrControl+1': {id: 'a', mapKey: 'deftyconchgaming/East Haddonfield'},
+        'CommandOrControl+2': {id: 'b', mapKey: 'Custom/marco private notes'}
+    }, null, 2);
+    const redacted = redactCustomMapKeys(file, CUSTOM_CREATOR);
+    assert.ok(!redacted.includes('marco'), redacted);
+    assert.ok(redacted.includes('Custom/(custom)'), redacted);
+    // The shipped key is the diagnostic value and must survive untouched.
+    assert.ok(redacted.includes('deftyconchgaming/East Haddonfield'), redacted);
+    // …and the result is still the JSON a reader expects.
+    const parsed = JSON.parse(redacted);
+    assert.strictEqual(parsed['CommandOrControl+2'].mapKey, 'Custom/(custom)');
+    assert.strictEqual(parsed['CommandOrControl+1'].id, 'a');
+});
+
+test('redactCustomMapKeys: the name stops at the closing quote, not later', () => {
+    const file = '{"k": {"mapKey": "Custom/a name", "id": "keep-me"}}';
+    const redacted = redactCustomMapKeys(file);
+    assert.strictEqual(redacted, '{"k": {"mapKey": "Custom/(custom)", "id": "keep-me"}}');
+});
+
+test('redactCustomMapKeys: a name with an escaped quote cannot end the match early', () => {
+    const file = JSON.stringify({k: {mapKey: 'Custom/say "hi" marco'}});
+    const redacted = redactCustomMapKeys(file);
+    assert.ok(!redacted.includes('marco'), redacted);
+    assert.strictEqual(JSON.parse(redacted).k.mapKey, 'Custom/(custom)');
+});
+
+test('redactCustomMapKeys: a file that will not parse is still redacted', () => {
+    // A corrupt hotkeys.json is itself worth seeing in a report, which is why
+    // the redaction is textual rather than a parse-and-rewrite.
+    const broken = '{"k": {"mapKey": "Custom/marco secret"';
+    const redacted = redactCustomMapKeys(broken);
+    assert.ok(!redacted.includes('marco'), redacted);
+    assert.throws(() => JSON.parse(redacted));
+});
+
+test('redactCustomMapKeys: nothing custom means nothing changes', () => {
+    const file = '{"CommandOrControl+1": {"id": "a", "mapKey": "deftyconchgaming/Haddonfield"}}';
+    assert.strictEqual(redactCustomMapKeys(file), file);
+    assert.strictEqual(redactCustomMapKeys(null), '');
+    assert.strictEqual(redactCustomMapKeys(''), '');
+});
+
+test('the reserved creator the redaction keys on is the catalogue\'s own', () => {
+    // If `CUSTOM_CREATOR` is ever renamed, this redaction must follow it
+    // rather than keep matching a string nothing produces any more.
+    assert.strictEqual(CUSTOM_CREATOR, 'Custom');
 });

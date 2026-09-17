@@ -45,6 +45,7 @@
   "diagnostics.create.help": "Saves one <code>.zip</code> on your Desktop with the logs, your settings and a description of this PC, then opens the folder so you can attach it. Nothing is uploaded, and it contains no screenshots and no map images.",
   "diagnostics.creating": "Building the diagnostic report…",
   "diagnostics.created": "Diagnostic report saved to your Desktop: {file}",
+  "diagnostics.createdFallback": "Diagnostic report saved next to the logs: {file}",
   "diagnostics.failed": "The diagnostic report could not be written.",
 
   "update.ready.headline": "Version {version} is ready.",

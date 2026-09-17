@@ -48,4 +48,33 @@ function redactHome(value, home) {
     return text;
 }
 
-module.exports = {redactHome, escapeRegExp};
+/**
+ * Replace every `Custom/<name>` map key in a JSON document with
+ * `Custom/(custom)`.
+ *
+ * `hotkeys.json` goes into the diagnostic report as-is — it is exactly what a
+ * "my hotkey does nothing" report needs — but each entry stores the map it is
+ * bound to, and a custom map's key is `Custom/` plus a name its owner typed.
+ * The README promises the zip carries no custom map names, so the copy in the
+ * report is redacted rather than the promise softened: which *accelerator* is
+ * bound to *a custom map* is the whole diagnostic value, and the name is none
+ * of it.
+ *
+ * Deliberately a regex over the text, not a parse-and-rewrite: a `hotkeys.json`
+ * that will not parse is itself a thing worth seeing in a report, and it must
+ * be redacted too. The pattern only matches inside a JSON string (it stops at
+ * the closing quote), and keeps escaped quotes from ending it early.
+ *
+ * @param {string} text the file's contents
+ * @param {string} [creator] the reserved creator name (`Custom`)
+ * @returns {string}
+ */
+function redactCustomMapKeys(text, creator = 'Custom') {
+    if (text === null || text === undefined) return '';
+    const prefix = escapeRegExp(String(creator));
+    // "Custom/…" up to the first unescaped closing quote.
+    const pattern = new RegExp(`${prefix}/(?:\\\\.|[^"\\\\])*`, 'g');
+    return String(text).replace(pattern, `${creator}/(custom)`);
+}
+
+module.exports = {redactHome, redactCustomMapKeys, escapeRegExp};

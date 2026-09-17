@@ -15,7 +15,15 @@ class Settings {
         const userdata = app.getPath('userData');
         const fileDir = path.join(userdata, "settings-app.json")
         if (!fs.existsSync(fileDir)) {
-            fs.writeFileSync(fileDir, JSON.stringify(defaultConfig))
+            // First run. A failure here is not worth refusing to start over:
+            // the defaults are already in memory, the app works, and the next
+            // `set()` tries again. Before 0.3.2 this threw into Electron's
+            // default handler; now it would write a crash file and exit.
+            try {
+                fs.writeFileSync(fileDir, JSON.stringify(defaultConfig))
+            } catch (err) {
+                console.error("Settings: could not create settings-app.json:", err.message);
+            }
         }
         try {
             this.settings = JSON.parse(fs.readFileSync(fileDir, "utf-8"));
@@ -74,9 +82,24 @@ class Settings {
         this.write();
     }
 
+    /**
+     * Persist the whole object. Synchronous on purpose (a settings write must
+     * not race the next one), and **wrapped**: since 0.3.2 main has an
+     * `uncaughtException` handler that writes a crash file and exits, so an
+     * EPERM from an antivirus or a sync client holding `settings-app.json`
+     * open would end the session instead of Electron's old dialog-and-carry-on.
+     * The overlay's `moved` handler writes through here on every drag, which
+     * is exactly where such a lock shows up. Losing one write is survivable;
+     * losing the app mid-match is not.
+     */
     write() {
         const fileDir = path.join(app.getPath('userData'), "settings-app.json")
-        fs.writeFileSync(fileDir, JSON.stringify(this.settings))
+        try {
+            fs.writeFileSync(fileDir, JSON.stringify(this.settings))
+        } catch (err) {
+            console.error('Settings could not be written:', err && err.message);
+            appLog.error('setting-write-failed', {message: (err && err.message) || String(err)});
+        }
     }
 
 }

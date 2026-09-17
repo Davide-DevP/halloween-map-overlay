@@ -1,8 +1,11 @@
+const fs = require('fs');
 const path = require('path');
 const {app, ipcMain, shell} = require('electron');
 const appLog = require('./app-log');
 const {buildDiagnosticReport} = require('./diagnostics/report');
 const {listCrashFiles, pendingCrash} = require('./diagnostics/crash');
+const {redactCustomMapKeys} = require('../shared/redact');
+const {CUSTOM_CREATOR} = require('./map-catalog');
 const {msg} = require('../shared/i18n');
 
 /**
@@ -23,14 +26,18 @@ const {msg} = require('../shared/i18n');
  * Nothing is uploaded. The app's only network call is still the update check.
  */
 
-/** Files collected from userData, in the order they appear in the archive. */
+/**
+ * Files collected from userData verbatim, in the order they appear in the
+ * archive. `hotkeys.json` is deliberately **not** here — it is added as
+ * generated text so the custom map names in it can be redacted first
+ * (`redactedHotkeys`).
+ */
 const LOG_FILES = [
     'app.log',
     'app.log.1',
     'detector.log',
     'detector.log.1',
-    'settings-app.json',
-    'hotkeys.json'
+    'settings-app.json'
 ];
 
 class Diagnostics {
@@ -92,7 +99,8 @@ class Diagnostics {
      */
     async systemText() {
         const info = await appLog.collect();
-        const lines = ['Halloween Map Overlay — system report', `generated ${new Date().toISOString()}`, ''];
+        // ASCII only, same reason as the crash file.
+        const lines = ['Halloween Map Overlay - system report', `generated ${new Date().toISOString()}`, ''];
         lines.push('[app]');
         for (const [key, value] of Object.entries(info.app)) lines.push(`${key} = ${value}`);
         lines.push('', '[displays]');
@@ -107,13 +115,39 @@ class Diagnostics {
             lines.push('hotkeys = all registered');
         } else {
             lines.push(`hotkeys = ${conflicts.length} could not be registered`);
-            for (const c of conflicts) lines.push(`  ${c.accelerator} (${c.action || 'map hotkey'}) — ${c.reason || 'taken'}`);
+            for (const c of conflicts) lines.push(`  ${c.accelerator} (${c.action || 'map hotkey'}) - ${c.reason || 'taken'}`);
         }
         lines.push('', '[crash files]');
         const crashes = listCrashFiles(this.dir);
         if (!crashes.length) lines.push('(none)');
         else for (const name of crashes) lines.push(name);
         return lines.join('\n') + '\n';
+    }
+
+    /**
+     * `hotkeys.json` with the custom map names taken out.
+     *
+     * The file itself is exactly what a "my hotkey does nothing" report needs,
+     * and the spec asks for it — but every entry names the map it is bound to,
+     * and a custom map's key is `Custom/` plus a name its owner typed. Which
+     * accelerator is bound to *a custom map* is the whole diagnostic value; the
+     * name is none of it, and the README promises the zip carries no custom map
+     * names. So the copy in the report is redacted and the original file is
+     * **not** in `LOG_FILES`.
+     *
+     * @returns {?string} null when there is no file to include
+     */
+    redactedHotkeys() {
+        const file = path.join(this.dir || '', 'hotkeys.json');
+        try {
+            if (!this.dir || !fs.existsSync(file)) return null;
+            // Raw text, not parse-and-rewrite: a hotkeys.json that will not
+            // parse is itself worth seeing, and it has to be redacted too.
+            return redactCustomMapKeys(fs.readFileSync(file, 'utf-8'), CUSTOM_CREATOR);
+        } catch (err) {
+            console.error('hotkeys.json could not be read for the report:', err && err.message);
+            return `(hotkeys.json could not be read: ${(err && err.message) || err})\n`;
+        }
     }
 
     /**
@@ -147,13 +181,21 @@ class Diagnostics {
         const files = LOG_FILES.map(name => path.join(this.dir, name));
         for (const name of listCrashFiles(this.dir)) files.push(path.join(this.dir, name));
 
-        let result = buildDiagnosticReport({files, texts: [{name: 'system.txt', text: system}], outDir});
+        // `hotkeys.json` travels as generated text rather than as a file, so
+        // the custom map names in it can be redacted — see `redactedHotkeys`.
+        const texts = [{name: 'system.txt', text: system}];
+        const hotkeys = this.redactedHotkeys();
+        if (hotkeys !== null) texts.push({name: 'hotkeys.json', text: hotkeys});
+
+        let result = buildDiagnosticReport({files, texts, outDir});
+        const desktop = outDir;
         if (!result.ok && outDir !== this.dir) {
             // A read-only or redirected Desktop (OneDrive with no network does
             // this) must not lose the report — fall back to userData, which is
             // writable by definition or the app would not have started.
             console.error('Diagnostic report on the Desktop failed:', result.error);
-            result = buildDiagnosticReport({files, texts: [{name: 'system.txt', text: system}], outDir: this.dir});
+            outDir = this.dir;
+            result = buildDiagnosticReport({files, texts, outDir});
         }
 
         if (!result.ok) {
@@ -162,13 +204,22 @@ class Diagnostics {
             return {ok: false, name: null, entries: 0};
         }
 
+        const onDesktop = outDir === desktop && desktop !== this.dir;
         appLog.event('diagnostic-report', {
             ok: 'yes',
+            where: onDesktop ? 'desktop' : 'userData',
             entries: result.entries.length,
             skipped: result.skipped.length,
             bytes: result.entries.reduce((sum, e) => sum + e.bytes, 0)
         });
-        if (this.mainWindow) this.mainWindow.sendUpdate(msg('diagnostics.created', {file: result.name}));
+        // Name the folder the file is actually in. The toast used to say
+        // "Desktop" unconditionally, which after the fallback sent the user
+        // looking somewhere the file was not.
+        if (this.mainWindow) {
+            this.mainWindow.sendUpdate(onDesktop
+                ? msg('diagnostics.created', {file: result.name})
+                : msg('diagnostics.createdFallback', {file: result.name}));
+        }
         try {
             shell.showItemInFolder(result.path);
         } catch (err) {

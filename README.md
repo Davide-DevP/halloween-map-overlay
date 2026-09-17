@@ -230,14 +230,18 @@ text:
   settings changes, update checks, errors.
 - `detector.log` (and one backup): what auto-detect decided. Only present if you
   have used it.
-- `settings-app.json`, `hotkeys.json`: your settings and key bindings.
+- `settings-app.json`, `hotkeys.json`: your settings and key bindings. A
+  hotkey bound to one of your own imported images shows as
+  `Custom/(custom)` — the binding is in there, the name you gave the image is
+  not.
 - `crash-*.txt`: any crash the app recorded, with the last 200 log lines.
 - `system.txt`: Windows version, screens, graphics card, app version.
 
 **What is *not* in it**: no screenshots, no map images, no file paths from your
-user folder (they are written as `~`), no custom map names, no account of any
-kind. Nothing is uploaded — the button writes a file, and you decide whether to
-send it. The app's only network request is still the update check.
+user folder (they are written as `~`), no names you gave your own imported
+images (a hotkey bound to one says `Custom/(custom)`), no account of any kind.
+Nothing is uploaded — the button writes a file, and you decide whether to send
+it. The app's only network request is still the update check.
 
 ## Network use
 

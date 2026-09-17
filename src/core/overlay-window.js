@@ -68,6 +68,35 @@ class OverlayWindow {
             }, 1000);
         }
 
+        // The overlay's own renderer can die too, and when it does the window
+        // stays up showing nothing — which looks exactly like "the overlay
+        // stopped working" and left no trace at all before 0.3.2.
+        //
+        // The reload is deferred for the same hard reason as the main window's
+        // (see `MainWindow.scheduleRendererReload`): navigating from inside
+        // `render-process-gone` takes the whole app down on Electron 40. It
+        // comes back blank — main does not keep the last image — so the map
+        // returns on the next map change or a Ctrl+H toggle. That is still far
+        // better than a window that will never draw again.
+        this.window.webContents.on('render-process-gone', (event, details) => {
+            const reason = (details && details.reason) || 'unknown';
+            console.error('Overlay renderer gone:', details);
+            appLog.error('render-process-gone', {
+                where: 'overlay',
+                reason,
+                exitCode: details && details.exitCode
+            });
+            appLog.flush();
+            if (reason === 'clean-exit') return;
+            setTimeout(() => {
+                try {
+                    if (this.window && !this.window.isDestroyed()) this.window.reload();
+                } catch (err) {
+                    console.error('Overlay reload failed:', err && err.message);
+                }
+            }, 100);
+        });
+
         appLog.event('overlay', {action: 'show', draggable: !!isDraggable});
 
         this.window.on('moved', () => {

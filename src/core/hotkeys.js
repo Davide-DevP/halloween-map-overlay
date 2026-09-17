@@ -39,6 +39,12 @@ class Hotkeys {
      */
     conflicts = [];
     /**
+     * The accelerators that were already failing at the end of the previous
+     * `loadKeys()`. Only a conflict that is *new* is worth a log line — see
+     * `noteConflict`. The banner is rebuilt from `conflicts` either way.
+     */
+    previousConflicts = new Set();
+    /**
      * True while `loadKeys()` is running. A failed registration then goes to
      * the banner instead of the toast: reloading binds a dozen accelerators at
      * once and one toast per failure, five times a session, is noise the user
@@ -101,7 +107,18 @@ class Hotkeys {
 
             if (keyToDelete) {
                 delete saved[keyToDelete];
-                fs.writeFileSync(hotkeyFilePath, JSON.stringify(saved, null, 2), 'utf-8');
+                // Wrapped like every other sync write in main since 0.3.2: an
+                // `uncaughtException` now ends the process (with a crash file),
+                // so a locked `hotkeys.json` must cost the deletion, not the
+                // session. `save-hotkeys` above already did this.
+                try {
+                    fs.writeFileSync(hotkeyFilePath, JSON.stringify(saved, null, 2), 'utf-8');
+                } catch (err) {
+                    console.error('Failed to delete hotkey:', err && err.message);
+                    appLog.error('hotkey-write-failed', {action: 'delete', message: (err && err.message) || String(err)});
+                    classInstance.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
+                    return;
+                }
                 console.log(`Removed hotkey: ${keyToDelete} (id: ${id})`);
                 classInstance.mainWindow.sendUpdate(msg('hotkeys.deleted'));
                 classInstance.loadKeys();
@@ -322,7 +339,16 @@ class Hotkeys {
      */
     noteConflict(accelerator, action, reason) {
         const entry = {accelerator, action: action || '', reason: reason || 'taken'};
-        if (!this.conflicts.some(c => c.accelerator === accelerator)) this.conflicts.push(entry);
+        if (this.conflicts.some(c => c.accelerator === accelerator)) return;
+        this.conflicts.push(entry);
+        // Logged once per *change*, not once per reload. `loadKeys()` runs at
+        // least twice on every start (once from `createWindow`, once from the
+        // renderer's `load-hotkeys`) and again after every hotkey edit; a user
+        // who runs Discord would otherwise put thirteen identical warnings in
+        // app.log several times a session and reach the 1 MB cap for nothing.
+        // A conflict that *appears* is news and is logged; one that persists
+        // is already in the file.
+        if (this.previousConflicts.has(accelerator)) return;
         appLog.warn('hotkey-register-failed', {accelerator, action: entry.action, reason: entry.reason});
     }
 
@@ -363,7 +389,13 @@ class Hotkeys {
             if (systemAccelerators.has(hotkey)) {
                 console.warn(`Skipping map hotkey "${hotkey}" — conflicts with a system hotkey.`);
                 this.noteConflict(hotkey, 'map', 'shadowed');
-                win.sendUpdate(msg('hotkeys.error.systemShadowsMap', {accelerator: acceleratorToDisplay(hotkey)}));
+                // Same rule as every other registration failure: the banner
+                // carries it, and the toast is only for the reload the user
+                // themselves just caused. This one used to fire on every
+                // `loadKeys()`, which is several times a session.
+                if (!this.bulkLoading) {
+                    win.sendUpdate(msg('hotkeys.error.systemShadowsMap', {accelerator: acceleratorToDisplay(hotkey)}));
+                }
                 continue;
             }
             // The console label stays the binding's id (that is what
@@ -396,6 +428,10 @@ class Hotkeys {
         } finally {
             this.bulkLoading = false;
         }
+
+        // What this load found becomes the baseline for the next one, so a
+        // conflict that simply persists is not logged again.
+        this.previousConflicts = new Set(this.conflicts.map(c => c.accelerator));
 
         this.mainWindow.send('system-hotkeys-updated', this.getSystemHotkeys());
         // One banner, updated in place — not a toast per failure per reload.
