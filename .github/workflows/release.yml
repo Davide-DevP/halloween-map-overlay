@@ -49,7 +49,14 @@ jobs:
         shell: bash
         run: |
           ls -la dist
-          for f in dist/*.exe dist/*.blockmap dist/latest.yml; do
+          # gh names an asset after the file and turns spaces into dots, while
+          # latest.yml (and therefore the updater) expects electron-builder's
+          # dash names. Stage copies under the dash names before uploading.
+          mkdir -p upload
+          for f in dist/*.exe dist/*.blockmap; do cp "$f" "upload/$(basename "$f" | tr " " "-")"; done
+          cp dist/latest.yml upload/
+          ls -la upload
+          for f in upload/*; do
             for attempt in 1 2 3 4 5; do
               if gh release upload "${{ github.ref_name }}" "$f" --clobber; then break; fi
               echo "upload of $f failed (attempt $attempt), retrying in 30 s"; sleep 30
