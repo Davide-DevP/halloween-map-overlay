@@ -4,3 +4,4 @@ dist/
 
 # Local agent/editor state, not part of the project
 .claude/
+.release-upload/
