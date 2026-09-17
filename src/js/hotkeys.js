@@ -32,6 +32,9 @@ class Hotkeys {
         onChange(() => {
             this.updateHotkeys();
             this.updateSystemHotkeysTable();
+            // The picker's "Select a map…" placeholder is built in JS, not from
+            // markup — `applyDom` cannot reach it once the select is rebuilt.
+            this.populateMapSelect();
             this.applyModalTitle();
         });
     }

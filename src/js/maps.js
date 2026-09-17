@@ -32,7 +32,7 @@ class Maps {
         // with t(), so they have to be rebuilt when the language changes.
         onChange(() => {
             this.populateCreatorSelect();
-            this.renderGallery();
+            this.renderGallery().catch(err => debugLog("maps::onChange::render", err && err.message));
             $("#currentMap").text(this.currentKey ? this.currentKey.split("/").pop() : t('home.none'));
         });
     }

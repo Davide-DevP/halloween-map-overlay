@@ -28,6 +28,8 @@ const {debugLog} = require('./logger');
  */
 
 let current = 'en';
+/** False until the first `setLanguage`, so the initial pass always runs. */
+let applied = false;
 const listeners = [];
 
 /** Translate for the window's current language. */
@@ -84,7 +86,13 @@ function applyDom(root) {
  * the 'system' option does not have to know about `app.getLocale()` here.
  */
 function setLanguage(lang) {
-    current = shared.LANGUAGES.includes(lang) ? lang : 'en';
+    const next = shared.LANGUAGES.includes(lang) ? lang : 'en';
+    // Switching the language reaches here twice — once from the select's own
+    // handler and once from main's `language-changed` push, which also rebuilds
+    // the tray. Re-rendering every view a second time is pure waste.
+    if (applied && next === current) return;
+    current = next;
+    applied = true;
     applyDom();
     for (const listener of listeners) {
         try {
