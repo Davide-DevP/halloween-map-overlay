@@ -11,7 +11,7 @@ const {debugLog} = require("./js/logger.js");
 const {showStatus} = require("./js/status.js");
 const i18n = require("./js/i18n.js");
 const {t} = i18n;
-const {updateReadyHeadline} = require("./shared/update-message.js");
+const {updateReadyHeadline, updatingHeadline} = require("./shared/update-message.js");
 
 // Main sends `{key, params}`, not English: the language can change while a
 // toast is on screen, and main has no business knowing which one is in force.
@@ -42,6 +42,35 @@ ipcRenderer.on("update-ready", async (event, info) => {
 i18n.onChange(() => {
     if (pendingVersion === null) return;
     $("#updateReadyHeadline").text(updateReadyHeadline(i18n.language(), pendingVersion));
+});
+
+// The hand-over to `hmo-updater.exe` (0.5.0). Main pushes this from
+// `installUpdate()` rather than the click handler doing it, because the tray
+// item is the other way in and both have to look the same. The view is the
+// picture the helper opens on top of, so it goes up *immediately* — before
+// anything is spawned — and it is never animated in: a slide would be a
+// visible difference from the helper's own fade.
+ipcRenderer.on("update-installing", async (event, info) => {
+    const version = (info && info.version) || "";
+    $("#updatingHeadline").text(updatingHeadline(i18n.language(), version));
+    // `overflow: hidden` on the body, or the home page's scrollbar keeps a
+    // 11 px strip of itself down the right edge of an otherwise full-window
+    // view — and the helper, which has no scrollbar, would not have one there.
+    $("body").addClass("is-updating");
+    $("#updatingOverlay").removeClass("d-none");
+});
+
+// Only tier 1 (the themed helper) keeps the view: the stock installer draws its
+// own window and a failure has to put the user back on a working home page.
+ipcRenderer.on("update-install-result", async (event, result) => {
+    if (result && result.themed) return;
+    $("#updatingOverlay").addClass("d-none");
+    $("body").removeClass("is-updating");
+    // The failure toast itself is main's (`sendUpdate(msg('update.installFailed'))`),
+    // so all that is left here is giving the button back.
+    if (result && result.ok === false) {
+        $("#updateRestart").prop("disabled", false).text(t('update.restart'));
+    }
 });
 
 const settings = new Settings();

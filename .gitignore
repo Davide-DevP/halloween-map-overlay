@@ -2,6 +2,12 @@ node_modules/
 dist/
 *.log
 
+# `npm run build-updater` output: the compiled hmo-updater.exe plus the fonts
+# and icon copied next to it, and the generated C# sources. The *sources* are in
+# `updater/`; this is a build artefact.
+build/updater/
+build/.updater-obj/
+
 # Local agent/editor state, not part of the project
 .claude/
 .release-upload/

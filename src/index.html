@@ -33,6 +33,25 @@
     </div>
 </div>
 
+<!-- The app half of the hand-over to `hmo-updater.exe`. It is the loading
+     overlay with four more lines on it, laid out at exactly the offsets
+     `updater/UpdaterWindow.cs` uses, because the helper opens at this window's
+     own bounds: anything that differs here is a visible jump at the swap.
+     `#updatingPercent` is deliberately empty — it reserves the space the
+     helper's percentage occupies, so the sub-line does not move either. -->
+<div id="updatingOverlay" class="loading-overlay updating-overlay d-none" aria-live="polite">
+    <div class="loading-inner">
+        <img src="images/icon.png" alt="" class="loading-mark">
+        <div id="updatingHeadline" class="updating-headline"></div>
+        <div class="updating-step" data-i18n="update.installing.step">Closing the app</div>
+        <div class="loading-bar" role="status">
+            <span class="visually-hidden" data-i18n="update.installing.step">Closing the app</span>
+        </div>
+        <div id="updatingPercent" class="updating-percent" aria-hidden="true"></div>
+        <div class="updating-sub" data-i18n="update.installing.sub">The app reopens by itself.</div>
+    </div>
+</div>
+
 <nav class="navbar navbar-expand-md">
     <div class="container">
         <a class="navbar-brand d-flex align-items-center gap-2" href="#">

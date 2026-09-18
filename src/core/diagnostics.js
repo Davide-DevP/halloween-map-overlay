@@ -37,6 +37,12 @@ const LOG_FILES = [
     'app.log.1',
     'detector.log',
     'detector.log.1',
+    // Written by `hmo-updater.exe`, not by the app, and only when an update has
+    // actually been installed — so it is usually absent, which `report.js`
+    // treats as a skipped entry rather than a failure. It carries the step
+    // timings and the folder-size curve, which is the only evidence there is
+    // after "the update did nothing".
+    'updater.log',
     'settings-app.json'
 ];
 

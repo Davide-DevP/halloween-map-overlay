@@ -29,13 +29,21 @@ jobs:
       - name: Run tests
         run: npm test
 
-      # Create the release first so electron-builder only uploads into it.
-      # Letting electron-builder create it raced on v0.2.0 and produced two
-      # release objects for the same tag (assets split between them).
-      - name: Create GitHub release
-        run: gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --notes "See README.md for install and update notes." --verify-tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # `hmo-updater.exe` is compiled with the csc.exe that ships inside
+      # Windows — no msbuild, no NuGet, no .NET SDK. It is a separate step
+      # rather than part of "Build" so that a runner image without the .NET
+      # Framework compiler fails here, loudly and by name, instead of producing
+      # a release whose installer quietly has no themed updater in it.
+      - name: Build updater
+        shell: bash
+        run: |
+          CSC="$WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
+          if [ ! -f "$CSC" ]; then
+            echo "::error::csc.exe not found at $CSC - windows-latest no longer ships the .NET Framework 4 compiler."
+            exit 1
+          fi
+          npm run build-updater
+          ls -la build/updater build/updater/fonts
 
       # The maps are committed, so there is no prepare-maps step here; this
       # builds exactly the images that are in the repository.
@@ -44,6 +52,16 @@ jobs:
       # installers twice (v0.3.1, v0.3.2) and ended in a GitHub 500.
       - name: Build
         run: npx electron-builder --win --publish never
+
+      # Created by us, not by electron-builder: letting electron-builder create
+      # it raced on v0.2.0 and produced two release objects for the same tag
+      # (assets split between them). Created only AFTER both builds succeeded,
+      # so a failed build cannot leave a published release with no assets for
+      # every installed copy's update check to trip over.
+      - name: Create GitHub release
+        run: gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --notes "See README.md for install and update notes." --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload release assets
         shell: bash

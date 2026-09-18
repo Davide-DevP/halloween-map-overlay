@@ -27,4 +27,22 @@ function updateReadyHeadline(lang, version) {
     return t(lang, 'update.ready.headline', {version: value});
 }
 
-module.exports = {updateReadyHeadline, VERSION_PATTERN};
+/**
+ * "Updating to 0.5.1" — the headline of the full-window "updating" view, and
+ * the same sentence `hmo-updater.exe` draws a moment later (the `headline` key
+ * in `updater/strings.json`). The two have to stay word for word identical:
+ * the helper opens at this window's exact bounds and the swap is meant to be
+ * invisible.
+ *
+ * Same version guard as above — the string comes off the release feed.
+ *
+ * @param {string} lang 'en' | 'it'
+ * @param {string} version
+ */
+function updatingHeadline(lang, version) {
+    const value = typeof version === 'string' ? version.trim() : '';
+    if (!value || !VERSION_PATTERN.test(value)) return t(lang, 'update.installing.headlineUnknown');
+    return t(lang, 'update.installing.headline', {version: value});
+}
+
+module.exports = {updateReadyHeadline, updatingHeadline, VERSION_PATTERN};

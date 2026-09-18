@@ -1195,6 +1195,85 @@ main.container {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * Updating view (0.5.0)
+ *
+ * Shown the instant "Restart and update" is pressed, and covered a fraction of
+ * a second later by `hmo-updater.exe` at this window's exact bounds. The two
+ * are meant to be one picture, so every number below is the same number as in
+ * `updater/UpdaterWindow.cs` (84 px mark, 24/9/20/12+16/18 px gaps, a 320x3
+ * bar) and the colours are the same tokens. **Change one, change the other.**
+ * The gaps are explicit margins rather than the parent's `gap`, because the
+ * helper's StackPanel spaces its children the same way.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* The home page keeps its scrollbar behind a `position: fixed` overlay, and an
+   11 px strip of it down the right edge is exactly the sort of difference that
+   gives the swap away — the helper has no scrollbar. */
+body.is-updating {
+    overflow: hidden;
+}
+
+.updating-overlay .loading-inner {
+    gap: 0;
+}
+
+.updating-overlay .loading-bar {
+    width: 320px;
+    height: 3px;
+    margin-top: 20px;
+}
+
+/* `line-height: 1.3`, not Bootstrap's 1.5, on all three lines: a WPF TextBlock
+   is exactly as tall as the font's own line box, and the three CSS boxes were
+   together 8 px taller than the helper's. Because the column is centred, that
+   pushed the mark and the headline ~4 px away from where the helper draws them
+   and the swap had a visible twitch. Measured, not guessed — see the row bands
+   in the verification report. */
+.updating-headline {
+    margin-top: 24px;
+    font-size: 17px;
+    line-height: 1.3;
+    font-weight: 500;
+    color: var(--hmo-text);
+}
+
+.updating-step {
+    margin-top: 9px;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--hmo-text-dim);
+}
+
+/* Empty on purpose: the helper shows a percentage here and the sub-line must
+   not jump when it appears. */
+.updating-percent {
+    margin-top: 12px;
+    min-height: 16px;
+}
+
+.updating-sub {
+    margin-top: 18px;
+    font-size: 12px;
+    line-height: 1.3;
+    color: var(--hmo-text-mute);
+}
+
+/* The short window — the helper's 560x380 minimum, used when the app was
+   hidden in the tray. `updater/UpdaterWindow.cs` shrinks the mark below 460 px
+   of height so the error state's extra paragraphs still fit; this is the same
+   threshold, so the two agree on both sizes. */
+@media (max-height: 459px) {
+    .updating-overlay .loading-mark {
+        width: 60px;
+        height: 60px;
+    }
+
+    .updating-headline {
+        margin-top: 18px;
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * Modals
  * ──────────────────────────────────────────────────────────────────────────── */
 

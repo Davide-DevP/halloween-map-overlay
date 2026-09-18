@@ -58,3 +58,19 @@ The Geist and Geist Mono typefaces bundled with the application (npm packages
 @fontsource-variable/geist and @fontsource-variable/geist-mono) are Copyright
 Vercel, licensed under the SIL Open Font License 1.1; the licence text ships in
 each package's LICENSE file. They are NOT covered by the Apache License.
+
+The same typefaces are also bundled as static TrueType files in updater/fonts/,
+for the updater window (hmo-updater.exe), which is a WPF application and cannot
+use variable or woff2 fonts:
+
+    updater/fonts/Geist-Regular.ttf
+    updater/fonts/Geist-Medium.ttf
+    updater/fonts/Geist-SemiBold.ttf
+    updater/fonts/GeistMono-Regular.ttf
+    updater/fonts/GeistMono-Medium.ttf
+
+They come from the official vercel/geist-font release v1.7.2, are Copyright
+Vercel, and are licensed under the SIL Open Font License 1.1, whose text ships
+next to them in updater/fonts/OFL.txt. They are NOT covered by the Apache
+License, and they are copied verbatim next to hmo-updater.exe in the installed
+application (resources/updater/fonts/).

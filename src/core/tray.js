@@ -77,7 +77,14 @@ class TrayController {
             template.push({
                 label: this.t('tray.update'),
                 click: function () {
-                    mainWindow.installUpdate();
+                    // Same entry point as the banner, so the "updating" view is
+                    // pushed to the window from main rather than from whoever
+                    // clicked. `installUpdate` is async since 0.5.0 and swallows
+                    // its own errors; the catch is only here so a rejection can
+                    // never become an uncaught one in a menu callback.
+                    Promise.resolve(mainWindow.installUpdate()).catch(function (err) {
+                        console.error('Install update from the tray failed:', err && err.message);
+                    });
                 }
             });
         }

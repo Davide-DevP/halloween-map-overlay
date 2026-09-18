@@ -6,6 +6,7 @@ const {spawn} = require("child_process");
 const {imageSize} = require('image-size');
 const {autoUpdater} = require('electron-updater');
 const {computeOverlayPosition, rotatedSize} = require('./overlay-position');
+const updateHelper = require('./update-helper');
 const {mapLabelMode} = require('../shared/settings-defaults');
 const {msg, t} = require('../shared/i18n');
 const appLog = require('./app-log');
@@ -33,6 +34,8 @@ class MainWindow {
     pendingInstallerPath = null;
     /** Set once the installer has been launched, so the banner cannot fire twice. */
     installStarted = false;
+    /** The promise of an `installUpdate()` that has not settled yet, or null. */
+    installInFlight = null;
     /** {mapDetector, tray} — set from index.js, both built after this class. */
     shutdownHooks = {};
     /** When the main window's renderer last died; see `render-process-gone`. */
@@ -365,6 +368,7 @@ class MainWindow {
         if (debug) this.window.webContents.openDevTools()
         if (!debug) this.window.setMenu(null)
 
+        this.cleanStaleUpdateHelpers()
         this.checkUpdates()
     }
 
@@ -589,19 +593,207 @@ class MainWindow {
     }
 
     /**
+     * electron-updater's cache directory — where the downloaded installer sits
+     * and, since 0.5.0, where the helper's working copy goes.
+     *
+     * Asked of the library first, because the library is the authority. Before
+     * any download there is no `downloadedUpdateHelper` yet, so the startup
+     * sweep falls back to `app-update.yml`'s `updaterCacheDirName`, which is
+     * exactly the value electron-updater would have used.
+     *
+     * @returns {?string}
+     */
+    updaterCacheDir() {
+        const helper = autoUpdater.downloadedUpdateHelper;
+        if (helper && helper.cacheDir) return helper.cacheDir;
+        let cacheDirName = null;
+        try {
+            cacheDirName = updateHelper.updaterCacheDirName(
+                fs.readFileSync(path.join(process.resourcesPath, 'app-update.yml'), 'utf-8'));
+        } catch (err) {
+            // Not a packaged build, or an old app-update.yml. The appName
+            // branch below is electron-updater's own fallback for that.
+        }
+        return updateHelper.helperHome({
+            localAppData: process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+            cacheDirName,
+            appName: app.getName()
+        });
+    }
+
+    /**
+     * Sweep helper copies a previous update left in the updater cache.
+     *
+     * They only survive a helper that was killed (an antivirus, a power cut)
+     * and they are ~600 KB each, so this is housekeeping rather than a
+     * guarantee — it runs once per window creation, never throws, and skips the
+     * builds that have no updater at all.
+     */
+    cleanStaleUpdateHelpers() {
+        if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return;
+        try {
+            const removed = updateHelper.cleanStaleHelpers({homeDir: this.updaterCacheDir()});
+            if (removed) appLog.event('update-helper', {cleaned: removed});
+        } catch (err) {
+            console.error('Stale updater cleanup failed (harmless):', err && err.message);
+        }
+    }
+
+    /**
+     * Where the helper window goes: exactly over the app's own window, in
+     * **physical** pixels.
+     *
+     * Two details that are both load-bearing:
+     *
+     * - **`getContentBounds()`, not `getBounds()`.** The main window has a
+     *   native frame, so its outer rectangle is ~32 px taller than the web
+     *   page. The renderer's "updating" view is centred in the *content* area;
+     *   a helper centred in the outer rectangle would draw the same picture
+     *   about sixteen pixels lower, and the hand-over would jump. Covering the
+     *   content area instead leaves the title bar showing for the fraction of a
+     *   second before the app quits, which nobody notices — a jumping icon is.
+     * - **Physical pixels.** `getContentBounds()` is in DIPs and the helper is
+     *   a per-monitor-DPI-aware Win32 process that places itself with
+     *   `SetWindowPos`, so the conversion has to happen here; on a 150 %
+     *   display the two numbers differ by half again.
+     *
+     * A window hidden in the tray has nothing to cover, so the helper centres
+     * itself on the primary display instead (`helperBounds`).
+     */
+    updaterPlacement() {
+        const win = this.window;
+        let rect = null;
+        let activate = false;
+        try {
+            if (win && !win.isDestroyed() && win.isVisible()) {
+                rect = screen.dipToScreenRect(win, win.getContentBounds());
+                // Do not pull focus out of a fullscreen game: if the app window
+                // was not the focused one, the helper shows without activating.
+                activate = win.isFocused();
+            }
+        } catch (err) {
+            console.error('Could not read the window bounds for the updater:', err && err.message);
+            rect = null;
+        }
+        let workArea = {x: 0, y: 0, width: 1920, height: 1080};
+        let scaleFactor = 1;
+        try {
+            const primary = screen.getPrimaryDisplay();
+            workArea = screen.dipToScreenRect(null, primary.workArea);
+            // The helper lays out in DIPs at the *system* (primary) DPI, so
+            // that is the scale its minimum size has to be multiplied by.
+            scaleFactor = primary.scaleFactor || 1;
+        } catch (err) {
+            console.error('Could not read the primary display for the updater:', err && err.message);
+        }
+        return {bounds: updateHelper.helperBounds(rect, workArea, scaleFactor), activate};
+    }
+
+    /**
+     * Tier 1: the themed helper window (`hmo-updater.exe`).
+     *
+     * Returns false for **every** failure, and a false here costs nothing: the
+     * app has not quit yet and tier 2 is the path 0.4.0 already shipped. The
+     * handshake is what buys that — `launchUpdater` only resolves `ok` once the
+     * helper has written its ready-file, i.e. once there is a window on screen.
+     *
+     * @returns {Promise<boolean>}
+     */
+    async startThemedUpdater(version) {
+        if (process.platform !== 'win32') return false;
+        if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return false;
+        const installerPath = this.pendingInstallerPath
+            || (autoUpdater.downloadedUpdateHelper && autoUpdater.downloadedUpdateHelper.file)
+            || null;
+        if (!installerPath || !fs.existsSync(installerPath)) return false;
+
+        const appExe = app.getPath('exe');
+        const placement = this.updaterPlacement();
+        const started = Date.now();
+        let result;
+        try {
+            result = await updateHelper.launchUpdater({
+                resourcesPath: process.resourcesPath,
+                // NOT the OS temp directory. Bitdefender's Advanced Threat
+                // Defense killed the entire launching process tree on this
+                // machine when an unsigned NSIS installer was started from
+                // under `%TEMP%`, and neutralised the installer file on its way
+                // out. The updater cache is where electron-updater already
+                // downloads and runs that same installer, so it is the location
+                // with evidence behind it. See `helperHome()`.
+                homeDir: this.updaterCacheDir(),
+                version,
+                installerPath,
+                installDir: path.dirname(appExe),
+                appExe,
+                lang: this.language ? this.language.current() : 'en',
+                waitPid: process.pid,
+                bounds: placement.bounds,
+                activate: placement.activate,
+                logPath: path.join(app.getPath('userData'), 'updater.log')
+            });
+        } catch (err) {
+            appLog.error('update-helper', {ok: 'no', reason: 'threw', message: (err && err.message) || String(err)});
+            return false;
+        }
+        if (!result.ok) {
+            // The one line that explains a user's "it looked like the old
+            // installer": which tier ran, and why the first one did not.
+            appLog.error('update-helper', {ok: 'no', reason: result.reason || 'unknown', ms: Date.now() - started});
+            return false;
+        }
+        appLog.event('update-helper', {ok: 'yes', pid: result.pid || 0, ms: Date.now() - started});
+        return true;
+    }
+
+    /**
+     * Shared tail of a successful install: stop being an app.
+     *
+     * The quit is deferred by one turn of the loop so the renderer's
+     * `install-update` reply is actually flushed — it is what tells the
+     * "updating" view whether to stay (themed helper coming) or get out of the
+     * way (stock installer). Destroying the window first would drop the reply.
+     */
+    finishInstall(version, how) {
+        this.installStarted = true;
+        app.isQuiting = true;
+        appLog.event('install-update', {version, path: how});
+        appLog.flush();
+        console.log(`Installing update ${version} (${how}) and restarting.`);
+        setImmediate(() => {
+            this.runShutdownHooks();
+            app.quit();
+        });
+    }
+
+    /**
      * Run the downloaded installer and relaunch. The only caller-facing entry
      * point for installing an update: the home-page banner (`install-update`)
      * and the tray item.
+     *
+     * **Three tiers, each falling through to the next** (0.5.0; spec §5.1):
+     *  1. `startThemedUpdater()` — `hmo-updater.exe` over the app's own window,
+     *     running the installer silently (`/S`) so the stock NSIS banner never
+     *     appears. It only counts as started once the helper has written its
+     *     ready-file, so a blocked or missing helper costs nothing.
+     *  2. `spawnInstallerAtLowPriority()` — what 0.2.3 through 0.4.0 shipped:
+     *     the visible one-click installer at idle priority.
+     *  3. `autoUpdater.quitAndInstall(false, true)` — normal priority. A
+     *     stuttery update beats no update.
+     *
+     * The order is the only thing that changed. Tier 2 and tier 3 are
+     * untouched, and **no user can end up stranded on an old version because of
+     * tier 1**: the app has not quit when tier 1 gives up.
      *
      * `app.isQuiting` has to be set first or the main window's `close` handler
      * hides the window instead of letting it go whenever minimize-to-tray is
      * on, and `app.quit()` never completes.
      *
      * electron-updater is kept for the check and the download only; the install
-     * itself is `spawnInstallerAtLowPriority()`, so the unpack cannot starve the
-     * desktop of disk I/O. If that spawn cannot happen (no path, file deleted,
-     * spawn threw) we fall back to `autoUpdater.quitAndInstall(false, true)`,
-     * which installs at normal priority — a stuttery update beats no update.
+     * itself is ours, so the unpack cannot starve the desktop of disk I/O.
+     *
+     * @returns {Promise<{ok: boolean, themed: boolean}>} the renderer's
+     *   "updating" view stays up only while `themed` is true.
      *
      * Why the relaunch survives a non-silent install, traced through
      * electron-updater/electron-builder rather than assumed:
@@ -620,43 +812,82 @@ class MainWindow {
      *   `autoRunAppAfterInstall` (pinned in `checkUpdates()`) decides.
      */
     installUpdate() {
+        // One run at a time. `installStarted` is only set once a tier has
+        // actually started, and tier 1 awaits the helper's handshake for up to
+        // 4 s — without this, the banner button and the tray item pressed
+        // inside that window each copied and spawned their own helper, and two
+        // helpers mean two silent installers racing over one install dir.
+        if (this.installInFlight) return this.installInFlight;
+        this.installInFlight = this.runInstallUpdate().finally(() => {
+            this.installInFlight = null;
+        });
+        return this.installInFlight;
+    }
+
+    async runInstallUpdate() {
         if (!this.pendingUpdateVersion) {
             console.log('Install update requested with no update pending.');
-            return false;
+            return {ok: false, themed: false};
         }
         if (this.installStarted) {
             console.log('Install update ignored: the installer is already running.');
-            return true;
+            return {ok: true, themed: true};
         }
         const version = this.pendingUpdateVersion;
-        appLog.event('install-update', {version});
-        appLog.flush();
+        // The window shows its own full-window "updating" view *now*, so the
+        // helper opens on top of an identical picture. Pushed from here rather
+        // than from the banner's click handler, because the tray item is the
+        // other way in and it must look the same.
+        this.send('update-installing', {version});
+
+        // Tier 1 — the themed helper. It can only return true once there is a
+        // window on screen, so nothing below has been lost by trying.
+        try {
+            if (await this.startThemedUpdater(version)) {
+                this.finishInstall(version, 'themed');
+                return {ok: true, themed: true};
+            }
+        } catch (err) {
+            console.error('Themed updater failed:', err && err.message);
+            appLog.error('update-helper', {ok: 'no', reason: 'threw', message: (err && err.message) || String(err)});
+        }
+        // A second click cannot arrive while the await above is pending (the
+        // banner button disables itself), but the tray item can — and by now
+        // the pending state may have changed under us.
+        if (this.installStarted) return {ok: true, themed: true};
+
+        // Tier 2 — the stock installer at idle priority (0.2.3 behaviour).
         try {
             if (this.spawnInstallerAtLowPriority()) {
-                this.installStarted = true;
-                app.isQuiting = true;
-                this.runShutdownHooks();
-                console.log(`Installing update ${version} at low priority and restarting.`);
-                app.quit();
-                return true;
+                // The stock installer draws its own window (build/installer.nsh),
+                // so the app's "updating" view has to get out of the way.
+                this.send('update-install-result', {ok: true, themed: false});
+                this.finishInstall(version, 'stock');
+                return {ok: true, themed: false};
             }
         } catch (err) {
             console.error('Low-priority installer launch failed:', err && err.message);
         }
+        // Tier 3 — electron-updater, normal priority. Not deferred: this one
+        // quits the app itself.
         try {
             this.installStarted = true;
             app.isQuiting = true;
+            appLog.event('install-update', {version, path: 'quitAndInstall'});
+            appLog.flush();
+            this.send('update-install-result', {ok: true, themed: false});
             this.runShutdownHooks();
             console.log(`Installing update ${version} through electron-updater (normal priority).`);
             autoUpdater.quitAndInstall(false, true);
-            return true;
+            return {ok: true, themed: false};
         } catch (err) {
             console.error('Install update failed:', err && err.message);
             appLog.error('install-update', {version, message: (err && err.message) || String(err)});
             this.installStarted = false;
             app.isQuiting = false;
+            this.send('update-install-result', {ok: false, themed: false});
             this.sendUpdate(msg('update.installFailed'));
-            return false;
+            return {ok: false, themed: false};
         }
     }
 

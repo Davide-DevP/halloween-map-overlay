@@ -203,19 +203,29 @@ downloads it in the background; progress appears in the status message at the
 bottom right. **Nothing is installed until you ask for it.** Once the download
 finishes a green banner appears at the top of the app window:
 
-> Version X.Y.Z is ready. Restart and update — the app closes, installs for a
-> few seconds (disk-heavy, an installer window shows progress) and reopens by
-> itself.
+> Version X.Y.Z is ready. Restart and update — the app closes, a small window
+> shows the progress for a few seconds, and it reopens by itself.
 
-Press **Restart and update** (there, or in the tray menu). The app closes, a
-small installer window appears and shows its progress while it unpacks — a few
-seconds of heavy disk activity — and then the app starts itself back up. The
-installer is launched at **low (idle) process priority**, which on Windows also
-lowers its disk priority, so the unpack stays out of the way and the rest of the
-PC keeps responding while it runs. You are not asked anything on the way
-through, and Windows does not raise a permission prompt: it is a per-user
-install. Press **Later** and the banner goes away until the next start; the
-downloaded update keeps waiting.
+Press **Restart and update** (there, or in the tray menu). The window turns into
+an *Updating to X.Y.Z* screen, a small window in the app's own colours takes its
+place — same dark background, same pumpkin mark, the step it is on and a
+progress bar — it works the disk for a few seconds, and then the app starts
+itself back up. You never see a Windows installer. The installer underneath is
+launched at **low (idle) process priority**, which on Windows also lowers its
+disk priority, so the unpack stays out of the way and the rest of the PC keeps
+responding while it runs. You are not asked anything on the way through, and
+Windows does not raise a permission prompt: it is a per-user install. Press
+**Later** and the banner goes away until the next start; the downloaded update
+keeps waiting.
+
+If that small window cannot start — an antivirus can block it, it is an
+unsigned executable like every other file in this app — **the update still
+happens**: the plain Windows installer runs instead, exactly as it did before
+0.5.0. The app does not close until it has proof one of the two is on screen,
+so there is no way to end up on neither. If something goes wrong further in, the
+window says so in one sentence, shows where its log is, and offers a link to the
+download page — and, as long as the old version is still intact on disk, a
+button that reopens it.
 
 If the update still feels heavy, most of what is left is your antivirus reading
 every unpacked file. Adding the install folder
@@ -290,8 +300,14 @@ npm run prepare-maps     # crops maps-src/*.webp into maps/ and renders the icon
 npm run prepare-detector # rebuilds the auto-detect templates from the fixtures
 npm start                # run in dev mode
 npm test                 # unit tests
+npm run build-updater    # compiles updater/*.cs -> build/updater/hmo-updater.exe
 npm run build:win        # NSIS installer + portable exe into dist/
 ```
+
+`build:win` runs `build-updater` first. It needs the C# compiler that ships
+inside Windows (`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe`) — no
+Visual Studio, no .NET SDK, and nothing extra for the people who run the app.
+See [docs/BUILD.md](docs/BUILD.md).
 
 The update check is skipped in dev builds (`app.isPackaged` is false), so
 `npm start` never goes online.
@@ -404,6 +420,24 @@ Security → Virus & threat protection → Manage settings → Exclusions** remo
 that too.
 
 ## Changelog
+
+### 0.5.0
+
+- **Updating looks like the app now.** Press *Restart and update* and the window
+  becomes an *Updating to X.Y.Z* screen; a small window in the same colours
+  takes over, names the step it is on (*Closing the app* → *Removing the
+  previous version* → *Installing* → *Starting*), shows a real progress bar, and
+  the new version's loading screen comes up in the same place. The Windows
+  installer is never seen.
+- **It cannot leave you on the old version.** The app does not close until the
+  new window has proved it is on screen. If it cannot start — an antivirus
+  blocking an unsigned file, a missing file, anything — the plain installer runs
+  instead and the update happens exactly as it did before.
+- If the install itself fails, the window says what happened in one sentence,
+  points at its log, offers the download page and — while the old version is
+  still intact on disk — reopens it.
+- English and Italian, and it follows the Windows *show animations* setting.
+- `updater.log` joins the diagnostic report.
 
 ### 0.4.0
 

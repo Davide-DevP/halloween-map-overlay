@@ -107,7 +107,25 @@ src/shared/i18n.js              → PURE t(lang, key, params), msg(),
                                   translateMessage(), resolveLanguage(). Tested.
 src/i18n/en.json, it.json       → Flat dotted key → string catalogues.
 src/shared/update-message.js    → PURE "Version X.Y.Z is ready." headline for
-                                  the update banner. Tested.
+                                  the update banner and "Updating to X.Y.Z" for
+                                  the 0.5.0 updating view. Tested.
+src/core/update-helper.js       → App side of the themed updater: where the
+                                  helper copy goes, the argument list, the
+                                  window bounds, the ready-file handshake and
+                                  the stale-copy sweep. fs only, no electron —
+                                  the electron half is `MainWindow`. Tested.
+updater/*.cs                    → `hmo-updater.exe`: C#/WPF, code-only, built by
+                                  `scripts/build-updater.js` with the csc.exe
+                                  inside Windows. `Program` (args → window →
+                                  ready-file), `UpdaterWindow` (the screen),
+                                  `Runner` (the install, off the UI thread),
+                                  `Theme` (the app.css tokens, transcribed),
+                                  `Options`, `Log`, `Native`, `Strings`.
+updater/strings.json            → The helper's en/it table. Generated into C# at
+                                  build time; parity is tested from `npm test`.
+updater/fonts/                  → Static Geist / Geist Mono TTFs + OFL. WPF
+                                  cannot read the app's variable woff2 files.
+scripts/build-updater.js        → Dev only: updater/*.cs → build/updater/.
 src/index.html                  → Main window markup. No inline `<style>` and no
                                   `style=` attributes (the one exception is
                                   `#unset-pos`, which jQuery `.show()/.hide()`
@@ -295,7 +313,9 @@ test/                           → node:test unit tests for the pure modules.
   `checkForUpdates` setting (default true, Settings › General). Every error path
   only logs: being offline must never be more than a toast. This is the app's
   **only** network request — if you add another one, the README "Network use"
-  section and the in-app FAQ both have to change.
+  section and the in-app FAQ both have to change. `hmo-updater.exe` makes none
+  either: the only URL it knows is the releases page, and only `Process.Start`ed
+  from the error screen's button, user-initiated like the Credits links.
 - **The installer runs at idle priority, launched by us, not by
   electron-updater.** `NsisUpdater.doInstall` spawns it at normal priority, and
   unpacking ~350 MB (7z to temp, copy into the install dir, Defender reading
@@ -832,7 +852,8 @@ npm start              # dev run (DEBUG=true opens devtools and the menu)
 npm test               # node --test over test/**/*.test.js
 npm run prepare-maps   # crop maps-src/*.webp → maps/, render build+app icons
 npm run prepare-detector # detection-fixtures/tab-*.png → templates.json
-npm run build:win      # NSIS installer + portable exe into dist/
+npm run build-updater  # updater/*.cs → build/updater/hmo-updater.exe (csc.exe)
+npm run build:win      # build-updater, then NSIS installer + portable into dist/
 ```
 
 ## Releasing
@@ -855,6 +876,143 @@ build always defined), so the self-update no longer raises a UAC prompt — an
 unattended prompt would have stalled the update behind a dialog nobody sees.
 Note `allowToChangeInstallationDirectory` must be `false`: electron-builder
 refuses `oneClick: true` together with it.
+
+## The themed updater (0.5.0) — `updater/` + `src/core/update-helper.js`
+
+Spec: `docs/SPEC-UPDATER.md`. Installing an update looks like the app: the
+renderer's *Updating to X.Y.Z* view → `hmo-updater.exe` at the same window
+bounds → the new version's loading overlay. The stock NSIS banner is never seen
+on the happy path. **Nobody can be stranded on an old version by this feature.**
+
+- **Three tiers, in `installUpdate()`**, each falling through to the next:
+  themed helper (`/S`, silent NSIS) → `spawnInstallerAtLowPriority()` (the
+  visible one-click installer, 0.2.3 behaviour, unchanged) →
+  `autoUpdater.quitAndInstall`. Tiers 2 and 3 were not touched; only the order.
+- **The handshake is the whole safety story.** `launchUpdater()` resolves
+  `ok: true` only after the helper has written its ready-file, and the app does
+  not call `app.quit()` before that. No file within **4 s**, a spawn error, a
+  missing folder → log line, tier 2. That is what makes an antivirus block
+  harmless, and it is the one invariant never to weaken.
+  The helper writes the file from `UpdaterWindow.Ready`, which fires after the
+  first frame **and** the fade-in — not right after `Show()`. Writing it earlier
+  takes the app's identical picture away while the helper is still at opacity 0,
+  and the user sees the desktop for a fifth of a second.
+- **The other half of the handshake is `<ready-file>.abort`.** When the app
+  gives up on the helper it writes that file *before* killing it and moving to
+  tier 2; `Runner.AbortedByApp()` checks it after `--wait-pid` exits and leaves
+  quietly (exit 3). Without it, a helper that was merely slow and survived the
+  kill would see the app quit and start a second, silent installer on top of
+  the stock one. Likewise the helper writes **no** ready-file once it has
+  already failed (`RaiseReady` checks `_allowClose`): `Runner` starts before the
+  fade-in ends, and an app that quits for a helper showing an error screen has
+  skipped a fallback that would have worked.
+- **`installUpdate()` is single-flight** (`installInFlight`). `installStarted`
+  is only set once a tier has started, and tier 1 awaits for up to 4 s; banner +
+  tray inside that window used to spawn two helpers.
+- **The helper's minimum size is 560x380 DIPs, not pixels.** `helperBounds`
+  takes the primary display's `scaleFactor`; WPF lays out in DIPs, so 560 px at
+  150 % is 373 DIPs and the error state does not fit.
+- **The helper's own relaunch passes `--updated`**, like NSIS's `StartApp`. A
+  second instance with *no* argument shows the "already running" box
+  (`index.js`), which is what a slow-to-show first instance would have produced.
+- **The working copy does NOT go in `%TEMP%`.** It goes in electron-updater's
+  own cache directory, `%LOCALAPPDATA%\<updaterCacheDirName>\helper-<version>-<random>\`,
+  next to the `pending\` folder the installer was downloaded into
+  (`helperHome()`, and `MainWindow.updaterCacheDir()` asks
+  `autoUpdater.downloadedUpdateHelper.cacheDir` first). It cannot run from
+  `resources/updater` — NSIS deletes that during the update. See the Bitdefender
+  trap below for why `%TEMP%` is not an option.
+- **`getContentBounds()`, not `getBounds()`,** and converted with
+  `screen.dipToScreenRect`. The main window has a native frame, so the outer
+  rectangle is ~32 px taller than the page; a helper centred in it draws the
+  same picture ~16 px lower and the hand-over visibly jumps.
+- **The two screens are one picture, so the numbers are duplicated on purpose.**
+  `.updating-*` in `app.css` carries the same 84 px mark and the same
+  24/9/20/(12+16)/18 px gaps as `updater/UpdaterWindow.cs`, the same
+  `<460 px` compact rules, and `line-height: 1.3` instead of Bootstrap's 1.5
+  because a WPF `TextBlock` is exactly one font line box tall — with 1.5 the
+  three CSS boxes were together 8 px taller and, the column being centred, the
+  mark and the headline sat 4 px off. Verified by comparing row bands of the two
+  renders; they now agree within 1 px. **Change one, change the other.**
+  `test/updater-strings.test.js` asserts the *words* match as well.
+- **The progress mapping is measured, and mostly not from the folder size.**
+  Sampling a real uninstall and a real install of a 562 MB test product every
+  400 ms:
+  - uninstall: full for **6.6 s**, then 562 MB → 0 *between two samples* (one
+    `RMDir /r`, a metadata operation). A cliff, not a ramp.
+  - install: 0 for the first **6.1 s** (NSIS writing and unpacking the payload
+    in `%TEMP%`, invisible here), then 47 KB → 260 MB → 559 MB → 562 MB between
+    6.5 s and 11.0 s. The copy is ~4.5 s of the 11.
+  - the same work at the idle priority the helper uses: **27.4 s** end to end.
+
+  So the size is 100 %, then 0, then 100 % again in three samples. The first two
+  phases are therefore driven by the **clock**, with an *exponential approach*
+  (`Runner.Approach`) rather than a linear creep with a cap: it never arrives,
+  so the bar is never frozen, and it can never overrun into the next phase.
+  Only the copy is size-driven, and it gets the last ~25 %.
+  The **combined** update was finally observed through the helper (verification
+  run, 562 MB product): folder full for ~8 s, cliff to 0, a ~3.5 s stall, the
+  copy in **under 1 s**, and then **4-9.5 s more** before the installer exits
+  (shortcuts, registry, deleting 7z-out and old-install from `%TEMP%` at idle
+  priority). So the copy is capped at 90 % and a third exponential approach
+  (`TailCapPercent` 99, `TailTau` 8 s, log event `copied`) covers that tail —
+  the first mapping parked the bar on 97 % for 9.5 s. Also measured:
+  `Process.Start` on a never-scanned 292 MB installer took **28 s** under
+  Bitdefender; the bar is indeterminate for that stretch.
+  `RemoveGiveUp` (25 s) exists because an install whose registry entry is
+  missing never uninstalls anything and the folder never shrinks at all.
+- **Never claim the old version can be relaunched just because the exe exists.**
+  An installer killed during `CopyFiles` leaves the 214 MB executable on disk
+  with `resources\` still missing; launching it does nothing at all (measured —
+  the process starts and exits with no window). `Runner.Relaunchable()` checks
+  for `resources\app.asar`, and the error screen says "finish it from the
+  download page" instead of offering a button that would do nothing.
+  Re-running the installer over that state repairs it completely (measured).
+- **Strings are generated, not read at runtime.** `scripts/build-updater.js`
+  turns `updater/strings.json` into `Strings.g.cs` with every non-ASCII
+  character escaped as `\uXXXX`, because csc's default source encoding follows
+  the machine's ANSI codepage and an `è` in a .cs file is a coin toss between a
+  laptop and a CI runner. It also means a missing or corrupt JSON cannot strand
+  a user mid-update.
+- **WPF specifics that are load-bearing**: `AllowsTransparency = false` (a
+  layered window gets no DWM decoration, so it would lose the Windows 11 rounded
+  corners *and* the shadow); `SetWindowPos` in physical pixels, applied both in
+  `SourceInitialized` and `ContentRendered` (WPF re-applies its own DIP
+  Width/Height when the window is first shown); `EasingMode = EaseIn` on the
+  cubic-bezier easing or the base class mirrors every curve; the trailing
+  separator on the fonts `Uri` or `"./#Geist"` resolves against the exe's folder
+  and finds nothing.
+- **Debug switches**, documented in `docs/BUILD.md`: `--demo`, `--demo-fail`,
+  `--screenshot <path> [--screenshot-after <ms>]` (RenderTargetBitmap, then
+  exit). The app never passes them.
+
+### Bitdefender, unsigned executables and `%TEMP%` — a real trap
+
+Found the hard way on the development machine, twice in one session:
+
+- Running the freshly built **unsigned NSIS installer with `/S` from a folder
+  under `%TEMP%`** made Bitdefender's Advanced Threat Defense fire
+  *"Malicious behavior blocked … blocked all applications involved"*
+  (`SuspiciousBehavior.22E1418466DA1`). It killed the whole launching process
+  tree — including the terminal that started it — and neutralised the installer
+  by lower-casing its `MZ` signature to `mz`, so it could never run again.
+  The same installer run from `dist/` was fine. **Never run an unsigned
+  executable out of `%TEMP%`**, in a test or in the product; that is why the
+  helper's working copy lives in the updater cache, where electron-updater has
+  always downloaded and run the installer.
+- Bitdefender also **silently dropped that installer's registry writes**: the
+  key under `HKCU\Software\<APP_GUID>` and the `…\Uninstall\<GUID>` key were
+  created with *no values*. The app installed and ran, but NSIS then had no
+  `UninstallString`, so later updates never uninstalled the old version and
+  overwrote it in place. `RemoveGiveUp` in `Runner.cs` exists for exactly that
+  shape, and it is worth remembering when a user reports "the update did
+  nothing" with no Add/Remove Programs entry.
+- It also denied recreating a specific scratch file path it had already acted
+  on (`EPERM` on rename, `Permission denied` on write), while a different file
+  name in the same folder worked.
+
+None of this is worked around in the product, and nothing is whitelisted; the
+design simply avoids the shapes that look like malware.
 
 ### The installer window is ours (0.3.4) — `build/installer.nsh`
 
@@ -1031,4 +1189,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-18 (0.4.0)*
+*Last updated: 2026-09-18 (0.5.0)*

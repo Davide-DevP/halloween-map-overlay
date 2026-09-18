@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  hmo-updater.exe's Win32 manifest.
+
+  Two things only, and both matter:
+
+  - `asInvoker`. The helper must never raise a UAC prompt. The NSIS build is
+    `perMachine: false` + `oneClick: true`, which is exactly what removed the
+    elevation prompt from the self-update (AGENTS.md, "Releasing"); a helper
+    that asked for admin would put it straight back, behind a dialog nobody is
+    watching for.
+
+  - Per-monitor DPI v2. The window is placed at the app window's bounds in
+    physical pixels, so it has to agree with Windows about what a pixel is on
+    the monitor the app was on — a system-DPI-aware process on a secondary
+    120 % display would be told the wrong virtualised coordinates and land in
+    the wrong place at the wrong size.
+
+  `supportedOS` is not optional decoration: without the Windows 10 GUID the
+  `dpiAwareness` element is ignored outright and the process falls back to
+  system DPI awareness.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" name="HalloweenMapOverlay.Updater" type="win32"/>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+      <!-- Windows 8.1 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2,PerMonitor,system</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+</assembly>
