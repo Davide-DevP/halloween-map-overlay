@@ -405,6 +405,21 @@ that too.
 
 ## Changelog
 
+### 0.4.0
+
+- **A new look for the main window.** Same features, same places — restyled:
+  warm off-black with a single pumpkin-orange accent, the Geist typeface
+  (bundled inside the app, nothing is downloaded), a two-column map gallery
+  with an unmistakable *On overlay* flag on the active map, a status dot on the
+  auto-detect bar, live values beside the size / opacity / position sliders,
+  cleaner hotkey tables, visible keyboard focus everywhere, and animations that
+  respect Windows' *reduce motion* setting.
+- **Fixed: *Add map hotkey* opened as *Change hotkey*.** After editing a system
+  hotkey, the next *Add map hotkey* dialog kept the previous title and hid the
+  map picker. It now resets every time it closes.
+- Italian: the hotkey-conflict banner now points to *Impostazioni → Hotkey*,
+  the tab's actual name.
+
 ### 0.3.4
 
 - **The update installer window looks like the app now.** Pressing **Restart and

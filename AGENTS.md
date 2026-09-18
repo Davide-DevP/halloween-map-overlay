@@ -23,7 +23,8 @@ window with a green background for streamers.
 | Layer | Tech |
 |-------|------|
 | Runtime | Electron 40 (Node.js, Chromium) |
-| Frontend | HTML/CSS/JS, Bootstrap 5, jQuery 4, Popper 2 |
+| Frontend | HTML/CSS/JS, Bootstrap 5 (re-skinned), jQuery 4, Popper 2 |
+| Fonts | `@fontsource-variable/geist` + `-geist-mono` (local, runtime deps) |
 | Image sizing | `image-size` (runtime), `sharp` (dev only, map prep) |
 | Screen capture | `node-screenshots` (runtime, prebuilt NAPI, asarUnpacked) |
 | Build/packaging | electron-builder (NSIS + portable) |
@@ -107,7 +108,29 @@ src/shared/i18n.js              → PURE t(lang, key, params), msg(),
 src/i18n/en.json, it.json       → Flat dotted key → string catalogues.
 src/shared/update-message.js    → PURE "Version X.Y.Z is ready." headline for
                                   the update banner. Tested.
-src/index.html                  → Main window markup (dark Bootstrap).
+src/index.html                  → Main window markup. No inline `<style>` and no
+                                  `style=` attributes (the one exception is
+                                  `#unset-pos`, which jQuery `.show()/.hide()`
+                                  owns).
+src/css/app.css                 → The whole theme. Design tokens on `:root`
+                                  (warm off-black surfaces, ONE accent
+                                  `--hmo-accent` #e8853a, radii, z-index scale,
+                                  easing) followed by Bootstrap overrides. It
+                                  re-skins Bootstrap rather than replacing it,
+                                  so every `data-bs-*` hook still works. No blue
+                                  and no green anywhere; `btn-success` /
+                                  `btn-primary` both map to the accent, the
+                                  alerts are quiet tinted panels with a left
+                                  rule, and destructive red is used for removals
+                                  only. Two traps: `--bs-alert-bg` holds a
+                                  gradient here, so `.alert` must paint it with
+                                  the `background` shorthand (Bootstrap's own
+                                  `background-color: var(…)` goes transparent);
+                                  and the navbar is `navbar-expand-md`, so its
+                                  collapsed-menu rules stop at 767.98px — the
+                                  default window is only 984px of viewport.
+                                  `--hmo-text-mute` is tuned to ≥ 4.5:1 on the
+                                  raised panel; do not darken it.
 src/renderer.js                 → Renderer entry: builds the renderer modules.
 src/js/maps.js                  → Gallery, current map, hotkey/CLI dispatch.
 src/js/options.js               → Settings modal (General + Overlay tabs).
@@ -141,7 +164,12 @@ test/                           → node:test unit tests for the pure modules.
   jQuery/Bootstrap are pulled in with `require` from `<script>` tags in the HTML.
   Bootstrap's CSS is loaded from `../node_modules/bootstrap/dist/css/` — it is a
   production dependency, so it is inside the asar in packaged builds. **Never
-  add a CDN link**; the app must work offline.
+  add a CDN link**; the app must work offline. The two fonts follow the same
+  rule: `@fontsource-variable/geist` (UI) and `@fontsource-variable/geist-mono`
+  (`kbd`, hotkey bindings, numeric readouts) are **runtime** dependencies linked
+  the same way, so electron-builder packages the woff2 files. The page CSP
+  (`default-src 'self'`, `connect-src 'none'`) is what makes that not a matter
+  of discipline; keep it as strict as it is.
 - **IPC**: `ipcMain.handle`/`ipcMain.on` in main, `ipcRenderer.invoke`/`.on` in
   the renderer. The renderer never reads a map file itself; it asks main.
 - **Map key format**: `Creator/Map Name` — no realm level, no extension,
@@ -1003,4 +1031,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-17 (0.3.4)*
+*Last updated: 2026-09-18 (0.4.0)*

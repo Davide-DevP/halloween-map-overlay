@@ -24,6 +24,8 @@
   "home.allCreators": "All creators",
   "home.obsOpen": "Open OBS window",
   "home.hideMap": "Hide map",
+  "home.onOverlay": "On overlay",
+  "home.empty.title": "No maps to show",
   "home.noMaps": "No maps found. Run <code>npm run prepare-maps</code> to build them.",
   "home.autoDetect": "Auto-detect map",
   "home.autoDetectHint": "(open the in-game map with <kbd>Tab</kbd>)",
@@ -87,6 +89,9 @@
   "settings.openLogFolder": "Open log folder",
   "settings.openLogFolder.help": "If auto-detect misbehaves, open this folder and send <code>detector.log</code> — it records what the detector decided (map, score, timing), never any image.",
   "settings.openLogFolder.failed": "The log folder could not be opened.",
+
+  "settings.value.px": "{value} px",
+  "settings.value.percent": "{value} %",
 
   "settings.overlay.previewNotice": "While this tab is open a preview image is shown on the overlay. Changes here apply to it directly.",
   "settings.monitor": "Monitor",

@@ -132,6 +132,7 @@ class Options {
             if (!result || !result.ok) showStatus(t('settings.openLogFolder.failed'));
         });
         $("#sizeRange").on("input", async function () {
+            classInstance.syncReadouts();
             await settings.set("size", $(this).val());
             refreshOverlay();
         }).val(settings.raw("size"));
@@ -142,6 +143,7 @@ class Options {
             const corner = presetToGlide(settings.raw("position"));
             $("#glideXRange").val(corner.x);
             $("#glideYRange").val(corner.y);
+            classInstance.syncReadouts();
             await settings.set("glideX", corner.x);
             await settings.set("glideY", corner.y);
         };
@@ -152,6 +154,7 @@ class Options {
             refreshOverlay();
         }).val(settings.raw("position"));
         $("#opacityRange").on("input", async function () {
+            classInstance.syncReadouts();
             await settings.set("opacity", $(this).val());
             refreshOverlay();
         }).val(settings.raw("opacity"));
@@ -183,13 +186,22 @@ class Options {
         const savedGlideX = settings.raw('glideX');
         const savedGlideY = settings.raw('glideY');
         $("#glideXRange").on("input", async function () {
+            classInstance.syncReadouts();
             await settings.set("glideX", parseInt($(this).val(), 10) || 0);
             refreshOverlay();
         }).val(savedGlideX !== null && savedGlideX !== undefined ? savedGlideX : initialCorner.x);
         $("#glideYRange").on("input", async function () {
+            classInstance.syncReadouts();
             await settings.set("glideY", parseInt($(this).val(), 10) || 0);
             refreshOverlay();
         }).val(savedGlideY !== null && savedGlideY !== undefined ? savedGlideY : initialCorner.y);
+
+        // Every slider carries its current value beside its label, in the mono
+        // face with tabular figures so the number does not jitter while it is
+        // dragged. Purely a readout: nothing here writes a setting, which is
+        // why the hotkeys (`Maps.nudgeOpacity`/`nudgeSize`) can call it too.
+        this.syncReadouts();
+        onChange(() => classInstance.syncReadouts());
         $("#glideReset").on("click", async function () {
             await snapGlideToPreset();
             refreshOverlay();
@@ -234,6 +246,20 @@ class Options {
                 classInstance.startPreview();
             }
         });
+    }
+
+    /**
+     * Re-read the four range sliders and print their values next to the labels.
+     * Display only — it never touches `Settings`, so it is safe to call from
+     * anywhere that moved a slider (the opacity/size hotkeys do).
+     */
+    syncReadouts() {
+        const px = (value) => t('settings.value.px', {value: Math.round(Number(value) || 0)});
+        const percent = (value) => t('settings.value.percent', {value: Math.round(Number(value) || 0)});
+        $("#sizeValue").text(px($("#sizeRange").val()));
+        $("#opacityValue").text(percent(Number($("#opacityRange").val()) * 100));
+        $("#glideXValue").text(percent($("#glideXRange").val()));
+        $("#glideYValue").text(percent($("#glideYRange").val()));
     }
 
     startPreview() {

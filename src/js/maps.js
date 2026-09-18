@@ -28,6 +28,9 @@ class Maps {
         // Last map picked, kept across hide/show so Ctrl+H can restore it
         this.lastKey = "";
         this.thumbnails = {};
+        // The staggered fade-up plays once, on the first gallery render. A
+        // filter change or a language change must not replay it.
+        this.hasRendered = false;
         this.init();
         // The gallery, the creator filter and the "showing" line are all built
         // with t(), so they have to be rebuilt when the language changes.
@@ -161,6 +164,9 @@ class Maps {
         // The slider only exists while the settings modal has been built; when
         // it is open it has to follow, or the next drag would snap back.
         if ($("#opacityRange").length) $("#opacityRange").val(String(next));
+        // The slider's numeric readout is written by Options, not by the input
+        // event (firing that would re-save the setting a second time).
+        if (this.options) this.options.syncReadouts();
         this.sendMap(this.currentKey || this.lastKey, {source: 'hotkey'});
         showStatus(t('toast.opacity', {percent: Math.round(next * 100)}));
     }
@@ -170,6 +176,7 @@ class Maps {
         const next = stepSize(this.settings.raw("size"), delta);
         await this.settings.set("size", next);
         if ($("#sizeRange").length) $("#sizeRange").val(String(next));
+        if (this.options) this.options.syncReadouts();
         this.sendMap(this.currentKey || this.lastKey, {source: 'hotkey'});
         showStatus(t('toast.size', {size: next}));
     }
@@ -225,26 +232,53 @@ class Maps {
         const $results = $("#results").empty();
 
         if (!entries.length) {
-            // Catalogue string, not user input — its markup is ours.
-            $results.append(`<p class="text-secondary">${t('home.noMaps')}</p>`);
+            // A composed empty state rather than a bare line of text. Both
+            // strings are catalogue strings, not user input — `home.noMaps`
+            // carries a <code> element, so its markup is ours on purpose.
+            $results.append(`
+                <div class="map-empty">
+                    <div class="map-empty-mark" aria-hidden="true"></div>
+                    <p class="map-empty-title">${escapeHtml(t('home.empty.title'))}</p>
+                    <p class="map-empty-body">${t('home.noMaps')}</p>
+                </div>
+            `);
             return;
         }
 
+        const stagger = !this.hasRendered;
+        let index = 0;
         for (const entry of entries) {
             const url = await this.thumbnail(entry.key);
             // Custom map names are user-typed; an unescaped quote truncates
             // data-key and an unescaped tag would run with Node access
             const $card = $(`
-                <div class="col-12 col-md-6 col-xl-4">
+                <div class="map-cell${stagger ? ' is-entering' : ''}" style="--hmo-i: ${index}">
                     <button type="button" class="map-card" data-key="${escapeHtml(entry.key)}">
-                        <img src="${escapeHtml(url)}" alt="${escapeHtml(entry.name)}" loading="lazy"/>
-                        <span class="map-card-name">${escapeHtml(entry.name)}</span>
-                        <span class="map-card-creator">${escapeHtml(entry.creator)}</span>
+                        <span class="map-card-thumb">
+                            <img src="${escapeHtml(url)}" alt="${escapeHtml(entry.name)}" loading="lazy"/>
+                        </span>
+                        <span class="map-card-body">
+                            <span>
+                                <span class="map-card-name">${escapeHtml(entry.name)}</span>
+                                <span class="map-card-creator">${escapeHtml(entry.creator)}</span>
+                            </span>
+                            <span class="map-card-flag">${escapeHtml(t('home.onOverlay'))}</span>
+                        </span>
                     </button>
                 </div>
             `);
+            // The skeleton shimmer clears when the thumbnail reports in. A
+            // cached object URL can be decoded before this runs, hence the
+            // `complete` check as well as the listener.
+            const $thumb = $card.find(".map-card-thumb");
+            const img = $card.find("img")[0];
+            const done = () => $thumb.addClass("is-loaded");
+            $(img).on("load", done).on("error", done);
+            if (img.complete && img.naturalWidth > 0) done();
             $results.append($card);
+            index += 1;
         }
+        this.hasRendered = true;
 
         const self = this;
         $("#results .map-card").on("click", function () {

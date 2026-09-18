@@ -53,3 +53,8 @@ License, Version 2.0 that applies to the source code of this project.
 This project is not affiliated with, endorsed by or connected to the developers
 or publishers of "Halloween: The Game", nor to Behaviour Interactive or
 "Dead by Daylight".
+
+The Geist and Geist Mono typefaces bundled with the application (npm packages
+@fontsource-variable/geist and @fontsource-variable/geist-mono) are Copyright
+Vercel, licensed under the SIL Open Font License 1.1; the licence text ships in
+each package's LICENSE file. They are NOT covered by the Apache License.

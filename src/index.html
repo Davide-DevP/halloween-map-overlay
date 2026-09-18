@@ -3,131 +3,40 @@
 <head>
     <meta charset="UTF-8"/>
     <!-- Everything this window needs is local. connect-src 'none' makes the
-         "no network calls" rule impossible to break by accident. -->
+         "no network calls" rule impossible to break by accident. The two font
+         families are npm packages under node_modules, like Bootstrap. -->
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'none'">
+    <meta name="description" content="Transparent in-game map overlay for Halloween: The Game."/>
     <title>Halloween Map Overlay</title>
+    <link rel="icon" href="images/icon.png"/>
     <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="../node_modules/@fontsource-variable/geist/index.css"/>
+    <link rel="stylesheet" href="../node_modules/@fontsource-variable/geist-mono/index.css"/>
+    <link rel="stylesheet" href="css/app.css"/>
 
     <script>var $ = require('jquery');</script>
     <script>var bootstrap = require('bootstrap');</script>
-
-    <style>
-        :root {
-            --hmo-bg: #14100f;
-            --hmo-panel: #1e1917;
-            --hmo-accent: #ff8a2b;
-        }
-
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #3a312d;
-            border-radius: 4px;
-        }
-
-        body {
-            background: radial-gradient(circle at 50% 0%, #241a12 0%, var(--hmo-bg) 60%);
-            min-height: 100vh;
-        }
-
-        .navbar-brand span {
-            color: var(--hmo-accent);
-            font-weight: 600;
-        }
-
-        .logalert {
-            display: none;
-            position: fixed;
-            bottom: 1rem;
-            right: 1rem;
-            z-index: 1080;
-            max-width: 22rem;
-        }
-
-        .loading-overlay {
-            position: fixed;
-            inset: 0;
-            background-color: rgba(0, 0, 0, 0.8);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-        }
-
-        /* Map gallery */
-        .map-card {
-            display: block;
-            width: 100%;
-            padding: 0.5rem;
-            border: 1px solid #332b27;
-            border-radius: 0.75rem;
-            background: var(--hmo-panel);
-            color: inherit;
-            text-align: center;
-            transition: border-color .15s ease, transform .15s ease;
-        }
-
-        .map-card:hover {
-            border-color: var(--hmo-accent);
-            transform: translateY(-2px);
-        }
-
-        .map-card.active {
-            border-color: var(--hmo-accent);
-            box-shadow: 0 0 0 2px rgba(255, 138, 43, .35);
-        }
-
-        .map-card img {
-            width: 100%;
-            aspect-ratio: 1 / 1;
-            object-fit: contain;
-            border-radius: 0.5rem;
-            background: #000;
-        }
-
-        .map-card-name {
-            display: block;
-            margin-top: .5rem;
-            font-weight: 600;
-        }
-
-        .map-card-creator {
-            display: block;
-            font-size: .8rem;
-            color: #9e938d;
-        }
-
-        kbd {
-            background: #2c2522;
-        }
-
-        .detector-bar {
-            border: 1px solid #332b27;
-            border-radius: 0.75rem;
-            background: var(--hmo-panel);
-            padding: 0.6rem 0.9rem;
-        }
-    </style>
 </head>
 <body>
 
+<!-- Fixed, pointer-events:none film grain over the whole window. -->
+<div class="grain" aria-hidden="true"></div>
+
 <div id="loadingOverlay" class="loading-overlay">
-    <div class="d-flex flex-column align-items-center">
-        <img src="images/icon.png" alt="" style="width: 120px">
-        <div class="spinner-border text-warning my-3" role="status">
+    <div class="loading-inner">
+        <img src="images/icon.png" alt="" class="loading-mark">
+        <div class="loading-bar" role="status">
             <span class="visually-hidden" data-i18n="app.loading">Loading…</span>
         </div>
         <span id="loadingContent"></span>
     </div>
 </div>
 
-<nav class="navbar navbar-expand-lg border-bottom border-secondary-subtle">
-    <div class="container-fluid">
+<nav class="navbar navbar-expand-md">
+    <div class="container">
         <a class="navbar-brand d-flex align-items-center gap-2" href="#">
-            <img src="images/icon.png" alt="" style="height: 2em;">
+            <img src="images/icon.png" alt="">
             <span id="title">Halloween Map Overlay</span>
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarText"
@@ -136,7 +45,7 @@
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarText">
-            <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+            <ul class="navbar-nav ms-auto mb-2 mb-md-0">
                 <li class="nav-item"><a class="nav-link" role="button" data-bs-toggle="modal" data-bs-target="#settings" data-i18n="nav.settings">Settings</a></li>
                 <li class="nav-item"><a class="nav-link" role="button" data-bs-toggle="modal" data-bs-target="#custom_modal" data-i18n="nav.custom">Add custom image</a></li>
                 <li class="nav-item"><a class="nav-link" role="button" data-bs-toggle="modal" data-bs-target="#faqModal" data-i18n="nav.faq">FAQ</a></li>
@@ -146,33 +55,33 @@
     </div>
 </nav>
 
-<main class="container py-4">
+<main class="container">
 
     <!-- Shown only once an update has finished downloading. Deliberately has no
          auto-hide: nothing installs until the user presses the button. -->
-    <div class="alert alert-success d-none mb-3" role="alert" id="updateReady">
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div class="alert note-accent d-none mb-3" role="alert" id="updateReady">
+        <div class="banner-row">
             <div>
                 <strong id="updateReadyHeadline">A new version is ready.</strong>
                 <span data-i18n="update.ready.body">Restart and update &mdash; the app closes, installs for a few
                     seconds (disk-heavy, an installer window shows progress) and reopens by itself.</span>
             </div>
-            <div class="d-flex align-items-center gap-3">
-                <button type="button" class="btn btn-success btn-sm" id="updateRestart" data-i18n="update.restart">Restart and update</button>
-                <button type="button" class="btn btn-link btn-sm p-0 text-body-secondary text-decoration-underline" id="updateLater" data-i18n="update.later">Later</button>
+            <div class="banner-actions">
+                <button type="button" class="btn btn-primary btn-sm" id="updateRestart" data-i18n="update.restart">Restart and update</button>
+                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-underline" id="updateLater" data-i18n="update.later">Later</button>
             </div>
         </div>
     </div>
 
     <!-- The previous run ended in a crash the user has not been told about.
          Asked for on load, never pushed: the process that crashed is gone. -->
-    <div class="alert alert-danger d-none mb-3" role="alert" id="crashNotice">
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div class="alert note-danger d-none mb-3" role="alert" id="crashNotice">
+        <div class="banner-row">
             <span data-i18n="crash.notice">The app closed unexpectedly last time. Create a diagnostic report and send
                 it.</span>
-            <div class="d-flex align-items-center gap-3">
-                <button type="button" class="btn btn-danger btn-sm" id="crashReportBtn" data-i18n="diagnostics.create">Create diagnostic report</button>
-                <button type="button" class="btn btn-link btn-sm p-0 text-body-secondary text-decoration-underline"
+            <div class="banner-actions">
+                <button type="button" class="btn btn-outline-danger btn-sm" id="crashReportBtn" data-i18n="diagnostics.create">Create diagnostic report</button>
+                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-underline"
                         id="crashDismiss" data-i18n="crash.dismiss">Dismiss</button>
             </div>
         </div>
@@ -180,49 +89,56 @@
 
     <!-- One banner for every hotkey another application already owns, updated
          in place on each reload. Not a toast: a reload binds a dozen at once. -->
-    <div class="alert alert-warning d-none mb-3" role="alert" id="hotkeyConflict">
+    <div class="alert note-warn d-none mb-3" role="alert" id="hotkeyConflict">
         <strong data-i18n="hotkeyConflict.title">Some hotkeys could not be registered:</strong>
         <span id="hotkeyConflictList"></span>
         <span data-i18n="hotkeyConflict.help">— already used by another app (Discord, NVIDIA, …). Change them in
             Settings → Hotkeys.</span>
     </div>
 
-    <div class="alert alert-warning alert-dismissible fade d-none" role="alert" id="warning">
+    <div class="alert note-warn alert-dismissible fade d-none mb-3" role="alert" id="warning">
         <span data-i18n-html="home.fullscreenNotice">Playing in exclusive fullscreen? Switch the game to
             <strong>Borderless Windowed</strong> so the overlay stays on top. See the FAQ for details.</span>
         <button type="button" class="btn-close" data-bs-dismiss="alert" data-i18n-aria-label="common.close" aria-label="Close"></button>
     </div>
 
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+    <header class="page-head">
         <div>
-            <h1 class="h3 mb-1" data-i18n="home.maps">Maps</h1>
-            <p class="text-secondary mb-0 small"><span data-i18n="home.showing">Showing on the overlay:</span>
-                <strong id="currentMap">None</strong></p>
+            <h1 data-i18n="home.maps">Maps</h1>
+            <p class="now-showing">
+                <span data-i18n="home.showing">Showing on the overlay:</span>
+                <strong id="currentMap">None</strong>
+            </p>
         </div>
-        <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="head-actions">
             <div class="creator-filter">
-                <select class="form-select" id="creatorSelect" style="min-width: 12rem;"
+                <select class="form-select" id="creatorSelect"
                         data-i18n-aria-label="home.filterByCreator" aria-label="Filter by creator">
                     <option value="" data-i18n="home.allCreators">All creators</option>
                 </select>
             </div>
-            <button class="btn btn-outline-light" type="button" id="obsOpen" data-i18n="home.obsOpen">Open OBS window</button>
-            <button class="btn btn-outline-danger" type="button" id="hide" data-i18n="home.hideMap">Hide map</button>
+            <button class="btn btn-accent" type="button" id="obsOpen" data-i18n="home.obsOpen">Open OBS window</button>
+            <button class="btn btn-quiet" type="button" id="hide" data-i18n="home.hideMap">Hide map</button>
         </div>
-    </div>
+    </header>
 
-    <div class="detector-bar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
-        <div class="form-check form-switch mb-0">
+    <div class="detector-bar">
+        <div class="form-check form-switch detector-switch">
             <input class="form-check-input" type="checkbox" id="mapDetectionCheck" role="switch">
             <label class="form-check-label" for="mapDetectionCheck">
-                <span data-i18n="home.autoDetect">Auto-detect map</span>
-                <span class="text-secondary" data-i18n-html="home.autoDetectHint">(open the in-game map with <kbd>Tab</kbd>)</span>
+                <span class="detector-switch-name" data-i18n="home.autoDetect">Auto-detect map</span>
+                <span class="detector-hint" data-i18n-html="home.autoDetectHint">(open the in-game map with <kbd>Tab</kbd>)</span>
             </label>
         </div>
-        <span class="small text-secondary" id="detectorStatus">Off</span>
+        <!-- `data-state` is written by src/js/detector.js from the same status
+             push that fills the text: off / watching / menu / detected. -->
+        <span class="detector-readout" id="detectorReadout" data-state="off">
+            <span class="detector-dot" aria-hidden="true"></span>
+            <span id="detectorStatus">Off</span>
+        </span>
     </div>
 
-    <div class="row g-3" id="results"></div>
+    <div class="map-grid" id="results"></div>
 </main>
 
 <!-- Settings -->
@@ -230,7 +146,7 @@
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h1 class="modal-title fs-5" data-i18n="settings.title">Settings</h1>
+                <h1 class="modal-title" data-i18n="settings.title">Settings</h1>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -252,177 +168,246 @@
                     </li>
                 </ul>
 
-                <div class="tab-content pt-3" id="settingsTabContent">
+                <div class="tab-content" id="settingsTabContent">
 
                     <!-- General -->
                     <div class="tab-pane fade show active" id="settings-general" role="tabpanel">
-                        <label for="languageSelect" class="form-label" data-i18n="settings.language">Language</label>
-                        <select class="form-select" id="languageSelect">
-                            <!-- Language names stay in their own language, like
-                                 every other language picker. -->
-                            <option value="system" data-i18n="settings.language.system">Follow the system</option>
-                            <option value="en" data-i18n-ignore>English</option>
-                            <option value="it" data-i18n-ignore>Italiano</option>
-                        </select>
-                        <small class="text-secondary d-block mb-3" data-i18n="settings.language.help">Applies straight
-                            away — no restart. Map and creator names are never translated.</small>
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="minimizeToTrayCheck" role="switch">
-                            <label class="form-check-label" for="minimizeToTrayCheck" data-i18n="settings.minimizeToTray">Minimize to tray</label>
+                        <div class="setting">
+                            <div class="setting-head">
+                                <label for="languageSelect" class="form-label" data-i18n="settings.language">Language</label>
+                            </div>
+                            <select class="form-select mb-2" id="languageSelect">
+                                <!-- Language names stay in their own language, like
+                                     every other language picker. -->
+                                <option value="system" data-i18n="settings.language.system">Follow the system</option>
+                                <option value="en" data-i18n-ignore>English</option>
+                                <option value="it" data-i18n-ignore>Italiano</option>
+                            </select>
+                            <small class="help-text" data-i18n="settings.language.help">Applies straight
+                                away — no restart. Map and creator names are never translated.</small>
                         </div>
-                        <small class="text-secondary d-block mb-3" data-i18n="settings.minimizeToTray.help">Closing or
-                            minimizing the window keeps the app running in the system tray instead of quitting.</small>
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="disableFaqPopupCheck" role="switch">
-                            <label class="form-check-label" for="disableFaqPopupCheck" data-i18n="settings.hideFaqPopup">Hide the fullscreen notice</label>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="minimizeToTrayCheck" role="switch">
+                                <label class="form-check-label" for="minimizeToTrayCheck" data-i18n="settings.minimizeToTray">Minimize to tray</label>
+                            </div>
+                            <small class="help-text" data-i18n="settings.minimizeToTray.help">Closing or
+                                minimizing the window keeps the app running in the system tray instead of quitting.</small>
                         </div>
-                        <small class="text-secondary d-block mb-3" data-i18n="settings.hideFaqPopup.help">Stops the
-                            borderless-windowed reminder showing on startup.</small>
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="hideInMenuCheck" role="switch">
-                            <label class="form-check-label" for="hideInMenuCheck" data-i18n="settings.hideInMenu">Clear the map back in the menu</label>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="disableFaqPopupCheck" role="switch">
+                                <label class="form-check-label" for="disableFaqPopupCheck" data-i18n="settings.hideFaqPopup">Hide the fullscreen notice</label>
+                            </div>
+                            <small class="help-text" data-i18n="settings.hideFaqPopup.help">Stops the
+                                borderless-windowed reminder showing on startup.</small>
                         </div>
-                        <small class="text-secondary d-block mb-3" data-i18n-html="settings.hideInMenu.help">Only with
-                            <em>Auto-detect map</em> on: when the game returns to its main menu the match is over, so
-                            the overlay clears itself. The next <kbd>Tab</kbd> press detects the map again, even the
-                            same one.</small>
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="checkForUpdatesCheck" role="switch">
-                            <label class="form-check-label" for="checkForUpdatesCheck" data-i18n="settings.checkForUpdates">Check for updates on startup</label>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="hideInMenuCheck" role="switch">
+                                <label class="form-check-label" for="hideInMenuCheck" data-i18n="settings.hideInMenu">Clear the map back in the menu</label>
+                            </div>
+                            <small class="help-text" data-i18n-html="settings.hideInMenu.help">Only with
+                                <em>Auto-detect map</em> on: when the game returns to its main menu the match is over, so
+                                the overlay clears itself. The next <kbd>Tab</kbd> press detects the map again, even the
+                                same one.</small>
                         </div>
-                        <small class="text-secondary d-block mb-3" data-i18n="settings.checkForUpdates.help">The only
-                            network request this app makes: one HTTPS call to GitHub Releases at startup to see whether
-                            a newer version exists. Turn it off to run fully offline. Map images are never downloaded —
-                            they ship inside the app.</small>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="openLogFolder"
-                                data-i18n="settings.openLogFolder">Open log folder
-                        </button>
-                        <small class="text-secondary d-block mt-2 mb-3" data-i18n-html="settings.openLogFolder.help">If
-                            auto-detect misbehaves, open this folder and send <code>detector.log</code> — it records
-                            what the detector decided, never any image.</small>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="createReport"
-                                data-i18n="diagnostics.create">Create diagnostic report
-                        </button>
-                        <small class="text-secondary d-block mt-2" data-i18n-html="diagnostics.create.help">Saves one
-                            <code>.zip</code> on your Desktop with the logs, your settings and a description of this PC,
-                            then opens the folder so you can attach it. Nothing is uploaded, and it contains no
-                            screenshots and no map images.</small>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="checkForUpdatesCheck" role="switch">
+                                <label class="form-check-label" for="checkForUpdatesCheck" data-i18n="settings.checkForUpdates">Check for updates on startup</label>
+                            </div>
+                            <small class="help-text" data-i18n="settings.checkForUpdates.help">The only
+                                network request this app makes: one HTTPS call to GitHub Releases at startup to see whether
+                                a newer version exists. Turn it off to run fully offline. Map images are never downloaded —
+                                they ship inside the app.</small>
+                        </div>
+
+                        <div class="setting">
+                            <div class="setting-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="openLogFolder"
+                                        data-i18n="settings.openLogFolder">Open log folder</button>
+                            </div>
+                            <small class="help-text" data-i18n-html="settings.openLogFolder.help">If
+                                auto-detect misbehaves, open this folder and send <code>detector.log</code> — it records
+                                what the detector decided, never any image.</small>
+                        </div>
+
+                        <div class="setting">
+                            <div class="setting-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="createReport"
+                                        data-i18n="diagnostics.create">Create diagnostic report</button>
+                            </div>
+                            <small class="help-text" data-i18n-html="diagnostics.create.help">Saves one
+                                <code>.zip</code> on your Desktop with the logs, your settings and a description of this PC,
+                                then opens the folder so you can attach it. Nothing is uploaded, and it contains no
+                                screenshots and no map images.</small>
+                        </div>
                     </div>
 
                     <!-- Overlay -->
                     <div class="tab-pane fade" id="settings-overlay" role="tabpanel">
-                        <div class="alert alert-info py-2 px-3 mb-3" data-i18n="settings.overlay.previewNotice">
+                        <div class="alert note-accent mb-3" data-i18n="settings.overlay.previewNotice">
                             While this tab is open a preview image is shown on the overlay. Changes here apply to it
                             directly.
                         </div>
 
-                        <label for="monitorSelect" class="form-label" data-i18n="settings.monitor">Monitor</label>
-                        <select class="form-select mb-3" id="monitorSelect">
-                            <option value="0" data-i18n="settings.monitor.primary">Primary monitor</option>
-                        </select>
-
-                        <label for="sizeRange" class="form-label" data-i18n="settings.size">Overlay size</label>
-                        <input type="range" class="form-range mb-3" min="50" max="800" step="25" id="sizeRange">
-
-                        <label for="positionLabel" class="form-label" data-i18n="settings.corner">Corner</label>
-                        <select class="form-select mb-3" id="positionLabel">
-                            <option value="1" data-i18n="settings.corner.topLeft">Top left</option>
-                            <option value="2" data-i18n="settings.corner.topRight">Top right</option>
-                            <option value="3" data-i18n="settings.corner.bottomLeft">Bottom left</option>
-                            <option value="4" data-i18n="settings.corner.bottomRight">Bottom right</option>
-                        </select>
-
-                        <label class="form-label fw-semibold mb-0" data-i18n="settings.glide">Fine-grain position</label>
-                        <small class="text-secondary d-block mb-2" data-i18n="settings.glide.help">0 is the left/top
-                            edge of the screen, 100 the right/bottom edge.</small>
-                        <label for="glideXRange" class="form-label" data-i18n="settings.glideX">Horizontal (X)</label>
-                        <input type="range" class="form-range" min="0" max="100" step="1" value="0" id="glideXRange">
-                        <label for="glideYRange" class="form-label" data-i18n="settings.glideY">Vertical (Y)</label>
-                        <input type="range" class="form-range" min="0" max="100" step="1" value="0" id="glideYRange">
-                        <button class="btn btn-outline-light btn-sm mb-3" id="glideReset" data-i18n="settings.glideReset">Snap to selected corner</button>
-
-                        <label for="opacityRange" class="form-label" data-i18n="settings.opacity">Opacity</label>
-                        <input type="range" class="form-range mb-3" min="0.1" max="1" step="0.1" id="opacityRange">
-
-                        <label for="rotationSelect" class="form-label" data-i18n="settings.rotation">Rotation</label>
-                        <select class="form-select mb-3" id="rotationSelect">
-                            <option value="0" data-i18n="settings.rotation.none">None (0&deg;)</option>
-                            <option value="90">90&deg;</option>
-                            <option value="180">180&deg;</option>
-                            <option value="270">270&deg;</option>
-                        </select>
-
-                        <label for="mapLabelSelect" class="form-label" data-i18n="settings.mapLabel">Map name on the overlay</label>
-                        <select class="form-select" id="mapLabelSelect">
-                            <option value="auto" data-i18n="settings.mapLabel.auto">After an automatic switch</option>
-                            <option value="always" data-i18n="settings.mapLabel.always">Always</option>
-                            <option value="never" data-i18n="settings.mapLabel.never">Never</option>
-                        </select>
-                        <small class="text-secondary d-block mb-3" data-i18n="settings.mapLabel.help">Shown at the
-                            bottom of the overlay, never rotated with the map, at the same opacity. The OBS window
-                            follows the same setting.</small>
-
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="hiddenCheck" role="switch">
-                            <label class="form-check-label" for="hiddenCheck" data-i18n="settings.hideOverlay">Overlay hidden</label>
+                        <div class="setting">
+                            <div class="setting-head">
+                                <label for="monitorSelect" class="form-label" data-i18n="settings.monitor">Monitor</label>
+                            </div>
+                            <select class="form-select" id="monitorSelect">
+                                <option value="0" data-i18n="settings.monitor.primary">Primary monitor</option>
+                            </select>
                         </div>
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="dragCheck" role="switch">
-                            <label class="form-check-label" for="dragCheck" data-i18n="settings.draggable">Overlay draggable</label>
+
+                        <div class="setting">
+                            <div class="setting-head">
+                                <label for="sizeRange" class="form-label" data-i18n="settings.size">Overlay size</label>
+                                <span class="setting-value num" id="sizeValue"></span>
+                            </div>
+                            <input type="range" class="form-range" min="50" max="800" step="25" id="sizeRange">
                         </div>
-                        <div class="mb-2">
-                            <button class="btn btn-outline-light btn-sm" id="set-pos" data-i18n="settings.setPosition">Set position</button>
-                            <button class="btn btn-warning btn-sm" id="unset-pos" style="display: none" data-i18n="settings.stopSetPosition">Stop setting position</button>
+
+                        <div class="setting">
+                            <div class="setting-head">
+                                <label for="opacityRange" class="form-label" data-i18n="settings.opacity">Opacity</label>
+                                <span class="setting-value num" id="opacityValue"></span>
+                            </div>
+                            <input type="range" class="form-range" min="0.1" max="1" step="0.1" id="opacityRange">
                         </div>
-                        <div class="alert alert-warning py-2 px-3 d-none" id="waylandWarning" data-i18n="settings.waylandWarning">
-                            This session runs on Wayland, where dragging the overlay does not work. Use the fine-grain
-                            position sliders instead.
+
+                        <div class="setting">
+                            <div class="setting-head">
+                                <label for="positionLabel" class="form-label" data-i18n="settings.corner">Corner</label>
+                            </div>
+                            <select class="form-select" id="positionLabel">
+                                <option value="1" data-i18n="settings.corner.topLeft">Top left</option>
+                                <option value="2" data-i18n="settings.corner.topRight">Top right</option>
+                                <option value="3" data-i18n="settings.corner.bottomLeft">Bottom left</option>
+                                <option value="4" data-i18n="settings.corner.bottomRight">Bottom right</option>
+                            </select>
                         </div>
-                        <p class="small text-secondary" data-i18n-html="settings.placeByHand">To place the overlay by
-                            hand: show a map, press <em>Set position</em>, drag the overlay with the mouse, then press
-                            <em>Stop setting position</em>.</p>
-                        <div class="alert alert-warning py-2 px-3 mb-0" data-i18n="settings.setPositionWarning">
-                            Forgetting to stop setting position leaves the overlay catching your mouse clicks in game.
+
+                        <div class="setting">
+                            <p class="setting-group-title" data-i18n="settings.glide">Fine-grain position</p>
+                            <small class="help-text mb-3 d-block" data-i18n="settings.glide.help">0 is the left/top
+                                edge of the screen, 100 the right/bottom edge.</small>
+                            <div class="setting-head">
+                                <label for="glideXRange" class="form-label" data-i18n="settings.glideX">Horizontal (X)</label>
+                                <span class="setting-value num" id="glideXValue"></span>
+                            </div>
+                            <input type="range" class="form-range mb-2" min="0" max="100" step="1" value="0" id="glideXRange">
+                            <div class="setting-head">
+                                <label for="glideYRange" class="form-label" data-i18n="settings.glideY">Vertical (Y)</label>
+                                <span class="setting-value num" id="glideYValue"></span>
+                            </div>
+                            <input type="range" class="form-range mb-3" min="0" max="100" step="1" value="0" id="glideYRange">
+                            <div class="setting-actions">
+                                <button class="btn btn-secondary btn-sm" id="glideReset" data-i18n="settings.glideReset">Snap to selected corner</button>
+                            </div>
+                        </div>
+
+                        <div class="setting">
+                            <div class="setting-head">
+                                <label for="rotationSelect" class="form-label" data-i18n="settings.rotation">Rotation</label>
+                            </div>
+                            <select class="form-select" id="rotationSelect">
+                                <option value="0" data-i18n="settings.rotation.none">None (0&deg;)</option>
+                                <option value="90">90&deg;</option>
+                                <option value="180">180&deg;</option>
+                                <option value="270">270&deg;</option>
+                            </select>
+                        </div>
+
+                        <div class="setting">
+                            <div class="setting-head">
+                                <label for="mapLabelSelect" class="form-label" data-i18n="settings.mapLabel">Map name on the overlay</label>
+                            </div>
+                            <select class="form-select mb-2" id="mapLabelSelect">
+                                <option value="auto" data-i18n="settings.mapLabel.auto">After an automatic switch</option>
+                                <option value="always" data-i18n="settings.mapLabel.always">Always</option>
+                                <option value="never" data-i18n="settings.mapLabel.never">Never</option>
+                            </select>
+                            <small class="help-text" data-i18n="settings.mapLabel.help">Shown at the
+                                bottom of the overlay, never rotated with the map, at the same opacity. The OBS window
+                                follows the same setting.</small>
+                        </div>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="hiddenCheck" role="switch">
+                                <label class="form-check-label" for="hiddenCheck" data-i18n="settings.hideOverlay">Overlay hidden</label>
+                            </div>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="dragCheck" role="switch">
+                                <label class="form-check-label" for="dragCheck" data-i18n="settings.draggable">Overlay draggable</label>
+                            </div>
+                            <div class="setting-actions">
+                                <button class="btn btn-secondary btn-sm" id="set-pos" data-i18n="settings.setPosition">Set position</button>
+                                <!-- display:none stays inline: src/js/options.js toggles these
+                                     two with jQuery .show()/.hide(). -->
+                                <button class="btn btn-warning btn-sm" id="unset-pos" style="display: none" data-i18n="settings.stopSetPosition">Stop setting position</button>
+                            </div>
+                            <div class="alert note-warn d-none mb-3" id="waylandWarning" data-i18n="settings.waylandWarning">
+                                This session runs on Wayland, where dragging the overlay does not work. Use the fine-grain
+                                position sliders instead.
+                            </div>
+                            <small class="help-text mb-3 d-block" data-i18n-html="settings.placeByHand">To place the overlay by
+                                hand: show a map, press <em>Set position</em>, drag the overlay with the mouse, then press
+                                <em>Stop setting position</em>.</small>
+                            <div class="alert note-warn" data-i18n="settings.setPositionWarning">
+                                Forgetting to stop setting position leaves the overlay catching your mouse clicks in game.
+                            </div>
                         </div>
                     </div>
 
                     <!-- Hotkeys -->
                     <div class="tab-pane fade" id="settings-hotkeys" role="tabpanel">
-                        <h2 class="fs-6 text-uppercase text-secondary" data-i18n="hotkeys.system">System</h2>
-                        <table class="table table-sm table-bordered align-middle">
-                            <thead>
-                            <tr>
-                                <th data-i18n="hotkeys.col.action">Action</th>
-                                <th data-i18n="hotkeys.col.binding">Binding</th>
-                                <th></th>
-                                <th></th>
-                            </tr>
-                            </thead>
-                            <tbody id="systemHotkeyList"></tbody>
-                        </table>
-
-                        <div class="d-flex align-items-center justify-content-between mt-4 mb-2">
-                            <h2 class="fs-6 text-uppercase text-secondary mb-0" data-i18n="hotkeys.maps">Maps</h2>
-                            <button class="btn btn-primary btn-sm" data-bs-toggle="modal"
-                                    data-bs-target="#addHotkeyModal" data-i18n="hotkeys.add">Add map hotkey</button>
+                        <div class="table-section">
+                            <div class="section-head">
+                                <h2 class="section-title" data-i18n="hotkeys.system">System</h2>
+                            </div>
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th data-i18n="hotkeys.col.action">Action</th>
+                                    <th data-i18n="hotkeys.col.binding">Binding</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody id="systemHotkeyList"></tbody>
+                            </table>
                         </div>
-                        <table class="table table-sm table-bordered align-middle">
-                            <thead>
-                            <tr>
-                                <th data-i18n="hotkeys.col.hotkey">Hotkey</th>
-                                <th data-i18n="hotkeys.col.map">Map</th>
-                                <th data-i18n="hotkeys.col.creator">Creator</th>
-                                <th></th>
-                            </tr>
-                            </thead>
-                            <tbody id="hotkeyList"></tbody>
-                        </table>
 
-                        <div id="hotkeyToast" class="toast align-items-center text-white border-0 position-fixed bottom-0 end-0 mb-3 me-3"
+                        <div class="table-section">
+                            <div class="section-head">
+                                <h2 class="section-title" data-i18n="hotkeys.maps">Maps</h2>
+                                <button class="btn btn-accent btn-sm" data-bs-toggle="modal"
+                                        data-bs-target="#addHotkeyModal" data-i18n="hotkeys.add">Add map hotkey</button>
+                            </div>
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th data-i18n="hotkeys.col.hotkey">Hotkey</th>
+                                    <th data-i18n="hotkeys.col.map">Map</th>
+                                    <th data-i18n="hotkeys.col.creator">Creator</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody id="hotkeyList"></tbody>
+                            </table>
+                        </div>
+
+                        <div id="hotkeyToast" class="toast align-items-center border-0 position-fixed bottom-0 end-0 mb-3 me-3"
                              role="alert" aria-live="assertive" aria-atomic="true">
                             <div class="d-flex">
                                 <div class="toast-body" id="hotkeyToastBody"></div>
-                                <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                                <button type="button" class="btn-close me-2 m-auto"
                                         data-bs-dismiss="toast" data-i18n-aria-label="common.close" aria-label="Close"></button>
                             </div>
                         </div>
@@ -449,7 +434,7 @@
             </div>
             <div class="modal-body">
                 <label for="hotkeyInput" class="form-label" data-i18n="hotkeys.modal.prompt">Press a key combination</label>
-                <input type="text" class="form-control" id="hotkeyInput"
+                <input type="text" class="form-control num" id="hotkeyInput"
                        data-i18n-placeholder="hotkeys.modal.placeholder" placeholder="Press a key…" readonly>
                 <div id="mapSelectField">
                     <label for="selectMap" class="form-label mt-3" data-i18n="hotkeys.modal.map">Map</label>
@@ -474,17 +459,27 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h1 class="modal-title fs-5" data-i18n="custom.title">Add custom image</h1>
+                <h1 class="modal-title" data-i18n="custom.title">Add custom image</h1>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <label for="custom_name" class="form-label" data-i18n="custom.name">Map name</label>
-                <input id="custom_name" type="text" class="form-control mb-3"
-                       data-i18n-placeholder="custom.name.placeholder" placeholder="My map">
-                <label for="custom_file" class="form-label" data-i18n="custom.file">Image file (PNG, JPG or WEBP)</label>
-                <input id="custom_file" class="form-control mb-3" type="file" accept="image/png,image/jpeg,image/webp">
-                <button class="btn btn-success mb-3" onclick="addCustomMap()" data-i18n="custom.add">Add image</button>
-                <table class="table table-sm align-middle" id="customList"></table>
+                <div class="setting">
+                    <div class="setting-head">
+                        <label for="custom_name" class="form-label" data-i18n="custom.name">Map name</label>
+                    </div>
+                    <input id="custom_name" type="text" class="form-control mb-3"
+                           data-i18n-placeholder="custom.name.placeholder" placeholder="My map">
+                    <div class="setting-head">
+                        <label for="custom_file" class="form-label" data-i18n="custom.file">Image file (PNG, JPG or WEBP)</label>
+                    </div>
+                    <input id="custom_file" class="form-control mb-3" type="file" accept="image/png,image/jpeg,image/webp">
+                    <div class="setting-actions">
+                        <button class="btn btn-accent" onclick="addCustomMap()" data-i18n="custom.add">Add image</button>
+                    </div>
+                </div>
+                <div class="table-section mt-3">
+                    <table class="table table-sm align-middle" id="customList"></table>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="common.close">Close</button>
@@ -495,7 +490,7 @@
 
 <!-- FAQ -->
 <div class="modal fade" id="faqModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" data-i18n="faq.title">Frequently asked questions</h5>
@@ -504,40 +499,58 @@
             <!-- Every answer carries markup (<kbd>, <em>, <code>), so these are
                  data-i18n-html. The strings come from our own catalogues only —
                  nothing a user typed ever reaches innerHTML. -->
-            <div class="modal-body">
-                <h6 data-i18n="faq.fullscreen.q">The overlay does not show over the game</h6>
-                <p data-i18n-html="faq.fullscreen.a">Set <em>Halloween: The Game</em> to
-                    <strong>Borderless Windowed</strong> in its video settings.</p>
+            <div class="modal-body faq">
+                <div class="faq-item">
+                    <h6 data-i18n="faq.fullscreen.q">The overlay does not show over the game</h6>
+                    <p data-i18n-html="faq.fullscreen.a">Set <em>Halloween: The Game</em> to
+                        <strong>Borderless Windowed</strong> in its video settings.</p>
+                </div>
 
-                <h6 data-i18n="faq.ban.q">Can the app get me banned?</h6>
-                <p data-i18n-html="faq.ban.a">It only displays image files that ship with it.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.ban.q">Can the app get me banned?</h6>
+                    <p data-i18n-html="faq.ban.a">It only displays image files that ship with it.</p>
+                </div>
 
-                <h6 data-i18n="faq.screenshots.q">Does it take screenshots?</h6>
-                <p data-i18n-html="faq.screenshots.a">Only if you switch <em>Auto-detect map</em> on, and it is
-                    <strong>off by default</strong>.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.screenshots.q">Does it take screenshots?</h6>
+                    <p data-i18n-html="faq.screenshots.a">Only if you switch <em>Auto-detect map</em> on, and it is
+                        <strong>off by default</strong>.</p>
+                </div>
 
-                <h6 data-i18n="faq.internet.q">Does it use the internet?</h6>
-                <p data-i18n-html="faq.internet.a">Once, at startup: it asks GitHub whether a newer version of this
-                    app has been released, and nothing else.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.internet.q">Does it use the internet?</h6>
+                    <p data-i18n-html="faq.internet.a">Once, at startup: it asks GitHub whether a newer version of this
+                        app has been released, and nothing else.</p>
+                </div>
 
-                <h6 data-i18n="faq.updates.q">How do updates work?</h6>
-                <p data-i18n-html="faq.updates.a">When a newer version exists it is downloaded quietly in the
-                    background.</p>
-                <p data-i18n-html="faq.updates.a2">If an update still drags, what is left is usually your antivirus
-                    reading every unpacked file.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.updates.q">How do updates work?</h6>
+                    <p data-i18n-html="faq.updates.a">When a newer version exists it is downloaded quietly in the
+                        background.</p>
+                    <p data-i18n-html="faq.updates.a2">If an update still drags, what is left is usually your antivirus
+                        reading every unpacked file.</p>
+                </div>
 
-                <h6 data-i18n="faq.autodetect.q">How does auto-detect work?</h6>
-                <p data-i18n-html="faq.autodetect.a">Switch <em>Auto-detect map</em> on above the gallery, then press
-                    <kbd>Tab</kbd> in the game once at the start of a match.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.autodetect.q">How does auto-detect work?</h6>
+                    <p data-i18n-html="faq.autodetect.a">Switch <em>Auto-detect map</em> on above the gallery, then press
+                        <kbd>Tab</kbd> in the game once at the start of a match.</p>
+                </div>
 
-                <h6 data-i18n="faq.inTheWay.q">The overlay is in the way</h6>
-                <p data-i18n-html="faq.inTheWay.a">Press <kbd>Ctrl</kbd> + <kbd>H</kbd> to hide it.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.inTheWay.q">The overlay is in the way</h6>
+                    <p data-i18n-html="faq.inTheWay.a">Press <kbd>Ctrl</kbd> + <kbd>H</kbd> to hide it.</p>
+                </div>
 
-                <h6 data-i18n="faq.obs.q">How do I record it in OBS?</h6>
-                <p data-i18n-html="faq.obs.a">Press <em>Open OBS window</em>, then capture that window in OBS.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.obs.q">How do I record it in OBS?</h6>
+                    <p data-i18n-html="faq.obs.a">Press <em>Open OBS window</em>, then capture that window in OBS.</p>
+                </div>
 
-                <h6 data-i18n="faq.customMaps.q">Can I add my own map images?</h6>
-                <p data-i18n-html="faq.customMaps.a">Yes — <em>Add custom image</em> in the menu.</p>
+                <div class="faq-item">
+                    <h6 data-i18n="faq.customMaps.q">Can I add my own map images?</h6>
+                    <p data-i18n-html="faq.customMaps.a">Yes — <em>Add custom image</em> in the menu.</p>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="common.close">Close</button>
@@ -551,21 +564,23 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h1 class="modal-title fs-5" data-i18n="credits.title">Credits</h1>
+                <h1 class="modal-title" data-i18n="credits.title">Credits</h1>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
-            <div class="modal-body text-center">
-                <img src="images/icon.png" alt="" style="width: 120px" class="mb-3">
-                <p class="mb-3"><span data-i18n-html="credits.maps">Maps by <strong>u/deftyconchgaming</strong></span><br>
-                    <!-- target="_blank" is routed to the system browser by
-                         setWindowOpenHandler in main-window.js -->
-                    <a class="small" target="_blank" data-i18n="credits.originalPost"
-                       href="https://www.reddit.com/r/TheHalloweenGame/comments/1wauwcx/">Original post on r/TheHalloweenGame</a></p>
-                <p class="mb-3" data-i18n-html="credits.basedOn">This app is based on
-                    <a target="_blank" href="https://github.com/LucaFontanot/dbd-map-overlay"><strong>DBD Map Overlay</strong></a>
-                    by <strong>LucaFontanot</strong>, used under the Apache License 2.0.</p>
-                <p class="text-secondary small mb-0" data-i18n-html="credits.disclaimer">Not affiliated with, endorsed
-                    by or connected to the developers or publishers of <em>Halloween: The Game</em>.</p>
+            <div class="modal-body credits">
+                <img src="images/icon.png" alt="" class="credits-mark">
+                <div class="credits-body">
+                    <p><span data-i18n-html="credits.maps">Maps by <strong>u/deftyconchgaming</strong></span><br>
+                        <!-- target="_blank" is routed to the system browser by
+                             setWindowOpenHandler in main-window.js -->
+                        <a class="small" target="_blank" data-i18n="credits.originalPost"
+                           href="https://www.reddit.com/r/TheHalloweenGame/comments/1wauwcx/">Original post on r/TheHalloweenGame</a></p>
+                    <p data-i18n-html="credits.basedOn">This app is based on
+                        <a target="_blank" href="https://github.com/LucaFontanot/dbd-map-overlay"><strong>DBD Map Overlay</strong></a>
+                        by <strong>LucaFontanot</strong>, used under the Apache License 2.0.</p>
+                    <p class="credits-disclaimer" data-i18n-html="credits.disclaimer">Not affiliated with, endorsed
+                        by or connected to the developers or publishers of <em>Halloween: The Game</em>.</p>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="common.close">Close</button>
@@ -574,7 +589,7 @@
     </div>
 </div>
 
-<div id="logStatus" class="alert alert-info logalert" role="alert"></div>
+<div id="logStatus" class="alert note-accent logalert" role="alert"></div>
 
 <script src="./renderer.js"></script>
 </body>

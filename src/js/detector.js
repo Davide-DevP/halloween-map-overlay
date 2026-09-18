@@ -47,6 +47,17 @@ class Detector {
     }
 
     /**
+     * The small state dot beside the status line. Four states, taken from the
+     * same status push that produces the sentence — nothing new is computed
+     * here, it is the existing branch written out as an attribute so CSS can
+     * colour it: `off` / `watching` / `menu` / `detected`.
+     * @param {'off'|'watching'|'menu'|'detected'} state
+     */
+    setState(state) {
+        $("#detectorReadout").attr("data-state", state);
+    }
+
+    /**
      * "Off" / "Watching for the in-game map (Tab)…" / "Back in menu — map
      * cleared" / "Detected <Map> at 12:04".
      * @param {{running: boolean, lastDetected: ?string, lastAt: ?number,
@@ -78,17 +89,21 @@ class Detector {
             this.lastKey = null;
             this.lastAt = null;
             this.inMenu = false;
+            this.setState('off');
             $("#detectorStatus").text(t('detector.off'));
             return;
         }
         if (this.inMenu && !this.lastKey) {
+            this.setState('menu');
             $("#detectorStatus").text(t('detector.menu'));
             return;
         }
         if (!this.lastKey) {
+            this.setState('watching');
             $("#detectorStatus").text(t('detector.watching'));
             return;
         }
+        this.setState('detected');
         const at = this.lastAt ? new Date(this.lastAt) : null;
         // The map name is never translated; only the sentence around it is.
         const map = this.lastKey.split("/").pop();

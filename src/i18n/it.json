@@ -24,6 +24,8 @@
   "home.allCreators": "Tutti gli autori",
   "home.obsOpen": "Apri finestra OBS",
   "home.hideMap": "Nascondi mappa",
+  "home.onOverlay": "Sull'overlay",
+  "home.empty.title": "Nessuna mappa da mostrare",
   "home.noMaps": "Nessuna mappa trovata. Esegui <code>npm run prepare-maps</code> per generarle.",
   "home.autoDetect": "Rileva mappa in automatico",
   "home.autoDetectHint": "(apri la mappa in gioco con <kbd>Tab</kbd>)",
@@ -39,7 +41,7 @@
   "crash.dismiss": "Chiudi l'avviso",
 
   "hotkeyConflict.title": "Alcune scorciatoie non sono state registrate:",
-  "hotkeyConflict.help": "— sono già usate da un'altra app (Discord, NVIDIA, …). Cambiale in Impostazioni → Scorciatoie.",
+  "hotkeyConflict.help": "— sono già usate da un'altra app (Discord, NVIDIA, …). Cambiale in Impostazioni → Hotkey.",
 
   "diagnostics.create": "Crea report diagnostico",
   "diagnostics.create.help": "Salva sul Desktop un solo file <code>.zip</code> con i log, le tue impostazioni e una descrizione di questo PC, poi apre la cartella così puoi allegarlo. Non viene caricato nulla in rete e non contiene screenshot né immagini delle mappe.",
@@ -87,6 +89,9 @@
   "settings.openLogFolder": "Apri la cartella dei log",
   "settings.openLogFolder.help": "Se il rilevamento automatico fa i capricci, apri questa cartella e invia <code>detector.log</code>: contiene le decisioni del rilevatore (mappa, punteggio, tempi), mai un'immagine.",
   "settings.openLogFolder.failed": "Non è stato possibile aprire la cartella dei log.",
+
+  "settings.value.px": "{value} px",
+  "settings.value.percent": "{value} %",
 
   "settings.overlay.previewNotice": "Mentre questa scheda è aperta l'overlay mostra un'immagine di prova; le modifiche fatte qui si vedono subito lì.",
   "settings.monitor": "Monitor",

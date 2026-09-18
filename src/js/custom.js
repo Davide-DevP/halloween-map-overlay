@@ -100,7 +100,7 @@ class Custom {
             const $list = $("#customList").html("");
             const files = await ipcRenderer.invoke('get-custom-photos');
             if (!files.length) {
-                $list.append(`<tr><td class="text-secondary">${escapeHtml(t('custom.empty'))}</td></tr>`);
+                $list.append(`<tr><td class="help-text">${escapeHtml(t('custom.empty'))}</td></tr>`);
                 return;
             }
             for (const file of files) {
@@ -108,10 +108,12 @@ class Custom {
                 const url = await this.maps.thumbnail(`Custom/${name}`);
                 // `name` and `file` both come from a user-typed map name
                 $list.append(`<tr>
-                    <td><img style="width: 220px" class="rounded" src="${escapeHtml(url)}" alt="${escapeHtml(name)}"></td>
-                    <td class="align-middle">${escapeHtml(name)}</td>
-                    <td class="align-middle">
-                        <button type="button" class="btn btn-danger btn-sm" onclick="deleteImage(this)" data-img="${escapeHtml(file)}">${escapeHtml(t('common.delete'))}</button>
+                    <td><img src="${escapeHtml(url)}" alt="${escapeHtml(name)}"></td>
+                    <td>${escapeHtml(name)}</td>
+                    <td>
+                        <span class="row-actions">
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteImage(this)" data-img="${escapeHtml(file)}">${escapeHtml(t('common.delete'))}</button>
+                        </span>
                     </td>
                 </tr>`);
             }

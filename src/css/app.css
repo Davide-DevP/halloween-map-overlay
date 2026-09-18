@@ -1,0 +1,1621 @@
+/*
+ * Halloween Map Overlay — main window theme.
+ *
+ * Loaded after Bootstrap, which it re-skins rather than replaces: the markup
+ * keeps every Bootstrap component hook (modal, tab, collapse, toast, alert
+ * dismiss), and this file overrides Bootstrap's own CSS variables plus the few
+ * component rules that hard-code a colour.
+ *
+ * Palette: one warm gray family tinted to brown, one accent (a desaturated
+ * pumpkin orange). No blue, no green, no neon. Destructive actions get a muted
+ * brick red and nothing else does.
+ *
+ * Everything the window needs is local — no @import of a remote sheet, no CDN.
+ * The two font families are npm packages linked from index.html.
+ */
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Tokens
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+:root {
+    /* Surfaces — warm off-black through to the raised panels */
+    --hmo-bg: #14100f;
+    --hmo-bg-deep: #0e0b0a;
+    --hmo-panel: #1b1614;
+    --hmo-panel-raised: #211b18;
+    --hmo-inset: #100d0c;
+    --hmo-hover: #262019;
+
+    /* Hairlines — low contrast, warm */
+    --hmo-line: #2c2522;
+    --hmo-line-strong: #3a312c;
+
+    /* Text */
+    --hmo-text: #ece4df;
+    --hmo-text-dim: #a2958e;
+    /* 4.56:1 on --hmo-panel-raised, 4.81 on --hmo-panel, 5.07 on --hmo-bg.
+       (#776b66 measured 3.30 / 3.48 / 3.67 — under AA for the 11-13px text
+       that uses it: creator names, table heads, inactive tabs, the disclaimer.) */
+    --hmo-text-mute: #8e827c;
+
+    /* The one accent */
+    --hmo-accent: #e8853a;
+    --hmo-accent-bright: #f09a55;
+    --hmo-accent-ink: #1a1109;
+    --hmo-accent-wash: rgba(232, 133, 58, 0.11);
+    --hmo-accent-line: rgba(232, 133, 58, 0.42);
+    --hmo-accent-ring: rgba(232, 133, 58, 0.30);
+
+    /* Used sparingly: destructive only */
+    --hmo-danger: #b8574a;
+    --hmo-danger-wash: rgba(184, 87, 74, 0.12);
+    /* Used sparingly: cautions only */
+    --hmo-warn: #c79350;
+    --hmo-warn-wash: rgba(199, 147, 80, 0.11);
+
+    /* Radii — looser on containers, tighter inside them */
+    --hmo-r-lg: 16px;
+    --hmo-r-md: 11px;
+    --hmo-r-sm: 8px;
+    --hmo-r-xs: 5px;
+    --hmo-r-pill: 999px;
+
+    /* Spacing rhythm */
+    --hmo-s-3: 12px;
+    --hmo-s-4: 16px;
+    --hmo-s-5: 24px;
+    --hmo-s-6: 32px;
+    --hmo-s-7: 48px;
+
+    /* Tinted shadows — never pure black */
+    --hmo-shadow-sm: 0 1px 2px rgba(10, 6, 4, 0.5);
+    --hmo-shadow-md: 0 10px 24px -12px rgba(10, 6, 4, 0.85);
+    --hmo-shadow-lg: 0 32px 64px -24px rgba(8, 5, 3, 0.9);
+
+    /* Layers. Nothing in this app gets a bare 9999. */
+    --hmo-z-nav: 20;
+    --hmo-z-toast: 1090;
+    --hmo-z-loading: 1100;
+    --hmo-z-grain: 2000;
+
+    /* Motion */
+    --hmo-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+    --hmo-dur-fast: 150ms;
+    --hmo-dur: 200ms;
+    --hmo-dur-slow: 250ms;
+
+    /* ── Bootstrap's own variables, retuned ── */
+    --bs-body-bg: var(--hmo-bg);
+    --bs-body-color: var(--hmo-text);
+    --bs-body-font-family: "Geist Variable", system-ui, sans-serif;
+    --bs-body-font-size: 0.9375rem;
+    --bs-body-font-weight: 400;
+    --bs-font-monospace: "Geist Mono Variable", ui-monospace, monospace;
+    --bs-emphasis-color: #fbf6f3;
+    --bs-secondary-color: var(--hmo-text-dim);
+    --bs-tertiary-color: var(--hmo-text-mute);
+    --bs-border-color: var(--hmo-line);
+    --bs-border-color-translucent: var(--hmo-line);
+    --bs-link-color: var(--hmo-accent);
+    --bs-link-hover-color: var(--hmo-accent-bright);
+    --bs-link-color-rgb: 232, 133, 58;
+    --bs-link-hover-color-rgb: 240, 154, 85;
+    --bs-primary: var(--hmo-accent);
+    --bs-primary-rgb: 232, 133, 58;
+    --bs-focus-ring-color: var(--hmo-accent-ring);
+    --bs-focus-ring-width: 3px;
+    --bs-code-color: var(--hmo-accent-bright);
+    --bs-highlight-bg: var(--hmo-accent-wash);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Page shell
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    min-height: 100dvh;
+    background-color: var(--hmo-bg);
+    color: var(--hmo-text);
+    font-family: var(--bs-body-font-family);
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* Warm ambient light at the top, and the floor falling away below it. */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    background:
+        radial-gradient(90rem 32rem at 50% -14rem, rgba(232, 133, 58, 0.11), transparent 62%),
+        radial-gradient(48rem 24rem at 82% 0, rgba(184, 87, 74, 0.06), transparent 70%),
+        linear-gradient(180deg, #191311 0%, var(--hmo-bg) 38%, var(--hmo-bg-deep) 100%);
+}
+
+/* Film grain. Fixed and pointer-events:none, so it never costs a repaint on
+   scroll and never eats a click. feTurbulence keeps it a data URI — img-src
+   allows data:, and nothing is fetched. */
+.grain {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: var(--hmo-z-grain);
+    opacity: 0.045;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+    background: rgba(232, 133, 58, 0.32);
+    color: #fff6ee;
+}
+
+::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #332b26;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--hmo-r-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #473c35;
+    background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Typography
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+h1, h2, h3, h4, h5, h6,
+.modal-title {
+    font-weight: 600;
+    letter-spacing: -0.021em;
+    text-wrap: balance;
+    color: var(--bs-emphasis-color);
+}
+
+p, .help-text {
+    text-wrap: pretty;
+}
+
+.help-text {
+    display: block;
+    max-width: 65ch;
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: var(--hmo-text-dim);
+}
+
+.help-text code,
+.help-text kbd {
+    font-size: 0.95em;
+}
+
+.num {
+    font-family: var(--bs-font-monospace);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: -0.01em;
+}
+
+code {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.86em;
+}
+
+kbd {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 0.15em 0.45em;
+    font-family: var(--bs-font-monospace);
+    font-size: 0.8em;
+    font-weight: 500;
+    line-height: 1.5;
+    text-align: center;
+    white-space: nowrap;
+    color: var(--hmo-text);
+    background: linear-gradient(180deg, #2b2320 0%, #221c19 100%);
+    border: 1px solid var(--hmo-line-strong);
+    border-bottom-width: 2px;
+    border-radius: var(--hmo-r-xs);
+    box-shadow: inset 0 1px 0 rgba(255, 233, 216, 0.06);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Focus
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+:focus-visible,
+.btn:focus-visible,
+.nav-link:focus-visible,
+.form-control:focus-visible,
+.form-select:focus-visible {
+    outline: 2px solid var(--hmo-accent);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--hmo-accent-line);
+    box-shadow: 0 0 0 3px var(--hmo-accent-ring);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Navbar
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.navbar {
+    position: relative;
+    z-index: var(--hmo-z-nav);
+    padding-block: 0.55rem;
+    background: rgba(20, 16, 15, 0.72);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--hmo-line);
+}
+
+.navbar-brand {
+    padding: 0;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: -0.012em;
+    color: var(--hmo-text-dim);
+}
+
+.navbar-brand:hover {
+    color: var(--hmo-text);
+}
+
+.navbar-brand img {
+    height: 26px;
+    width: 26px;
+    filter: drop-shadow(0 2px 6px rgba(232, 133, 58, 0.28));
+}
+
+.navbar-brand span {
+    color: var(--hmo-text);
+    font-weight: 500;
+}
+
+.navbar .nav-link {
+    position: relative;
+    padding: 0.32rem 0.7rem;
+    border-radius: var(--hmo-r-sm);
+    font-size: 0.8438rem;
+    font-weight: 500;
+    color: var(--hmo-text-dim);
+    transition: color var(--hmo-dur) var(--hmo-ease),
+                background-color var(--hmo-dur) var(--hmo-ease);
+}
+
+.navbar .nav-link:hover {
+    color: var(--hmo-text);
+    background: var(--hmo-hover);
+}
+
+.navbar .nav-link:active {
+    transform: scale(0.985);
+}
+
+.navbar-nav {
+    gap: 0.15rem;
+}
+
+.navbar-toggler {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--hmo-line-strong);
+    border-radius: var(--hmo-r-sm);
+    color: var(--hmo-text-dim);
+}
+
+.navbar-toggler:focus {
+    box-shadow: none;
+}
+
+.navbar-toggler-icon {
+    width: 1.1em;
+    height: 1.1em;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath stroke='%23a2958e' stroke-linecap='round' stroke-width='2' d='M4 8h22M4 15h22M4 22h22'/%3E%3C/svg%3E");
+}
+
+/* The navbar is `navbar-expand-md`: it is collapsed below 768px only. (This
+   block used to say 991.98px, so the default 1000px window — 984px of viewport
+   — got the collapsed menu's top margin and rule on an expanded navbar, and
+   the links sat ~9px below the brand.) */
+@media (max-width: 767.98px) {
+    .navbar-collapse {
+        margin-top: 0.6rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--hmo-line);
+    }
+
+    .navbar-nav {
+        gap: 0.1rem;
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Main layout
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* A deliberately narrow measure. The default window is 1000x720 and the
+   gallery is four square maps: a wider column would only make the thumbnails
+   too tall to see a map's name without scrolling. */
+main.container,
+.navbar .container {
+    max-width: 940px;
+    padding-inline: 28px;
+}
+
+main.container {
+    padding-block: var(--hmo-s-5) var(--hmo-s-7);
+}
+
+@media (max-width: 575.98px) {
+    main.container,
+    .navbar .container {
+        padding-inline: 18px;
+    }
+}
+
+/* ── Home header ── */
+
+.page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--hmo-s-4);
+    margin-bottom: var(--hmo-s-4);
+}
+
+.page-head h1 {
+    margin: 0 0 0.35rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.028em;
+}
+
+.now-showing {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    font-size: 0.8125rem;
+    color: var(--hmo-text-mute);
+}
+
+.now-showing strong {
+    font-size: 1.0625rem;
+    font-weight: 500;
+    letter-spacing: -0.016em;
+    color: var(--hmo-accent);
+}
+
+.head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.creator-filter .form-select {
+    min-width: 11rem;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Buttons
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.btn {
+    --bs-btn-font-weight: 500;
+    --bs-btn-border-radius: var(--hmo-r-sm);
+    --bs-btn-padding-x: 0.85rem;
+    --bs-btn-padding-y: 0.42rem;
+    --bs-btn-font-size: 0.8438rem;
+    letter-spacing: -0.006em;
+    transition: background-color var(--hmo-dur) var(--hmo-ease),
+                border-color var(--hmo-dur) var(--hmo-ease),
+                color var(--hmo-dur) var(--hmo-ease),
+                transform var(--hmo-dur-fast) var(--hmo-ease);
+}
+
+.btn:active {
+    transform: scale(0.985);
+}
+
+.btn-sm {
+    --bs-btn-padding-x: 0.62rem;
+    --bs-btn-padding-y: 0.26rem;
+    --bs-btn-font-size: 0.7813rem;
+    --bs-btn-border-radius: var(--hmo-r-xs);
+}
+
+/* Primary: the accent, used for the one action that matters on a surface. */
+.btn-primary {
+    --bs-btn-color: var(--hmo-accent-ink);
+    --bs-btn-bg: var(--hmo-accent);
+    --bs-btn-border-color: var(--hmo-accent);
+    --bs-btn-hover-color: var(--hmo-accent-ink);
+    --bs-btn-hover-bg: var(--hmo-accent-bright);
+    --bs-btn-hover-border-color: var(--hmo-accent-bright);
+    --bs-btn-active-color: var(--hmo-accent-ink);
+    --bs-btn-active-bg: var(--hmo-accent-bright);
+    --bs-btn-active-border-color: var(--hmo-accent-bright);
+    --bs-btn-disabled-color: var(--hmo-accent-ink);
+    --bs-btn-disabled-bg: var(--hmo-accent);
+    --bs-btn-disabled-border-color: var(--hmo-accent);
+}
+
+/* Secondary: a quiet filled chip on a panel. */
+.btn-secondary,
+.btn-outline-secondary,
+.btn-outline-light {
+    --bs-btn-color: var(--hmo-text-dim);
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: var(--hmo-line-strong);
+    --bs-btn-hover-color: var(--hmo-text);
+    --bs-btn-hover-bg: var(--hmo-hover);
+    --bs-btn-hover-border-color: var(--hmo-line-strong);
+    --bs-btn-active-color: var(--hmo-text);
+    --bs-btn-active-bg: var(--hmo-hover);
+    --bs-btn-active-border-color: var(--hmo-line-strong);
+    --bs-btn-disabled-color: var(--hmo-text-mute);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--hmo-line);
+}
+
+/* Accent-tinted: the one action that leads on a surface without shouting. */
+.btn-accent {
+    --bs-btn-color: var(--hmo-accent);
+    --bs-btn-bg: var(--hmo-accent-wash);
+    --bs-btn-border-color: var(--hmo-accent-line);
+    --bs-btn-hover-color: var(--hmo-accent-ink);
+    --bs-btn-hover-bg: var(--hmo-accent);
+    --bs-btn-hover-border-color: var(--hmo-accent);
+    --bs-btn-active-color: var(--hmo-accent-ink);
+    --bs-btn-active-bg: var(--hmo-accent-bright);
+    --bs-btn-active-border-color: var(--hmo-accent-bright);
+    --bs-btn-disabled-color: var(--hmo-text-mute);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--hmo-line);
+}
+
+/* Tertiary: text only, for repeated row actions. */
+.btn-quiet {
+    --bs-btn-color: var(--hmo-text-dim);
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: var(--hmo-text);
+    --bs-btn-hover-bg: var(--hmo-hover);
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-color: var(--hmo-text);
+    --bs-btn-active-bg: var(--hmo-hover);
+    --bs-btn-active-border-color: transparent;
+    --bs-btn-disabled-color: var(--hmo-text-mute);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: transparent;
+}
+
+/* Destructive, muted brick. Never used for anything that is not a removal. */
+.btn-danger,
+.btn-outline-danger {
+    --bs-btn-color: #e0a89f;
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: rgba(184, 87, 74, 0.55);
+    --bs-btn-hover-color: #ffeae6;
+    --bs-btn-hover-bg: var(--hmo-danger-wash);
+    --bs-btn-hover-border-color: var(--hmo-danger);
+    --bs-btn-active-color: #ffeae6;
+    --bs-btn-active-bg: var(--hmo-danger-wash);
+    --bs-btn-active-border-color: var(--hmo-danger);
+    --bs-btn-disabled-color: var(--hmo-text-mute);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--hmo-line);
+}
+
+/* No stock success or warning fills anywhere; both fold into the palette. */
+.btn-success {
+    --bs-btn-color: var(--hmo-accent-ink);
+    --bs-btn-bg: var(--hmo-accent);
+    --bs-btn-border-color: var(--hmo-accent);
+    --bs-btn-hover-color: var(--hmo-accent-ink);
+    --bs-btn-hover-bg: var(--hmo-accent-bright);
+    --bs-btn-hover-border-color: var(--hmo-accent-bright);
+    --bs-btn-active-color: var(--hmo-accent-ink);
+    --bs-btn-active-bg: var(--hmo-accent-bright);
+    --bs-btn-active-border-color: var(--hmo-accent-bright);
+}
+
+.btn-warning,
+.btn-outline-warning {
+    --bs-btn-color: #e2c08c;
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: rgba(199, 147, 80, 0.5);
+    --bs-btn-hover-color: #fbeed6;
+    --bs-btn-hover-bg: var(--hmo-warn-wash);
+    --bs-btn-hover-border-color: var(--hmo-warn);
+    --bs-btn-active-color: #fbeed6;
+    --bs-btn-active-bg: var(--hmo-warn-wash);
+    --bs-btn-active-border-color: var(--hmo-warn);
+    --bs-btn-disabled-color: var(--hmo-text-mute);
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-disabled-border-color: var(--hmo-line);
+}
+
+.btn-link {
+    --bs-btn-color: var(--hmo-text-dim);
+    --bs-btn-hover-color: var(--hmo-text);
+    text-underline-offset: 3px;
+}
+
+.btn-close {
+    --bs-btn-close-color: var(--hmo-text-dim);
+    filter: none;
+    opacity: 0.45;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath stroke='%23ece4df' stroke-width='1.6' stroke-linecap='round' d='M3.5 3.5l9 9m0-9l-9 9'/%3E%3C/svg%3E");
+    transition: opacity var(--hmo-dur) var(--hmo-ease);
+}
+
+.btn-close:hover {
+    opacity: 0.95;
+}
+
+.btn-close:focus {
+    box-shadow: none;
+    outline: 2px solid var(--hmo-accent);
+    outline-offset: 2px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Form controls
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.form-control,
+.form-select {
+    background-color: var(--hmo-inset);
+    border: 1px solid var(--hmo-line-strong);
+    border-radius: var(--hmo-r-sm);
+    color: var(--hmo-text);
+    font-size: 0.8438rem;
+    padding: 0.42rem 0.7rem;
+    transition: border-color var(--hmo-dur) var(--hmo-ease),
+                box-shadow var(--hmo-dur) var(--hmo-ease);
+}
+
+.form-select {
+    padding-right: 2.1rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23a2958e' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+    background-size: 15px 12px;
+}
+
+.form-control::placeholder {
+    color: var(--hmo-text-mute);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+    background-color: #141110;
+    color: var(--hmo-text-mute);
+}
+
+.form-control[type="file"]::file-selector-button {
+    background: var(--hmo-panel-raised);
+    color: var(--hmo-text-dim);
+    border: 0;
+    border-right: 1px solid var(--hmo-line-strong);
+    padding: 0.42rem 0.75rem;
+    margin: -0.42rem 0.7rem -0.42rem -0.7rem;
+    transition: background-color var(--hmo-dur) var(--hmo-ease), color var(--hmo-dur) var(--hmo-ease);
+}
+
+.form-control[type="file"]:hover::file-selector-button {
+    background: var(--hmo-hover);
+    color: var(--hmo-text);
+}
+
+.form-label {
+    margin-bottom: 0.3rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--hmo-text);
+}
+
+/* ── Switches ── */
+
+.form-check-input {
+    background-color: var(--hmo-inset);
+    border-color: var(--hmo-line-strong);
+    transition: background-color var(--hmo-dur) var(--hmo-ease),
+                border-color var(--hmo-dur) var(--hmo-ease),
+                background-position var(--hmo-dur-slow) var(--hmo-ease);
+}
+
+.form-switch .form-check-input {
+    --bs-form-switch-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3E%3Ccircle r='3' fill='%23776b66'/%3E%3C/svg%3E");
+    width: 2.1rem;
+    height: 1.15rem;
+    margin-top: 0.1rem;
+}
+
+.form-switch .form-check-input:focus {
+    --bs-form-switch-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3E%3Ccircle r='3' fill='%23a2958e'/%3E%3C/svg%3E");
+}
+
+.form-check-input:checked {
+    background-color: var(--hmo-accent);
+    border-color: var(--hmo-accent);
+}
+
+.form-switch .form-check-input:checked {
+    --bs-form-switch-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3E%3Ccircle r='3' fill='%231a1109'/%3E%3C/svg%3E");
+}
+
+.form-check-input:focus {
+    border-color: var(--hmo-accent-line);
+    box-shadow: 0 0 0 3px var(--hmo-accent-ring);
+}
+
+.form-check-input:focus-visible {
+    outline: none;
+}
+
+.form-check-label {
+    color: var(--hmo-text);
+    font-size: 0.8438rem;
+}
+
+/* ── Ranges ── */
+
+.form-range {
+    height: 1.25rem;
+    padding: 0;
+    background: transparent;
+}
+
+.form-range:focus {
+    box-shadow: none;
+}
+
+.form-range::-webkit-slider-runnable-track {
+    height: 4px;
+    background: var(--hmo-inset);
+    border: 1px solid var(--hmo-line-strong);
+    border-radius: var(--hmo-r-pill);
+}
+
+.form-range::-webkit-slider-thumb {
+    width: 15px;
+    height: 15px;
+    margin-top: -6.5px;
+    background: var(--hmo-accent);
+    border: 2px solid #1d1614;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(10, 6, 4, 0.7);
+    transition: transform var(--hmo-dur-fast) var(--hmo-ease),
+                background-color var(--hmo-dur) var(--hmo-ease);
+}
+
+.form-range::-webkit-slider-thumb:hover {
+    background: var(--hmo-accent-bright);
+    transform: scale(1.12);
+}
+
+.form-range::-webkit-slider-thumb:active {
+    background: var(--hmo-accent-bright);
+    transform: scale(0.94);
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--hmo-accent);
+    outline-offset: 2px;
+}
+
+.form-range:disabled::-webkit-slider-thumb {
+    background: var(--hmo-text-mute);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Quiet notice panels (what the Bootstrap alerts became)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.alert {
+    --bs-alert-padding-x: 0.9rem;
+    --bs-alert-padding-y: 0.7rem;
+    --bs-alert-margin-bottom: 0;
+    --bs-alert-border-radius: var(--hmo-r-md);
+    --bs-alert-border: 1px solid var(--hmo-line);
+    --bs-alert-bg: var(--hmo-panel);
+    --bs-alert-color: var(--hmo-text-dim);
+    position: relative;
+    overflow: hidden;
+    /* Bootstrap paints alerts with `background-color: var(--bs-alert-bg)`. The
+       note-* variants below set that variable to a gradient layered over the
+       panel colour, which is not a <color>: the declaration became invalid at
+       computed-value time and every banner — and the fixed status toast —
+       rendered fully transparent. The shorthand accepts both shapes. */
+    background: var(--bs-alert-bg);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    box-shadow: var(--hmo-shadow-sm);
+}
+
+.alert strong {
+    color: var(--hmo-text);
+    font-weight: 500;
+}
+
+/* The left rule is what carries the tone — no coloured fills. */
+.alert::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 2px;
+    background: var(--hmo-line-strong);
+}
+
+.note-accent {
+    --bs-alert-bg: linear-gradient(90deg, var(--hmo-accent-wash), rgba(232, 133, 58, 0.02) 42%), var(--hmo-panel);
+}
+
+.note-accent::before {
+    background: var(--hmo-accent);
+}
+
+.note-danger {
+    --bs-alert-bg: linear-gradient(90deg, var(--hmo-danger-wash), rgba(184, 87, 74, 0.02) 42%), var(--hmo-panel);
+}
+
+.note-danger::before {
+    background: var(--hmo-danger);
+}
+
+.note-warn {
+    --bs-alert-bg: linear-gradient(90deg, var(--hmo-warn-wash), rgba(199, 147, 80, 0.02) 42%), var(--hmo-panel);
+}
+
+.note-warn::before {
+    background: var(--hmo-warn);
+}
+
+.alert-dismissible {
+    padding-right: 2.6rem;
+}
+
+.alert-dismissible .btn-close {
+    padding: 0.85rem 0.9rem;
+}
+
+.banner-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* The bottom-right status toast. */
+.logalert {
+    display: none;
+    position: fixed;
+    bottom: 1.1rem;
+    right: 1.1rem;
+    z-index: var(--hmo-z-toast);
+    max-width: 24rem;
+    box-shadow: var(--hmo-shadow-md);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Auto-detect status strip
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.detector-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--hmo-s-3);
+    margin-bottom: var(--hmo-s-4);
+    padding: 0.7rem 0.95rem;
+    background: var(--hmo-panel);
+    border: 1px solid var(--hmo-line);
+    border-radius: var(--hmo-r-lg);
+    box-shadow: var(--hmo-shadow-sm);
+}
+
+.detector-switch {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0;
+    padding-left: 0;
+    min-height: auto;
+}
+
+.detector-switch .form-check-input {
+    float: none;
+    margin: 0;
+    flex: none;
+}
+
+.detector-switch .form-check-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+
+.detector-switch-name {
+    font-weight: 500;
+    color: var(--hmo-text);
+}
+
+.detector-hint {
+    font-size: 0.75rem;
+    color: var(--hmo-text-mute);
+}
+
+.detector-hint kbd {
+    font-size: 0.72rem;
+}
+
+.detector-readout {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.28rem 0.65rem 0.28rem 0.55rem;
+    background: var(--hmo-inset);
+    border: 1px solid var(--hmo-line);
+    border-radius: var(--hmo-r-pill);
+    font-size: 0.7813rem;
+    color: var(--hmo-text-dim);
+}
+
+.detector-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: #4a3f39;
+    transition: background-color var(--hmo-dur-slow) var(--hmo-ease),
+                box-shadow var(--hmo-dur-slow) var(--hmo-ease);
+}
+
+.detector-readout[data-state="watching"] .detector-dot,
+.detector-readout[data-state="menu"] .detector-dot {
+    background: var(--hmo-warn);
+    box-shadow: 0 0 0 3px var(--hmo-warn-wash);
+    animation: hmo-pulse 2.2s var(--hmo-ease) infinite;
+}
+
+.detector-readout[data-state="detected"] .detector-dot {
+    background: var(--hmo-accent);
+    box-shadow: 0 0 0 3px var(--hmo-accent-wash);
+}
+
+.detector-readout[data-state="detected"] {
+    color: var(--hmo-text);
+    border-color: var(--hmo-accent-line);
+}
+
+@keyframes hmo-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Map gallery
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.map-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--hmo-s-5);
+}
+
+@media (max-width: 599.98px) {
+    .map-grid {
+        grid-template-columns: 1fr;
+        gap: var(--hmo-s-4);
+    }
+}
+
+.map-card {
+    display: block;
+    width: 100%;
+    padding: 10px 10px 12px;
+    text-align: left;
+    color: inherit;
+    background: var(--hmo-panel);
+    border: 1px solid var(--hmo-line);
+    border-radius: var(--hmo-r-lg);
+    box-shadow: var(--hmo-shadow-sm);
+    transition: border-color var(--hmo-dur) var(--hmo-ease),
+                background-color var(--hmo-dur) var(--hmo-ease),
+                box-shadow var(--hmo-dur) var(--hmo-ease),
+                transform var(--hmo-dur) var(--hmo-ease);
+}
+
+.map-card:hover {
+    background: var(--hmo-panel-raised);
+    border-color: var(--hmo-line-strong);
+    box-shadow: var(--hmo-shadow-md);
+    transform: translateY(-3px);
+}
+
+.map-card:active {
+    transform: scale(0.985);
+}
+
+.map-card:focus-visible {
+    outline: 2px solid var(--hmo-accent);
+    outline-offset: 3px;
+}
+
+.map-card.active {
+    border-color: var(--hmo-accent);
+    box-shadow: 0 0 0 1px var(--hmo-accent-line), var(--hmo-shadow-md);
+    background: linear-gradient(180deg, var(--hmo-accent-wash), transparent 45%), var(--hmo-panel-raised);
+}
+
+.map-card.active .map-card-thumb {
+    border-color: var(--hmo-accent-line);
+}
+
+.map-card.active:hover {
+    border-color: var(--hmo-accent);
+}
+
+/* Thumbnail well — doubles as the skeleton until the image reports in. */
+.map-card-thumb {
+    position: relative;
+    display: block;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    background: radial-gradient(70% 70% at 50% 40%, #16110f, var(--hmo-inset));
+    border: 1px solid var(--hmo-line);
+    border-radius: var(--hmo-r-md);
+}
+
+.map-card-thumb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 18%, rgba(236, 228, 223, 0.055) 38%, transparent 58%);
+    background-size: 220% 100%;
+    animation: hmo-shimmer 1.4s linear infinite;
+    transition: opacity var(--hmo-dur-slow) var(--hmo-ease);
+}
+
+.map-card-thumb.is-loaded::after {
+    opacity: 0;
+    animation: none;
+}
+
+@keyframes hmo-shimmer {
+    from { background-position: 180% 0; }
+    to { background-position: -60% 0; }
+}
+
+.map-card-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity var(--hmo-dur-slow) var(--hmo-ease);
+}
+
+.map-card-thumb.is-loaded img {
+    opacity: 1;
+}
+
+.map-card-body {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.7rem 0.3rem 0.1rem;
+}
+
+.map-card-name {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: -0.014em;
+    line-height: 1.25;
+    color: var(--hmo-text);
+}
+
+.map-card-creator {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    color: var(--hmo-text-mute);
+}
+
+.map-card-flag {
+    display: none;
+    flex: none;
+    margin-top: 0.1rem;
+    padding: 0.14rem 0.45rem;
+    font-size: 0.6563rem;
+    font-weight: 500;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+    color: var(--hmo-accent);
+    background: var(--hmo-accent-wash);
+    border: 1px solid var(--hmo-accent-line);
+    border-radius: var(--hmo-r-xs);
+    white-space: nowrap;
+}
+
+.map-card.active .map-card-flag {
+    display: block;
+}
+
+/* Staggered entry, first render only. */
+.map-cell.is-entering {
+    opacity: 0;
+    animation: hmo-rise 420ms var(--hmo-ease) forwards;
+    animation-delay: calc(var(--hmo-i, 0) * 55ms);
+}
+
+@keyframes hmo-rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ── Empty state ── */
+
+.map-empty {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: var(--hmo-s-7) var(--hmo-s-5);
+    background: var(--hmo-panel);
+    border: 1px dashed var(--hmo-line-strong);
+    border-radius: var(--hmo-r-lg);
+}
+
+.map-empty-mark {
+    width: 44px;
+    height: 44px;
+    margin-bottom: var(--hmo-s-4);
+    border: 1px solid var(--hmo-line-strong);
+    border-radius: var(--hmo-r-md);
+    background: var(--hmo-inset) center / 20px 20px no-repeat
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e8853a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5 9 4Z'/%3E%3Cpath d='M9 4v13M15 6.5v13'/%3E%3C/svg%3E");
+}
+
+.map-empty-title {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--hmo-text);
+}
+
+.map-empty-body {
+    margin: 0;
+    max-width: 44ch;
+    font-size: 0.8125rem;
+    color: var(--hmo-text-dim);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Loading overlay
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--hmo-z-loading);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(60rem 30rem at 50% 38%, #1b1412, var(--hmo-bg-deep) 78%);
+}
+
+.loading-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.4rem;
+}
+
+.loading-mark {
+    width: 84px;
+    height: 84px;
+    filter: drop-shadow(0 8px 26px rgba(232, 133, 58, 0.22));
+    animation: hmo-breathe 3.4s var(--hmo-ease) infinite;
+}
+
+@keyframes hmo-breathe {
+    0%, 100% { opacity: 0.78; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.025); }
+}
+
+.loading-bar {
+    position: relative;
+    width: 168px;
+    height: 2px;
+    overflow: hidden;
+    background: #2a2320;
+    border-radius: var(--hmo-r-pill);
+}
+
+.loading-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 42%;
+    background: linear-gradient(90deg, transparent, var(--hmo-accent), transparent);
+    animation: hmo-slide 1.5s var(--hmo-ease) infinite;
+}
+
+@keyframes hmo-slide {
+    from { transform: translateX(-110%); }
+    to { transform: translateX(270%); }
+}
+
+#loadingContent {
+    font-size: 0.8125rem;
+    color: var(--hmo-text-mute);
+    min-height: 1em;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Modals
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.modal-backdrop {
+    /* Opacity 1 with a translucent colour instead of Bootstrap's opaque black
+       at 0.5: the blur has to composite once, not twice. */
+    --bs-backdrop-opacity: 1;
+    background: rgba(8, 5, 5, 0.6);
+    backdrop-filter: blur(3px);
+}
+
+/* Bootstrap only widens `.modal-lg` at >=992px, and the default window is
+   1000px of *frame* — under 992 of viewport — so Settings, the FAQ and the
+   custom-image list were all being squeezed into 500px. Width here is driven
+   by the window, not by a breakpoint. */
+.modal-lg {
+    max-width: min(780px, calc(100vw - 3rem));
+}
+
+.modal-content {
+    background: var(--hmo-panel);
+    border: 1px solid var(--hmo-line-strong);
+    border-radius: var(--hmo-r-lg);
+    box-shadow: var(--hmo-shadow-lg);
+    overflow: hidden;
+}
+
+.modal-header {
+    padding: 0.95rem 1.15rem;
+    border-bottom: 1px solid var(--hmo-line);
+    background: linear-gradient(180deg, rgba(232, 133, 58, 0.045), transparent);
+}
+
+.modal-title {
+    font-size: 1rem !important;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.modal-body {
+    padding: 1.15rem;
+}
+
+.modal-footer {
+    padding: 0.75rem 1.15rem;
+    border-top: 1px solid var(--hmo-line);
+    background: rgba(16, 13, 12, 0.5);
+}
+
+.modal.fade .modal-dialog {
+    transition: transform var(--hmo-dur-slow) var(--hmo-ease), opacity var(--hmo-dur-slow) var(--hmo-ease);
+    transform: translateY(12px) scale(0.99);
+    opacity: 0;
+}
+
+.modal.show .modal-dialog {
+    transform: none;
+    opacity: 1;
+}
+
+/* ── Tabs: an underline strip, not Bootstrap's folder tabs ── */
+
+.nav-tabs {
+    gap: 0.15rem;
+    border-bottom: 1px solid var(--hmo-line);
+}
+
+.nav-tabs .nav-link {
+    margin-bottom: -1px;
+    padding: 0.45rem 0.8rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    font-size: 0.8438rem;
+    font-weight: 500;
+    color: var(--hmo-text-mute);
+    background: transparent;
+    transition: color var(--hmo-dur) var(--hmo-ease),
+                border-color var(--hmo-dur) var(--hmo-ease);
+}
+
+.nav-tabs .nav-link:hover {
+    color: var(--hmo-text);
+    border-color: var(--hmo-line-strong);
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--hmo-accent);
+    background: transparent;
+    border-color: var(--hmo-accent);
+}
+
+.tab-content {
+    padding-top: var(--hmo-s-5);
+}
+
+.tab-pane.fade {
+    transition: opacity var(--hmo-dur-slow) var(--hmo-ease);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Settings rows
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.setting {
+    padding-block: 0.9rem;
+    border-top: 1px solid var(--hmo-line);
+}
+
+.setting:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.setting:last-child {
+    padding-bottom: 0;
+}
+
+.setting-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.3rem;
+}
+
+.setting-head:last-child {
+    margin-bottom: 0;
+}
+
+.setting-head .form-label {
+    margin-bottom: 0;
+}
+
+/* Label + switch on one line, help text beneath. */
+.setting-switch {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 0 0.3rem;
+    padding-left: 0;
+    min-height: auto;
+}
+
+.setting-switch .form-check-input {
+    float: none;
+    margin: 0;
+    flex: none;
+    order: 2;
+}
+
+.setting-switch .form-check-label {
+    order: 1;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.setting-value {
+    font-size: 0.7813rem;
+    color: var(--hmo-accent);
+    padding: 0.1rem 0.42rem;
+    background: var(--hmo-inset);
+    border: 1px solid var(--hmo-line);
+    border-radius: var(--hmo-r-xs);
+    min-width: 4.4em;
+    text-align: right;
+}
+
+.setting-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.45rem;
+}
+
+.setting-group-title {
+    margin: 0 0 0.15rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--hmo-text);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Tables: hotkeys and the custom-image list
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.table {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--hmo-text);
+    --bs-table-border-color: var(--hmo-line);
+    margin-bottom: 0;
+    font-size: 0.8438rem;
+}
+
+.table > :not(caption) > * > * {
+    padding: 0.5rem 0.6rem;
+    background: transparent;
+    box-shadow: none;
+}
+
+.table > thead th {
+    padding-top: 0;
+    white-space: nowrap;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--hmo-text-mute);
+    border-bottom: 1px solid var(--hmo-line);
+}
+
+.table > tbody > tr {
+    border-top: 1px solid var(--hmo-line);
+}
+
+.table > tbody > tr:first-child {
+    border-top: 0;
+}
+
+.table > tbody > tr > td {
+    border: 0;
+    vertical-align: middle;
+}
+
+.table td .btn {
+    white-space: nowrap;
+}
+
+.table-section {
+    margin-bottom: var(--hmo-s-6);
+}
+
+.table-section:last-of-type {
+    margin-bottom: 0;
+}
+
+.section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.55rem;
+}
+
+.section-title {
+    margin: 0;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--hmo-text-mute);
+}
+
+.row-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.25rem;
+}
+
+#customList img {
+    width: 84px;
+    height: 68px;
+    object-fit: contain;
+    background: var(--hmo-inset);
+    border: 1px solid var(--hmo-line);
+    border-radius: var(--hmo-r-sm);
+}
+
+/* `:not(:last-child)` leaves the single-cell "no images yet" row alone. */
+#customList td:first-child:not(:last-child) {
+    width: 1%;
+}
+
+/* The binding and action columns are as wide as their contents; the column
+   that carries the prose takes everything that is left. */
+#systemHotkeyList td:nth-child(2),
+#hotkeyList td:first-child,
+#hotkeyList td:nth-child(3) {
+    width: 1%;
+    white-space: nowrap;
+}
+
+#systemHotkeyList td:first-child,
+#hotkeyList td:nth-child(2) {
+    width: 100%;
+}
+
+#systemHotkeyList td:last-child,
+#hotkeyList td:last-child {
+    width: 1%;
+}
+
+/* ── The hotkey toast ── */
+
+#hotkeyToast {
+    z-index: var(--hmo-z-toast);
+    background: var(--hmo-panel-raised) !important;
+    border: 1px solid var(--hmo-line-strong) !important;
+    border-radius: var(--hmo-r-md);
+    box-shadow: var(--hmo-shadow-md);
+    font-size: 0.8125rem;
+    color: var(--hmo-text) !important;
+}
+
+#hotkeyToast.bg-success {
+    background: var(--hmo-panel-raised) !important;
+    border-color: var(--hmo-accent-line) !important;
+}
+
+#hotkeyToast.bg-danger {
+    background: var(--hmo-panel-raised) !important;
+    border-color: rgba(184, 87, 74, 0.55) !important;
+}
+
+#hotkeyToast .toast-body {
+    padding: 0.7rem 0.85rem;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * FAQ and credits
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* The measure goes on the items, not on `.faq`: that element is the
+   `.modal-body`, i.e. the scroll container, and capping its width parked the
+   scrollbar in the middle of the dialog with a dead strip to its right. */
+.faq-item {
+    max-width: 66ch;
+    padding-block: 1.05rem;
+    border-top: 1px solid var(--hmo-line);
+}
+
+.faq-item:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.faq-item:last-child {
+    padding-bottom: 0;
+}
+
+.faq-item h6 {
+    margin: 0 0 0.4rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.014em;
+    color: var(--hmo-text);
+}
+
+.faq-item p {
+    margin: 0 0 0.6rem;
+    font-size: 0.8438rem;
+    line-height: 1.66;
+    color: var(--hmo-text-dim);
+}
+
+.faq-item p:last-child {
+    margin-bottom: 0;
+}
+
+.credits {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    gap: var(--hmo-s-5);
+}
+
+.credits-mark {
+    width: 64px;
+    height: 64px;
+    filter: drop-shadow(0 6px 18px rgba(232, 133, 58, 0.2));
+}
+
+.credits-body p {
+    margin: 0 0 0.75rem;
+    font-size: 0.8438rem;
+    line-height: 1.6;
+    color: var(--hmo-text-dim);
+    max-width: 52ch;
+}
+
+.credits-body p:last-child {
+    margin-bottom: 0;
+}
+
+.credits-body strong {
+    color: var(--hmo-text);
+    font-weight: 500;
+}
+
+.credits-disclaimer {
+    font-size: 0.75rem !important;
+    color: var(--hmo-text-mute) !important;
+}
+
+@media (max-width: 479.98px) {
+    .credits {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Reduced motion
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .map-cell.is-entering {
+        opacity: 1;
+        animation: none;
+    }
+
+    .map-card:hover {
+        transform: none;
+    }
+}

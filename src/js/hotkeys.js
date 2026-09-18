@@ -82,7 +82,7 @@ class Hotkeys {
         const entries = Object.entries(this.hotkeys);
 
         if (!entries.length) {
-            $list.append(`<tr><td colspan="4" class="text-secondary">${escapeHtml(t('hotkeys.empty'))}</td></tr>`);
+            $list.append(`<tr><td colspan="4" class="help-text">${escapeHtml(t('hotkeys.empty'))}</td></tr>`);
             return;
         }
 
@@ -96,9 +96,11 @@ class Hotkeys {
                     <td><kbd>${escapeHtml(acceleratorToDisplay(hotkey))}</kbd></td>
                     <td>${escapeHtml(name)}</td>
                     <td>${escapeHtml(creator)}</td>
-                    <td class="text-center">
-                        <button type="button" class="delete-row btn btn-sm btn-outline-danger"
-                                data-id="${escapeHtml(id)}" title="${escapeHtml(t('hotkeys.deleteTitle'))}">${escapeHtml(t('common.delete'))}</button>
+                    <td>
+                        <span class="row-actions">
+                            <button type="button" class="delete-row btn btn-sm btn-outline-danger"
+                                    data-id="${escapeHtml(id)}" title="${escapeHtml(t('hotkeys.deleteTitle'))}">${escapeHtml(t('common.delete'))}</button>
+                        </span>
                     </td>
                 </tr>
             `);
@@ -145,14 +147,14 @@ class Hotkeys {
                 <tr data-action="${escapeHtml(actionId)}">
                     <td>${escapeHtml(actionName(def))}</td>
                     <td><kbd class="system-hotkey-binding" data-action="${escapeHtml(actionId)}">${escapeHtml(acceleratorToDisplay(currentAccel))}</kbd></td>
-                    <td class="text-center">
-                        <button type="button" class="edit-system-btn btn btn-sm btn-outline-primary"
-                                data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.editTitle'))}">${escapeHtml(t('common.edit'))}</button>
-                    </td>
-                    <td class="text-center">
-                        <button type="button" class="reset-system-btn btn btn-sm btn-outline-warning"
-                                data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.resetTitle'))}"
-                                ${isDefault ? 'disabled' : ''}>${escapeHtml(t('common.reset'))}</button>
+                    <td>
+                        <span class="row-actions">
+                            <button type="button" class="edit-system-btn btn btn-sm btn-quiet"
+                                    data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.editTitle'))}">${escapeHtml(t('common.edit'))}</button>
+                            <button type="button" class="reset-system-btn btn btn-sm btn-quiet"
+                                    data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.resetTitle'))}"
+                                    ${isDefault ? 'disabled' : ''}>${escapeHtml(t('common.reset'))}</button>
+                        </span>
                     </td>
                 </tr>
             `);
@@ -337,14 +339,17 @@ class Hotkeys {
 
         $("#saveHotkeyBtn").on("click", () => this.saveHotkeyToFile());
 
-        // Start listening as soon as the modal is up, however it was opened
-        $('#addHotkeyModal').on('shown.bs.modal', function () {
-            self.startRecording();
-        });
+        // Native listeners, not jQuery's: Bootstrap dispatches these as DOM
+        // events, and jQuery .on() would treat ".bs.modal" as an event
+        // namespace and never fire (same trap as the tabs in options.js).
+        const modal = document.getElementById('addHotkeyModal');
+        if (!modal) return;
 
-        $('#addHotkeyModal').on('hidden.bs.modal', function () {
-            self.restoreModalDefaults();
-        });
+        // Start listening as soon as the modal is up, however it was opened
+        modal.addEventListener('shown.bs.modal', () => self.startRecording());
+
+        // Without this a system-hotkey edit leaks into the next "Add map hotkey"
+        modal.addEventListener('hidden.bs.modal', () => self.restoreModalDefaults());
     }
 }
 
