@@ -1189,4 +1189,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-18 (0.5.0)*
+*Last updated: 2026-09-18 (0.5.1)*

@@ -421,6 +421,11 @@ that too.
 
 ## Changelog
 
+### 0.5.1
+
+- Maintenance release with no functional changes: the first update delivered
+  through the new updater window introduced in 0.5.0.
+
 ### 0.5.0
 
 - **Updating looks like the app now.** Press *Restart and update* and the window
