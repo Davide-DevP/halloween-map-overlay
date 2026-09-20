@@ -75,6 +75,10 @@
 
     /* Layers. Nothing in this app gets a bare 9999. */
     --hmo-z-nav: 20;
+    /* The welcome tour sits above the Bootstrap modals (1055) but deliberately
+       *below* the toast: the throttled "that change could not be saved" warning
+       has to stay readable while the tour is writing settings. */
+    --hmo-z-tour: 1085;
     --hmo-z-toast: 1090;
     --hmo-z-loading: 1100;
     --hmo-z-grain: 2000;
@@ -1375,6 +1379,146 @@ body.is-updating {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * Welcome tour (first run)
+ *
+ * Reuses the modal surface — `.modal-content`, `-header`, `-body`, `-footer` —
+ * and the `.setting*` rows, so there is one panel style in this app rather than
+ * a second one that drifts. Only the shell, the step chrome and the two lines
+ * of the "try it" hint are new here.
+ *
+ * It is not a Bootstrap modal: it opens at most once by itself, it has to trap
+ * focus while the Settings modal is closed *under* it, and its own Esc handling
+ * must not fight the hotkey recorder's `document` keydown listener — which is
+ * why every key it handles is caught on this element, not on the document.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.tour {
+    position: fixed;
+    inset: 0;
+    z-index: var(--hmo-z-tour);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* The gutter that keeps the panel off the window edge at any size. */
+    padding: var(--hmo-s-4);
+    background: rgba(8, 5, 5, 0.6);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    transition: opacity var(--hmo-dur-slow) var(--hmo-ease);
+}
+
+.tour.is-open {
+    opacity: 1;
+}
+
+/* The page behind must not scroll while the tour is up — the same trick the
+   updating view uses, and for the same reason: nothing behind a full-window
+   layer should move. */
+body.is-touring {
+    overflow: hidden;
+}
+
+.tour-dialog {
+    display: flex;
+    width: min(560px, 100%);
+    max-height: 100%;
+}
+
+/* The window has no minimum size, so at a short window the *panel* gives (its
+   body scrolls) rather than the page behind it. `.modal-content` is already a
+   flex column; `min-height: 0` is what lets the body shrink below its content. */
+.tour-dialog .modal-content {
+    width: 100%;
+    max-height: 100%;
+}
+
+.tour-body {
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.tour-head {
+    gap: 1rem;
+}
+
+/* Same treatment as `.section-title`: a quiet uppercase marker, not a heading. */
+.tour-progress {
+    margin: 0;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--hmo-text-mute);
+}
+
+.tour-title {
+    margin: 0 0 0.45rem;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.tour-lead {
+    margin: 0 0 var(--hmo-s-4);
+    max-width: 58ch;
+    font-size: 0.8438rem;
+    line-height: 1.66;
+    color: var(--hmo-text-dim);
+}
+
+/* Bootstrap's footer is right-aligned; the step dots live on the left. */
+.tour-foot {
+    justify-content: space-between;
+}
+
+.tour-dots {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.tour-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--hmo-r-pill);
+    background: var(--hmo-line-strong);
+    transition: width var(--hmo-dur) var(--hmo-ease),
+                background-color var(--hmo-dur) var(--hmo-ease);
+}
+
+.tour-dot.is-done {
+    background: var(--hmo-accent-line);
+}
+
+.tour-dot.is-current {
+    width: 18px;
+    background: var(--hmo-accent);
+}
+
+/* The binding column of the hotkeys step is as wide as its key caps. */
+.tour-hotkeys td:last-child {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.tour-tryit {
+    margin: var(--hmo-s-3) 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--hmo-text-dim);
+}
+
+/* The acknowledgement for "press it now". The accent is the confirmation — no
+   second colour, and no icon. */
+.tour-ack {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--hmo-accent);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * Settings rows
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -1430,6 +1574,41 @@ body.is-updating {
     order: 1;
     font-weight: 500;
     cursor: pointer;
+}
+
+/* Marker layer switches: the colour the brackets are actually drawn in, as a
+   hollow square, so the settings row reads like the legend on the overlay.
+   The four colours are the approved variant-B palette and live in
+   `src/shared/marker-rules.js`; they are deliberately NOT design tokens —
+   they are drawn over the game's own art, not over this app's surfaces. */
+.marker-dot {
+    display: inline-block;
+    width: 0.62rem;
+    height: 0.62rem;
+    margin-right: 0.4rem;
+    vertical-align: -0.06rem;
+    border: 2px solid currentColor;
+    border-radius: 1px;
+    background: transparent;
+}
+
+.marker-dot-cellar {
+    color: #e0605a;
+}
+
+.marker-dot-gate {
+    color: #4fc58a;
+}
+
+.marker-dot-car {
+    color: #5fb4ea;
+}
+
+.marker-dot-gas {
+    color: #f0cf55;
+    transform: rotate(45deg);
+    width: 0.52rem;
+    height: 0.52rem;
 }
 
 .setting-value {

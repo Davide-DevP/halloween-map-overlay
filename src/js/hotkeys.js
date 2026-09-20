@@ -7,12 +7,34 @@ const {
     resolveSystemAccelerator,
     SYSTEM_HOTKEY_DEFS
 } = require("../shared/hotkeys-constants");
+const {sameAccelerator} = require("../shared/hotkeys-rules");
 const {escapeHtml} = require("../shared/escape-html");
+const {showStatus} = require("./status");
 const {t, translateMessage, onChange} = require("./i18n");
 
 /** The translated name of a system hotkey action, from its definition. */
 function actionName(def) {
     return def && def.descriptionKey ? t(def.descriptionKey) : (def && def.description) || '';
+}
+
+/**
+ * One accelerator as a row of key caps: `Ctrl+Alt+H` → `<kbd>Ctrl</kbd> +
+ * <kbd>Alt</kbd> + <kbd>H</kbd>`, which is how every hotkey is drawn in the
+ * FAQ and the help paragraphs.
+ *
+ * **Escaped**, and not as a formality: an accelerator can come straight out of
+ * a hand-edited `settings-app.json`, this goes into `innerHTML`, and the
+ * renderer has `nodeIntegration: true`.
+ *
+ * @param {string} accelerator Electron spelling, or `''` when unbound
+ * @returns {string} markup
+ */
+function acceleratorKbd(accelerator) {
+    if (isUnbound(accelerator)) return `<em>${escapeHtml(t('hotkeys.notBound'))}</em>`;
+    return acceleratorToDisplay(accelerator)
+        .split(' + ')
+        .map(part => `<kbd>${escapeHtml(part)}</kbd>`)
+        .join(' + ');
 }
 
 /** Hotkeys tab: the system hotkey table, the per-map table and key capture. */
@@ -38,7 +60,40 @@ class Hotkeys {
             // markup — `applyDom` cannot reach it once the select is rebuilt.
             this.populateMapSelect();
             this.applyModalTitle();
+            // The two FAQ answers that name key combinations are rendered from
+            // here rather than from `data-i18n-html`, so they need the hook too.
+            this.updateHotkeyTexts();
         });
+    }
+
+    /**
+     * Fill the FAQ answers that name key combinations with the **live**
+     * bindings.
+     *
+     * They used to hard-code `<kbd>Ctrl</kbd> + <kbd>H</kbd>` in the catalogue,
+     * which was wrong the moment anybody rebound or unbound the action — and
+     * wrong for everybody once the defaults moved off plain Ctrl. The strings
+     * take the accelerators as parameters instead, so there is one source for
+     * "what is this action on" and the FAQ cannot drift from the table two
+     * tabs away.
+     */
+    updateHotkeyTexts() {
+        const accel = (actionId) => {
+            const def = SYSTEM_HOTKEY_DEFS[actionId];
+            if (!def) return '';
+            return acceleratorKbd(resolveSystemAccelerator(this.systemHotkeys[actionId], def.defaultAccelerator));
+        };
+        // Catalogue strings with our own markup substituted into them — the
+        // same contract as `data-i18n-html`, and `acceleratorKbd` escapes the
+        // one part that is not from a catalogue.
+        $('#faqAutodetect').html(t('faq.autodetect.a', {clear: accel('clear-map')}));
+        $('#faqInTheWay').html(t('faq.inTheWay.a', {
+            toggle: accel('toggle-map'),
+            opacityUp: accel('opacity-up'),
+            opacityDown: accel('opacity-down'),
+            sizeUp: accel('size-up'),
+            sizeDown: accel('size-down')
+        }));
     }
 
     /**
@@ -134,6 +189,7 @@ class Hotkeys {
             this.systemHotkeys = {};
         }
         this.updateSystemHotkeysTable();
+        this.updateHotkeyTexts();
     }
 
     updateSystemHotkeysTable() {
@@ -148,8 +204,11 @@ class Hotkeys {
             const currentAccel = resolveSystemAccelerator(this.systemHotkeys[actionId], def.defaultAccelerator);
             const unbound = isUnbound(currentAccel);
             // Unbound is not the default, so Reset stays available: it is the
-            // way back to the shipped combination.
-            const isDefault = currentAccel === def.defaultAccelerator;
+            // way back to the shipped combination. Compared *normalised* like
+            // every other accelerator comparison in the app — a hand-edited
+            // `ctrl+alt+r` is the default and must not leave Reset enabled as
+            // though it were a custom binding.
+            const isDefault = sameAccelerator(currentAccel, def.defaultAccelerator);
             // A muted word rather than an empty `<kbd>`, which reads as a
             // rendering fault instead of a deliberate "no shortcut".
             const binding = unbound
@@ -263,6 +322,7 @@ class Hotkeys {
         this.populateMapSelect();
         this.applyModalTitle();
         this.loadCapture();
+        this.loadGameOnlySwitch();
 
         ipcRenderer.on('hotkey-updated', (event, hotkeys) => {
             this.hotkeys = hotkeys;
@@ -272,6 +332,7 @@ class Hotkeys {
         ipcRenderer.on('system-hotkeys-updated', async (event, bindings) => {
             this.systemHotkeys = bindings;
             this.updateSystemHotkeysTable();
+            this.updateHotkeyTexts();
             // Main just wrote these straight to disk; pull the file back in so
             // the next renderer-side write is not based on a stale copy.
             if (this.settings) await this.settings.refresh();
@@ -280,7 +341,49 @@ class Hotkeys {
         ipcRenderer.send('load-hotkeys');
         await this.loadSystemHotkeys();
         this.loadTable();
+        await this.collectNotice();
         debugLog("hotkeys::loadHotkeys::done");
+    }
+
+    /**
+     * Settings › Hotkeys › *Only while the game is in the foreground*.
+     *
+     * Its own IPC handler rather than the generic `set-setting`, because main
+     * has to act on it: the foreground watcher starts or stops polling and the
+     * global shortcuts are registered or dropped in the same breath.
+     */
+    loadGameOnlySwitch() {
+        const $check = $('#hotkeysGameOnlyCheck');
+        if (!$check.length) return;
+        // Default on: only an explicit false turns it off, like every other
+        // default-on switch in this app.
+        $check.prop('checked', !this.settings || this.settings.raw('hotkeysGameOnly') !== false);
+        const self = this;
+        $check.off('input').on('input', async function () {
+            const on = $(this).prop('checked');
+            const result = await ipcRenderer.invoke('set-hotkeys-game-only', on);
+            if (result && result.ok === false) {
+                // The write failed, so put the switch back where the file is.
+                $(this).prop('checked', !on);
+                return;
+            }
+            if (self.settings) await self.settings.refresh();
+        });
+    }
+
+    /**
+     * One-time notices main could not show, because it decided them before
+     * this window existed. Right now that is only the hotkey-defaults
+     * migration; main clears the notice as it hands it over, so a renderer
+     * reload cannot show it twice.
+     */
+    async collectNotice() {
+        try {
+            const notice = await ipcRenderer.invoke('get-hotkey-notice');
+            if (notice) showStatus(translateMessage(notice));
+        } catch (err) {
+            console.error('hotkeys::notice', err && err.message);
+        }
     }
 
     populateMapSelect() {
@@ -288,11 +391,19 @@ class Hotkeys {
         if (!$select.length) return;
         $select.empty().append($('<option>').val('').text(t('hotkeys.modal.selectMap')));
 
-        const byCreator = {};
+        // A `Map`, not an object literal. `byCreator[creator] || []` inherits
+        // from `Object.prototype`, so a creator called `constructor`,
+        // `toString` or `__proto__` yields a *function* (truthy) and `.push`
+        // throws a TypeError — which does not break that one map, it breaks the
+        // whole picker for every map. A creator is a folder name under `maps/`
+        // or a downloaded pack's key half, neither of which this file gets to
+        // assume anything about.
+        const byCreator = new Map();
         for (const entry of this.maps.catalog) {
-            (byCreator[entry.creator] = byCreator[entry.creator] || []).push(entry);
+            if (!byCreator.has(entry.creator)) byCreator.set(entry.creator, []);
+            byCreator.get(entry.creator).push(entry);
         }
-        for (const [creator, entries] of Object.entries(byCreator)) {
+        for (const [creator, entries] of byCreator) {
             // .attr()/.text() keep user-typed custom map names out of the parser
             const $group = $('<optgroup>').attr('label', creator);
             entries.forEach(e => $group.append($('<option>').val(e.key).text(e.name)));
@@ -367,11 +478,52 @@ class Hotkeys {
         if (!modal) return;
 
         // Start listening as soon as the modal is up, however it was opened
-        modal.addEventListener('shown.bs.modal', () => self.startRecording());
+        modal.addEventListener('shown.bs.modal', () => {
+            self.startRecording();
+            self.suspendGlobalHotkeys(true);
+        });
 
         // Without this a system-hotkey edit leaks into the next "Add map hotkey"
-        modal.addEventListener('hidden.bs.modal', () => self.restoreModalDefaults());
+        modal.addEventListener('hidden.bs.modal', () => {
+            self.restoreModalDefaults();
+            self.suspendGlobalHotkeys(false);
+        });
+
+        // Minimize-to-tray (and a plain minimize) hides the window with the
+        // modal still "open", so `hidden.bs.modal` never fires. Nothing can be
+        // recorded from a hidden window anyway, and leaving the app holding no
+        // hotkeys at all would be the worst possible outcome of a feature whose
+        // whole point is that they work.
+        document.addEventListener('visibilitychange', () => {
+            if (!modal.classList.contains('show')) return;
+            self.suspendGlobalHotkeys(!document.hidden);
+        });
+    }
+
+    /**
+     * Ask main to hold none of its global shortcuts while this dialog records.
+     *
+     * Without it the dialog cannot see a combination the app itself holds:
+     * `RegisterHotKey` takes the keystroke before any window is told about it,
+     * so pressing the current *Rotate map* hotkey inside the dialog rotated the
+     * map instead of being recorded — which made swapping two bindings, or
+     * moving one out of the way, impossible.
+     *
+     * Fire-and-forget on purpose: a failure here costs the convenience, not the
+     * edit, and main lifts the suspension by itself if this window goes away.
+     *
+     * @param {boolean} on
+     */
+    suspendGlobalHotkeys(on) {
+        ipcRenderer.invoke('suspend-hotkeys', !!on).catch(err => {
+            console.error('hotkeys::suspend', err && err.message);
+        });
     }
 }
 
 module.exports = Hotkeys;
+// The welcome tour prints the same key caps on its hotkeys step. Exported
+// rather than copied: the escaping is the load-bearing part (an accelerator can
+// come straight out of a hand-edited settings file and this goes into
+// `innerHTML`), and two copies of that rule is one too many.
+module.exports.acceleratorKbd = acceleratorKbd;

@@ -34,13 +34,16 @@ class TrayController {
 
         let mainWindow = this.mainWindow;
 
+        // Since 0.7 the window may not exist at all — it is destroyed while the
+        // app sits in the tray during a match. `show()` rebuilds it; `focus()`
+        // and `isVisible()` both answer for "there is no window" on their own.
         this.tray.on('double-click', () => {
-            mainWindow.show();
+            mainWindow.show('tray-double-click');
             mainWindow.focus();
         });
 
         this.tray.on('click', () => {
-            mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
+            mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show('tray-click');
         });
     }
 
@@ -66,7 +69,7 @@ class TrayController {
             {
                 label: this.t('tray.show'),
                 click: function () {
-                    mainWindow.show();
+                    mainWindow.show('tray-menu');
                     mainWindow.focus();
                 }
             }

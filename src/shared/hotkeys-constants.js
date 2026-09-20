@@ -5,6 +5,30 @@
  * renderer process. Plain CommonJS, no electron import — safe to unit test.
  */
 
+/*
+ * ─── Why every default carries Alt ──────────────────────────────────────────
+ *
+ * Up to 0.6.0 the defaults were plain Ctrl combinations, and every single one
+ * of them was already taken by something the player is running:
+ *
+ * - **Ctrl is crouch** in most shooters, Halloween: The Game included, so a
+ *   default that is Ctrl + anything fires while the player is crouching.
+ * - Ctrl+R reloads a browser page, Ctrl+H opens its history, Ctrl+1..9 switch
+ *   its tabs, Ctrl+Shift+D is a Discord shortcut, and Ctrl+arrow is word-wise
+ *   caret movement in every text field on the machine. A *global* shortcut
+ *   swallows the combination system-wide, so the app was taking them away from
+ *   applications that were using them.
+ *
+ * `Ctrl+Alt+<key>` is the Windows convention for an application's own global
+ * shortcuts (it is what Discord, OBS and the GPU overlays default to) and
+ * nothing in the game uses it. The size steps need a fourth modifier because
+ * they share the arrow keys with the opacity steps.
+ *
+ * Installs made before this change are moved onto the new defaults **once**,
+ * and only where the user never touched the binding — see
+ * `shared/hotkey-migration.js`.
+ */
+
 /**
  * `description` is the English name of the action and `descriptionKey` its
  * translation key. Both are kept: the key is what the UI and the conflict
@@ -17,28 +41,28 @@
 const SYSTEM_HOTKEY_DEFS = {
     'toggle-map': {
         id: 'toggle-map',
-        defaultAccelerator: 'CommandOrControl+H',
+        defaultAccelerator: 'CommandOrControl+Alt+H',
         description: 'Show / hide the current map',
         descriptionKey: 'hotkeys.action.toggle-map',
         action: 'toggle-map'
     },
     'rotate-map': {
         id: 'rotate-map',
-        defaultAccelerator: 'CommandOrControl+R',
+        defaultAccelerator: 'CommandOrControl+Alt+R',
         description: 'Rotate the map by 90 degrees',
         descriptionKey: 'hotkeys.action.rotate-map',
         action: 'rotate-map'
     },
     'next-map': {
         id: 'next-map',
-        defaultAccelerator: 'CommandOrControl+Right',
+        defaultAccelerator: 'CommandOrControl+Alt+Right',
         description: 'Show the next map',
         descriptionKey: 'hotkeys.action.next-map',
         action: 'next-map'
     },
     'prev-map': {
         id: 'prev-map',
-        defaultAccelerator: 'CommandOrControl+Left',
+        defaultAccelerator: 'CommandOrControl+Alt+Left',
         description: 'Show the previous map',
         descriptionKey: 'hotkeys.action.prev-map',
         action: 'prev-map'
@@ -47,7 +71,7 @@ const SYSTEM_HOTKEY_DEFS = {
     // what it last saw, so pressing Tab on the *same* map detects it again.
     'clear-map': {
         id: 'clear-map',
-        defaultAccelerator: 'CommandOrControl+Shift+D',
+        defaultAccelerator: 'CommandOrControl+Alt+D',
         description: 'Clear the map and re-detect',
         descriptionKey: 'hotkeys.action.clear-map',
         action: 'clear-map'
@@ -56,31 +80,42 @@ const SYSTEM_HOTKEY_DEFS = {
     // when opening the settings modal means alt-tabbing out of the game.
     'opacity-up': {
         id: 'opacity-up',
-        defaultAccelerator: 'CommandOrControl+Up',
+        defaultAccelerator: 'CommandOrControl+Alt+Up',
         description: 'Make the overlay more opaque',
         descriptionKey: 'hotkeys.action.opacity-up',
         action: 'opacity-up'
     },
     'opacity-down': {
         id: 'opacity-down',
-        defaultAccelerator: 'CommandOrControl+Down',
+        defaultAccelerator: 'CommandOrControl+Alt+Down',
         description: 'Make the overlay more transparent',
         descriptionKey: 'hotkeys.action.opacity-down',
         action: 'opacity-down'
     },
     'size-up': {
         id: 'size-up',
-        defaultAccelerator: 'CommandOrControl+Shift+Up',
+        defaultAccelerator: 'CommandOrControl+Alt+Shift+Up',
         description: 'Make the overlay bigger',
         descriptionKey: 'hotkeys.action.size-up',
         action: 'size-up'
     },
     'size-down': {
         id: 'size-down',
-        defaultAccelerator: 'CommandOrControl+Shift+Down',
+        defaultAccelerator: 'CommandOrControl+Alt+Shift+Down',
         description: 'Make the overlay smaller',
         descriptionKey: 'hotkeys.action.size-down',
         action: 'size-down'
+    },
+    // Markers: the possible storm-cellar / gate / car / gas-can locations, on
+    // the overlay and (in Tab-map mode) on the game's own map. One master
+    // switch on a hotkey, because the decision "is this helping me right now?"
+    // is made mid-match, when opening Settings means alt-tabbing out.
+    'toggle-markers': {
+        id: 'toggle-markers',
+        defaultAccelerator: 'CommandOrControl+Alt+M',
+        description: 'Show / hide the map markers',
+        descriptionKey: 'hotkeys.action.toggle-markers',
+        action: 'toggle-markers'
     }
 };
 
@@ -94,7 +129,8 @@ const ACTION_TO_SETTING_KEY = {
     'opacity-up': 'hotkeyOpacityUp',
     'opacity-down': 'hotkeyOpacityDown',
     'size-up': 'hotkeySizeUp',
-    'size-down': 'hotkeySizeDown'
+    'size-down': 'hotkeySizeDown',
+    'toggle-markers': 'hotkeyToggleMarkers'
 };
 
 /*
@@ -199,8 +235,18 @@ function stepSize(current, delta) {
 const MAX_DEFAULT_MAP_HOTKEYS = 9;
 
 /**
- * Build the first-run contents of `hotkeys.json`: Ctrl+1..Ctrl+9 bound to the
- * first nine shipped maps **in catalogue order** (`buildCatalog` already sorts
+ * Modifiers the first-run per-map bindings sit on, the number itself appended.
+ *
+ * Ctrl+1..Ctrl+9 (up to 0.6.0) are the browser's tab switchers, so the app was
+ * taking nine of the most-used shortcuts on the machine away system-wide. One
+ * constant because the migration in `shared/hotkey-migration.js` has to know
+ * the same prefix.
+ */
+const MAP_HOTKEY_PREFIX = 'CommandOrControl+Alt+';
+
+/**
+ * Build the first-run contents of `hotkeys.json`: Ctrl+Alt+1..Ctrl+Alt+9 bound
+ * to the first nine shipped maps **in catalogue order** (`buildCatalog` sorts
  * by creator then map name, and `nextMap`/`prevMap` cycle in that same order,
  * so the numbers follow the gallery). Pure — the id generator is injected so
  * the result is reproducible in tests.
@@ -224,7 +270,7 @@ function buildDefaultMapHotkeys(catalog, makeId) {
         if (!entry || entry.custom) continue;
         slot++;
         if (slot > MAX_DEFAULT_MAP_HOTKEYS) break;
-        bindings[`CommandOrControl+${slot}`] = {id: makeId(), mapKey: entry.key};
+        bindings[`${MAP_HOTKEY_PREFIX}${slot}`] = {id: makeId(), mapKey: entry.key};
     }
     return bindings;
 }
@@ -386,6 +432,7 @@ module.exports = {
     ACTION_TO_SETTING_KEY,
     UNBOUND_ACCELERATOR,
     MAX_DEFAULT_MAP_HOTKEYS,
+    MAP_HOTKEY_PREFIX,
     MODIFIER_ONLY_KEYS,
     ACCELERATOR_MODIFIERS,
     OPACITY_STEP,

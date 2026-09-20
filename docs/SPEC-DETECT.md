@@ -144,5 +144,51 @@ developer, not with `MAP_PANEL_REL`.
 2. `npm start` with `mapDetection: true` logs a capture tick without errors
    on this machine (the Tab screen will not be present, expect "no match").
 3. Packaged build runs the loop (the node-screenshots binary loads from `app.asar.unpacked`).
-4. README/FAQ privacy text updated; AGENTS.md documents the detector.
+4. README/FAQ privacy text updated; `docs/agents/detection.md` documents the detector.
 5. Reviewer can run the fixture tests and reproduce the margins.
+
+## 5. Addendum (0.7) — where the pixel work runs
+
+This spec's §2.3 put the loop in the main process and left the escape hatch
+"if the main thread still stutters, run the loop in an Electron
+`utilityProcess`". It stuttered, and the move was made. What changed, and what
+did not:
+
+- **The decisions are unchanged.** Regions, both signals, the thresholds, the
+  gate, the cadences and the acceptance table are exactly as specified.
+  `test/detector-equality.test.js` asserts the numbers the matcher sees are
+  **bit-identical** to the pre-0.7 pipeline on every fixture at four
+  resolutions. The **gate** is verdict-identical rather than bit-identical: it
+  now reads the raw bytes with its own rounding, which differed on two of 5,740
+  checks in an independent re-run — one hand-cropped fixture stretched to a
+  non-native aspect ratio, sitting on the name-box threshold, rejected at 0.38
+  either way.
+- **The tick asks the cheap question first.** `tabGateFromRaw` runs on the raw
+  capture bytes (~1.4 ms, no allocation) and only the regions that will actually
+  be matched are reduced to luminance. §2.1's "downscale as early as possible"
+  now means "downscale as *little* as possible": a gated-out gameplay tick went
+  from 27.0 ms to 1.3 ms.
+- **`src/core/map-detector/frame-source.js`** owns everything that touches
+  pixels: find the window, capture, gate, grayscale, `matchMap`, `matchMenu`.
+- **`worker.js`** runs that module inside `utilityProcess.fork`, and
+  **`worker-host.js`** is main's side: lazy start, 500 ms request timeout,
+  restart backoff, automatic fallback to running the same frame source
+  in-process. `system.txt` prints `detector = worker | in-process (reason)`.
+- **Only numbers and keys cross the process boundary**, in both directions
+  except for the templates going in. This is a stronger form of the privacy
+  rule in §2.3 and the README: while the worker is running, a frame does not
+  merely stay out of the log, it never reaches the process that owns the
+  windows, the settings and the network. (On the declared fallback the capture
+  is back in main, exactly as it was before 0.7 — the README says so rather than
+  promising the stronger thing unconditionally.) A test asserts no reply carries
+  a Buffer, a TypedArray or an ArrayBuffer.
+- **Requests queue, one in flight**, each with its own timer and promise; a
+  request that cannot be answered resolves as "no frame this tick" rather than
+  becoming a main-process capture. A deliberate stop is not a crash and arms no
+  restart. The child loads `core/gc.js` itself, because the frames it must
+  release are its own.
+- **Still open**: `matchMap` remains linear in installed map variants.
+  Coarse-to-fine prefiltering was measured on the fixtures and rejected — it
+  changes the winner on 5 of 20 and flips the accept/reject decision on 2, so
+  it cannot be had without changing this spec's acceptance rules.
+  `LIMITS.variants` in the map-pack spec is what bounds the cost.

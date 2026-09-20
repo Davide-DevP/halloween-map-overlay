@@ -1,4 +1,5 @@
 const {BrowserWindow} = require('electron')
+const {webPreferences} = require('../shared/web-preferences');
 const appLog = require('./app-log');
 const path = require("path");
 
@@ -18,10 +19,7 @@ class ObsWindow {
         this.window = new BrowserWindow({
             width: 700,
             height: 700,
-            webPreferences: {
-                nodeIntegration: true,
-                contextIsolation: false
-            },
+            webPreferences: webPreferences(),
             title: "Halloween Map Overlay for OBS",
             icon: path.join(global.dirname, "src", "images", "icon.png")
         })

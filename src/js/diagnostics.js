@@ -1,6 +1,7 @@
 const {ipcRenderer} = require('electron');
 const {t, onChange} = require('./i18n');
 const {showStatus} = require('./status');
+const {setBusy} = require('./busy');
 const {acceleratorToDisplay} = require('../shared/hotkeys-constants');
 const {debugLog} = require('./logger');
 
@@ -25,7 +26,7 @@ const {debugLog} = require('./logger');
  *   disables the button while it works and reports a failure.
  *
  * Both banners are built with `t()` at render time, so both re-render through
- * `i18n.onChange` — see the rule in AGENTS.md.
+ * `i18n.onChange` — see the rule in `docs/agents/i18n.md`.
  */
 class Diagnostics {
 
@@ -91,6 +92,9 @@ class Diagnostics {
     async createReport() {
         if (this.busy) return;
         this.busy = true;
+        // Building the zip reads both logs and every crash file; main must not
+        // tear this window down while the button is waiting for the answer.
+        setBusy('report', true);
         const buttons = $("#createReport, #crashReportBtn");
         buttons.prop("disabled", true);
         showStatus(t('diagnostics.creating'));
@@ -103,6 +107,7 @@ class Diagnostics {
             showStatus(t('diagnostics.failed'));
         } finally {
             this.busy = false;
+            setBusy('report', false);
             buttons.prop("disabled", false);
         }
     }

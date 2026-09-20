@@ -17,7 +17,7 @@ const {spawn} = require('child_process');
  * No electron import, on purpose: everything that needs `app.getPath`,
  * `screen` or a BrowserWindow is decided by the caller and passed in, which is
  * what lets the tests drive this against `mkdtemp` and a fake clock. Same tier
- * as `diagnostics/report.js` (see AGENTS.md, "Pure vs impure").
+ * as `diagnostics/report.js` (see `docs/agents/architecture.md`, "Pure vs impure").
  */
 
 /** What the shipped folder is called under `resources/`. */

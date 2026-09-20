@@ -45,7 +45,7 @@ Output lands in `dist/`:
 
 | File | What it is |
 |---|---|
-| `Halloween Map Overlay Setup <version>.exe` | NSIS installer (one-click, per-user; see AGENTS.md for the customised installer window) |
+| `Halloween Map Overlay Setup <version>.exe` | NSIS installer (one-click, per-user; see `docs/agents/updater-and-installer.md` for the customised installer window) |
 | `Halloween Map Overlay <version>.exe` | Portable single executable |
 | `win-unpacked/` | The unpacked app, useful for inspecting a build |
 

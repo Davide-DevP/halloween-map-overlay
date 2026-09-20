@@ -5,6 +5,7 @@ const {
     ACTION_TO_SETTING_KEY,
     UNBOUND_ACCELERATOR,
     MAX_DEFAULT_MAP_HOTKEYS,
+    MAP_HOTKEY_PREFIX,
     buildDefaultMapHotkeys,
     acceleratorToDisplay,
     acceleratorKeyName,
@@ -21,6 +22,7 @@ const {
     stepOpacity,
     stepSize
 } = require('../src/shared/hotkeys-constants');
+const {boundEntries, normalizeAccelerator, ownAcceleratorKeys} = require('../src/shared/hotkeys-rules');
 const {buildCatalog} = require('../src/core/map-catalog');
 const {DEFAULT_SETTINGS} = require('../src/shared/settings-defaults');
 
@@ -40,16 +42,31 @@ function counter() {
 test('the system hotkeys are the documented ones', () => {
     assert.deepStrictEqual(Object.keys(SYSTEM_HOTKEY_DEFS),
         ['toggle-map', 'rotate-map', 'next-map', 'prev-map', 'clear-map',
-            'opacity-up', 'opacity-down', 'size-up', 'size-down']);
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['toggle-map'].defaultAccelerator, 'CommandOrControl+H');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator, 'CommandOrControl+R');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['next-map'].defaultAccelerator, 'CommandOrControl+Right');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['prev-map'].defaultAccelerator, 'CommandOrControl+Left');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['clear-map'].defaultAccelerator, 'CommandOrControl+Shift+D');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-up'].defaultAccelerator, 'CommandOrControl+Up');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-down'].defaultAccelerator, 'CommandOrControl+Down');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-up'].defaultAccelerator, 'CommandOrControl+Shift+Up');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-down'].defaultAccelerator, 'CommandOrControl+Shift+Down');
+            'opacity-up', 'opacity-down', 'size-up', 'size-down', 'toggle-markers']);
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['toggle-map'].defaultAccelerator, 'CommandOrControl+Alt+H');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator, 'CommandOrControl+Alt+R');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['next-map'].defaultAccelerator, 'CommandOrControl+Alt+Right');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['prev-map'].defaultAccelerator, 'CommandOrControl+Alt+Left');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['clear-map'].defaultAccelerator, 'CommandOrControl+Alt+D');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-up'].defaultAccelerator, 'CommandOrControl+Alt+Up');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-down'].defaultAccelerator, 'CommandOrControl+Alt+Down');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-up'].defaultAccelerator, 'CommandOrControl+Alt+Shift+Up');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-down'].defaultAccelerator, 'CommandOrControl+Alt+Shift+Down');
+    assert.strictEqual(SYSTEM_HOTKEY_DEFS['toggle-markers'].defaultAccelerator, 'CommandOrControl+Alt+M');
+});
+
+test('no default is a plain Ctrl combination any more', () => {
+    // The point of the 0.7 defaults: Ctrl is crouch in the game, and Ctrl+R /
+    // Ctrl+H / Ctrl+arrows / Ctrl+1..9 are browser, Discord and text-field
+    // shortcuts that a *global* accelerator takes away system-wide. Every
+    // default therefore carries Alt as well.
+    for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        const normalized = normalizeAccelerator(def.defaultAccelerator);
+        assert.ok(normalized, `${actionId}: ${def.defaultAccelerator} does not parse`);
+        assert.ok(normalized.split('+').includes('Alt'), `${actionId}: ${normalized} has no Alt`);
+        assert.ok(normalized.startsWith('CommandOrControl+'), `${actionId}: ${normalized}`);
+    }
+    assert.strictEqual(normalizeAccelerator(MAP_HOTKEY_PREFIX + '1'), 'CommandOrControl+Alt+1');
 });
 
 test('every system hotkey ships a stored default accelerator', () => {
@@ -149,20 +166,24 @@ test('an unbound action is never registrable and never a held accelerator', () =
     // The two guards in main hang off these: `registerSystemHotkeys` skips an
     // unbound action (globalShortcut.register('') throws) and `ownAccelerators`
     // / `systemConflict` must not treat `''` as a combination anyone holds.
+    // Exercised through the real functions main calls, not a filter written
+    // out again here — that is what let the two drift in the first place.
     assert.ok(!hasModifier(UNBOUND_ACCELERATOR));
-    const effective = {'rotate-map': UNBOUND_ACCELERATOR, 'toggle-map': 'CommandOrControl+H'};
-    const bound = Object.entries(effective).filter(([, accel]) => !isUnbound(accel));
+    const effective = {'rotate-map': UNBOUND_ACCELERATOR, 'toggle-map': 'CommandOrControl+Alt+H'};
+    const bound = boundEntries(effective);
     assert.deepStrictEqual(bound.map(([id]) => id), ['toggle-map']);
-    assert.ok(!new Set(bound.map(([, accel]) => accel)).has(UNBOUND_ACCELERATOR));
+    const held = ownAcceleratorKeys(effective, {});
+    assert.ok(!held.has(UNBOUND_ACCELERATOR));
+    assert.deepStrictEqual([...held], ['CommandOrControl+Alt+H']);
 });
 
-test('first-run defaults bind Ctrl+1..Ctrl+N in catalogue order', () => {
+test('first-run defaults bind Ctrl+Alt+1..N in catalogue order', () => {
     const defaults = buildDefaultMapHotkeys(catalog, counter());
     assert.deepStrictEqual(defaults, {
-        'CommandOrControl+1': {id: 'id-1', mapKey: 'deftyconchgaming/East Haddonfield'},
-        'CommandOrControl+2': {id: 'id-2', mapKey: 'deftyconchgaming/Haddonfield Heights'},
-        'CommandOrControl+3': {id: 'id-3', mapKey: 'deftyconchgaming/Haddonfield Town Center'},
-        'CommandOrControl+4': {id: 'id-4', mapKey: 'deftyconchgaming/Orange Grove Estates'}
+        'CommandOrControl+Alt+1': {id: 'id-1', mapKey: 'deftyconchgaming/East Haddonfield'},
+        'CommandOrControl+Alt+2': {id: 'id-2', mapKey: 'deftyconchgaming/Haddonfield Heights'},
+        'CommandOrControl+Alt+3': {id: 'id-3', mapKey: 'deftyconchgaming/Haddonfield Town Center'},
+        'CommandOrControl+Alt+4': {id: 'id-4', mapKey: 'deftyconchgaming/Orange Grove Estates'}
     });
     // The bindings follow the catalogue, which is what next/prev cycles over —
     // there is no separate hand-maintained list to keep in step.
@@ -180,7 +201,7 @@ test('a new map needs no code change to get a default binding', () => {
     ]);
     const defaults = buildDefaultMapHotkeys(grown, counter());
     assert.strictEqual(Object.keys(defaults).length, 5);
-    assert.strictEqual(defaults['CommandOrControl+5'].mapKey, 'deftyconchgaming/Zzz New Map');
+    assert.strictEqual(defaults['CommandOrControl+Alt+5'].mapKey, 'deftyconchgaming/Zzz New Map');
 });
 
 test('no more than nine default bindings, whatever the catalogue holds', () => {
@@ -190,27 +211,29 @@ test('no more than nine default bindings, whatever the catalogue holds', () => {
     const defaults = buildDefaultMapHotkeys(many, counter());
     assert.strictEqual(MAX_DEFAULT_MAP_HOTKEYS, 9);
     assert.strictEqual(Object.keys(defaults).length, 9);
-    assert.deepStrictEqual(Object.keys(defaults), Array.from({length: 9}, (_, i) => `CommandOrControl+${i + 1}`));
-    assert.strictEqual(defaults['CommandOrControl+9'].mapKey, 'deftyconchgaming/Map I');
+    assert.deepStrictEqual(Object.keys(defaults), Array.from({length: 9}, (_, i) => `${MAP_HOTKEY_PREFIX}${i + 1}`));
+    assert.strictEqual(defaults['CommandOrControl+Alt+9'].mapKey, 'deftyconchgaming/Map I');
 });
 
 test('defaults never collide with a system hotkey', () => {
-    // Nine numbers, so check the full Ctrl+1..Ctrl+9 range rather than only the
-    // ones this catalogue happens to hand out.
+    // Nine numbers, so check the full 1..9 range rather than only the ones this
+    // catalogue happens to hand out. Compared **normalised**, which is the
+    // comparison main makes — raw string equality would miss a system default
+    // spelled a different way.
     const many = buildCatalog(Array.from({length: 9}, (_, i) => `deftyconchgaming/Map ${String.fromCharCode(65 + i)}.png`));
     const defaults = buildDefaultMapHotkeys(many, counter());
-    const system = new Set(Object.values(SYSTEM_HOTKEY_DEFS).map(d => d.defaultAccelerator));
+    const system = new Set(Object.values(SYSTEM_HOTKEY_DEFS).map(d => normalizeAccelerator(d.defaultAccelerator)));
     assert.strictEqual(Object.keys(defaults).length, 9);
     for (const accel of Object.keys(defaults)) {
-        assert.ok(!system.has(accel), `${accel} collides with a system hotkey`);
+        assert.ok(!system.has(normalizeAccelerator(accel)), `${accel} collides with a system hotkey`);
     }
 });
 
 test('a missing map leaves no gap in the numbering', () => {
     const partial = buildCatalog(['deftyconchgaming/East Haddonfield.png', 'deftyconchgaming/Orange Grove Estates.png']);
     assert.deepStrictEqual(buildDefaultMapHotkeys(partial, counter()), {
-        'CommandOrControl+1': {id: 'id-1', mapKey: 'deftyconchgaming/East Haddonfield'},
-        'CommandOrControl+2': {id: 'id-2', mapKey: 'deftyconchgaming/Orange Grove Estates'}
+        'CommandOrControl+Alt+1': {id: 'id-1', mapKey: 'deftyconchgaming/East Haddonfield'},
+        'CommandOrControl+Alt+2': {id: 'id-2', mapKey: 'deftyconchgaming/Orange Grove Estates'}
     });
 });
 
@@ -219,7 +242,7 @@ test('custom maps never get a default binding', () => {
         {key: 'Custom/East Haddonfield', creator: 'Custom', name: 'East Haddonfield', file: 'East Haddonfield.png', custom: true}
     ]);
     const defaults = buildDefaultMapHotkeys(withCustom, counter());
-    assert.strictEqual(defaults['CommandOrControl+1'].mapKey, 'deftyconchgaming/East Haddonfield');
+    assert.strictEqual(defaults['CommandOrControl+Alt+1'].mapKey, 'deftyconchgaming/East Haddonfield');
     assert.strictEqual(Object.keys(defaults).length, 4);
 });
 
@@ -284,7 +307,19 @@ test('the step bounds match the settings defaults and the slider range', () => {
 test('accelerator display conversion', () => {
     assert.strictEqual(acceleratorToDisplay('CommandOrControl+Shift+P'), 'Ctrl + Shift + P');
     assert.strictEqual(acceleratorToDisplay('CommandOrControl+Right'), 'Ctrl + Right');
+    assert.strictEqual(acceleratorToDisplay('CommandOrControl+Alt+Shift+Up'), 'Ctrl + Alt + Shift + Up');
     assert.strictEqual(acceleratorToDisplay(''), '');
+});
+
+test('every shipped default has a readable display form', () => {
+    // The Hotkeys table, the FAQ answers and every conflict message are built
+    // from this, so a default that came out as "CommandOrControl + Alt + H"
+    // would be visible everywhere at once.
+    for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        const shown = acceleratorToDisplay(def.defaultAccelerator);
+        assert.ok(shown.startsWith('Ctrl + Alt'), `${actionId}: ${shown}`);
+        assert.ok(!/CommandOrControl/.test(shown), `${actionId}: ${shown}`);
+    }
 });
 
 // ─── Key capture ───────────────────────────────────────────────

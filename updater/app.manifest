@@ -6,7 +6,7 @@
 
   - `asInvoker`. The helper must never raise a UAC prompt. The NSIS build is
     `perMachine: false` + `oneClick: true`, which is exactly what removed the
-    elevation prompt from the self-update (AGENTS.md, "Releasing"); a helper
+    elevation prompt from the self-update (docs/agents/updater-and-installer.md, "The NSIS build shape"); a helper
     that asked for admin would put it straight back, behind a dialog nobody is
     watching for.
 

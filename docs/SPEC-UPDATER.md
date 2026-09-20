@@ -136,8 +136,9 @@ in AGENTS.md is unchanged: the helper makes **zero** network requests.
 
 README (How updates work / FAQ entry / Changelog 0.5.0), in-app FAQ
 `faq.updates.*` if the wording no longer matches, `docs/BUILD.md` (csc
-prerequisite, `build-updater`), `NOTICE` (static Geist TTFs, OFL), AGENTS.md
-(architecture entries, the handshake rule, traps found). `build/installer.nsh`
+prerequisite, `build-updater`), `NOTICE` (static Geist TTFs, OFL), AGENTS.md's
+architecture map and `docs/agents/updater-and-installer.md` (the handshake
+rule, traps found). `build/installer.nsh`
 stays: it is still what the fallback path and a first install show.
 
 ## 5. Safety rules (non-negotiable)

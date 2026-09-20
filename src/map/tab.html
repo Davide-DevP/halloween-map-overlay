@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+</head>
+<style>
+    /* Tab-map mode: this window is laid exactly over the game's own window, so
+       everything inside it is positioned as a fraction of the viewport. It is
+       transparent, click-through and never focusable — see
+       src/core/tab-overlay-window.js. */
+    * {
+        margin: 0;
+    }
+    ::-webkit-scrollbar {
+        display: none;
+    }
+    html, body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: transparent;
+    }
+    #tabMarkers {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        overflow: visible;
+    }
+    /* The optimistic show (`tabMarkersInstant`): the markers go up on the
+       key-down edge, before the app has seen the game's map, and fade in
+       alongside it — the game's own fade was measured at 250-330 ms.
+
+       The curve is an ease-in on purpose, and it is the whole reason an
+       unconfirmed show is cheap: at 100 ms it is only ~6 % opaque, so a press
+       where the map never opens (the chat, the pause menu) is taken down at the
+       550 ms deadline having been faint for most of it. A linear fade would
+       be a third of the way up at 100 ms.
+
+       The transition is a *class*, and the opacity itself stays an inline
+       style set from the payload, so a marker layer toggled mid-hold still
+       lands on the opacity the user chose. `tab-renderer.js` puts the class on
+       only for a payload flagged `fade`. */
+    #tabMarkers.is-fading,
+    #tabLegend.is-fading {
+        transition: opacity 300ms cubic-bezier(0.6, 0, 1, 0.5);
+    }
+    /* The empty lower-left of the game's Objectives panel. Placed from
+       TAB_LEGEND_REL by the renderer, so it follows the game's resolution. */
+    #tabLegend {
+        position: absolute;
+        display: none;
+        pointer-events: none;
+        font: 600 15px/1.5 "Segoe UI", system-ui, sans-serif;
+        color: #ffe9d2;
+        text-shadow: 0 0 5px #000, 0 0 2px #000;
+    }
+    .marker-chip {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        white-space: nowrap;
+    }
+    .marker-swatch {
+        width: 11px;
+        height: 11px;
+        border: 2px solid #fff;
+        border-radius: 1px;
+        background: transparent;
+        flex: none;
+    }
+    .marker-chip.is-note {
+        margin-top: 4px;
+        font-weight: 500;
+        font-size: 12px;
+        opacity: 0.85;
+    }
+</style>
+<body>
+<svg id="tabMarkers" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="tabLegend"></div>
+</body>
+<script src="tab-renderer.js"></script>
+</html>

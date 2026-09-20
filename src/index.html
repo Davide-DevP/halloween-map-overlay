@@ -82,8 +82,8 @@
         <div class="banner-row">
             <div>
                 <strong id="updateReadyHeadline">A new version is ready.</strong>
-                <span data-i18n="update.ready.body">Restart and update &mdash; the app closes, installs for a few
-                    seconds (disk-heavy, an installer window shows progress) and reopens by itself.</span>
+                <span data-i18n="update.ready.body">Restart and update — the app closes, a small window
+                    shows the progress for a few seconds, and it reopens by itself.</span>
             </div>
             <div class="banner-actions">
                 <button type="button" class="btn btn-primary btn-sm" id="updateRestart" data-i18n="update.restart">Restart and update</button>
@@ -96,8 +96,8 @@
          Asked for on load, never pushed: the process that crashed is gone. -->
     <div class="alert note-danger d-none mb-3" role="alert" id="crashNotice">
         <div class="banner-row">
-            <span data-i18n="crash.notice">The app closed unexpectedly last time. Create a diagnostic report and send
-                it.</span>
+            <span data-i18n="crash.notice">The app closed unexpectedly last time. Create a diagnostic
+                report and send it.</span>
             <div class="banner-actions">
                 <button type="button" class="btn btn-outline-danger btn-sm" id="crashReportBtn" data-i18n="diagnostics.create">Create diagnostic report</button>
                 <button type="button" class="btn btn-link btn-sm p-0 text-decoration-underline"
@@ -111,13 +111,14 @@
     <div class="alert note-warn d-none mb-3" role="alert" id="hotkeyConflict">
         <strong data-i18n="hotkeyConflict.title">Some hotkeys could not be registered:</strong>
         <span id="hotkeyConflictList"></span>
-        <span data-i18n="hotkeyConflict.help">— already used by another app (Discord, NVIDIA, …). Change them in
-            Settings → Hotkeys.</span>
+        <span data-i18n="hotkeyConflict.help">— already used by another app (Discord, NVIDIA, …). Change
+            them in Settings → Hotkeys.</span>
     </div>
 
     <div class="alert note-warn alert-dismissible fade d-none mb-3" role="alert" id="warning">
-        <span data-i18n-html="home.fullscreenNotice">Playing in exclusive fullscreen? Switch the game to
-            <strong>Borderless Windowed</strong> so the overlay stays on top. See the FAQ for details.</span>
+        <span data-i18n-html="home.fullscreenNotice">For the overlay to stay on top, set the game's
+            display mode to <strong>Borderless Windowed</strong>. A window with a border or title bar
+            also stops the markers being drawn on the game's own map. See the FAQ for details.</span>
         <button type="button" class="btn-close" data-bs-dismiss="alert" data-i18n-aria-label="common.close" aria-label="Close"></button>
     </div>
 
@@ -146,7 +147,8 @@
             <input class="form-check-input" type="checkbox" id="mapDetectionCheck" role="switch">
             <label class="form-check-label" for="mapDetectionCheck">
                 <span class="detector-switch-name" data-i18n="home.autoDetect">Auto-detect map</span>
-                <span class="detector-hint" data-i18n-html="home.autoDetectHint">(open the in-game map with <kbd>Tab</kbd>)</span>
+                <span class="detector-hint" data-i18n-html="home.autoDetectHint">(open the in-game map
+                    with <kbd>Tab</kbd>)</span>
             </label>
         </div>
         <!-- `data-state` is written by src/js/detector.js from the same status
@@ -201,9 +203,13 @@
                                 <option value="system" data-i18n="settings.language.system">Follow the system</option>
                                 <option value="en" data-i18n-ignore>English</option>
                                 <option value="it" data-i18n-ignore>Italiano</option>
+                                <option value="es" data-i18n-ignore>Español</option>
+                                <option value="de" data-i18n-ignore>Deutsch</option>
+                                <option value="fr" data-i18n-ignore>Français</option>
+                                <option value="pt-BR" data-i18n-ignore>Português (Brasil)</option>
                             </select>
-                            <small class="help-text" data-i18n="settings.language.help">Applies straight
-                                away — no restart. Map and creator names are never translated.</small>
+                            <small class="help-text" data-i18n="settings.language.help">Applies straight away —
+                                no restart. Map and creator names are never translated.</small>
                         </div>
 
                         <div class="setting">
@@ -211,14 +217,15 @@
                                 <input class="form-check-input" type="checkbox" id="minimizeToTrayCheck" role="switch">
                                 <label class="form-check-label" for="minimizeToTrayCheck" data-i18n="settings.minimizeToTray">Minimize to tray</label>
                             </div>
-                            <small class="help-text" data-i18n="settings.minimizeToTray.help">Closing or
-                                minimizing the window keeps the app running in the system tray instead of quitting.</small>
+                            <small class="help-text" data-i18n="settings.minimizeToTray.help">Closing or minimizing
+                                the window keeps the app running in the system tray instead of quitting.</small>
                         </div>
 
                         <div class="setting">
                             <div class="form-check form-switch setting-switch">
                                 <input class="form-check-input" type="checkbox" id="disableFaqPopupCheck" role="switch">
-                                <label class="form-check-label" for="disableFaqPopupCheck" data-i18n="settings.hideFaqPopup">Hide the fullscreen notice</label>
+                                <label class="form-check-label" for="disableFaqPopupCheck" data-i18n="settings.hideFaqPopup">Hide the display-mode
+                                    notice</label>
                             </div>
                             <small class="help-text" data-i18n="settings.hideFaqPopup.help">Stops the
                                 borderless-windowed reminder showing on startup.</small>
@@ -226,24 +233,86 @@
 
                         <div class="setting">
                             <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="hardwareAccelerationCheck" role="switch">
+                                <label class="form-check-label" for="hardwareAccelerationCheck" data-i18n="settings.hardwareAcceleration">Use the graphics card to
+                                    draw the app</label>
+                            </div>
+                            <small class="help-text" data-i18n="settings.hardwareAcceleration.help">Off by default, to save
+                                memory: the overlay is a still image, so there is nothing for the
+                                graphics card to do. Turn it on if the app looks or feels wrong on your
+                                machine. Takes effect the next time the app starts.</small>
+                        </div>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="unloadWindowInTrayCheck" role="switch">
+                                <label class="form-check-label" for="unloadWindowInTrayCheck" data-i18n="settings.unloadWindowInTray">Free this window's
+                                    memory in the tray</label>
+                            </div>
+                            <small class="help-text" data-i18n="settings.unloadWindowInTray.help">On by default: while the
+                                app sits in the tray this window is closed to give its memory back —
+                                about a quarter of everything the app uses. The overlay, the hotkeys and
+                                automatic detection all carry on. Opening the window again takes a
+                                moment; turn this off to keep it instant.</small>
+                        </div>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
                                 <input class="form-check-input" type="checkbox" id="hideInMenuCheck" role="switch">
-                                <label class="form-check-label" for="hideInMenuCheck" data-i18n="settings.hideInMenu">Clear the map back in the menu</label>
+                                <label class="form-check-label" for="hideInMenuCheck" data-i18n="settings.hideInMenu">Clear the map back in
+                                    the menu</label>
                             </div>
                             <small class="help-text" data-i18n-html="settings.hideInMenu.help">Only with
-                                <em>Auto-detect map</em> on: when the game returns to its main menu the match is over, so
-                                the overlay clears itself. The next <kbd>Tab</kbd> press detects the map again, even the
-                                same one.</small>
+                                <em>Auto-detect map</em> on: when the game returns to its main menu the
+                                match is over, so the overlay clears itself. The next <kbd>Tab</kbd>
+                                press detects the map again, even the same one.</small>
                         </div>
 
                         <div class="setting">
                             <div class="form-check form-switch setting-switch">
                                 <input class="form-check-input" type="checkbox" id="checkForUpdatesCheck" role="switch">
-                                <label class="form-check-label" for="checkForUpdatesCheck" data-i18n="settings.checkForUpdates">Check for updates on startup</label>
+                                <label class="form-check-label" for="checkForUpdatesCheck" data-i18n="settings.checkForUpdates">Check for updates on
+                                    startup</label>
                             </div>
-                            <small class="help-text" data-i18n="settings.checkForUpdates.help">The only
-                                network request this app makes: one HTTPS call to GitHub Releases at startup to see whether
-                                a newer version exists. Turn it off to run fully offline. Map images are never downloaded —
-                                they ship inside the app.</small>
+                            <small class="help-text" data-i18n="settings.checkForUpdates.help">One HTTPS call to GitHub
+                                Releases at startup to see whether a newer version of the app exists.
+                                Turn this off to stop the check completely.</small>
+                            <div class="setting-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="checkUpdatesNowBtn"
+                                        data-i18n="update.manual.button">Check for updates now</button>
+                            </div>
+                            <small class="help-text" data-i18n="update.manual.help">Asks GitHub Releases
+                                right now — the same single request as the startup check, made only when
+                                you press this. It works even when the switch above is off, and it does
+                                not turn it back on.</small>
+                            <small class="help-text" id="updateCheckStatus"></small>
+                        </div>
+
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="checkForMapPacksCheck" role="switch">
+                                <label class="form-check-label" for="checkForMapPacksCheck" data-i18n="settings.checkForMapPacks">Check for new maps</label>
+                            </div>
+                            <small class="help-text" data-i18n="settings.checkForMapPacks.help">The app's other network
+                                request: one HTTPS call to GitHub, at most once a day, asking whether
+                                new or corrected map images exist. New maps then arrive as a few hundred
+                                KB instead of a whole app update. Nothing about you is sent, and with
+                                this off no request is made.</small>
+                            <div class="setting-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="checkMapPacksBtn"
+                                        data-i18n="settings.checkMapPacks.now">Check for new maps now</button>
+                            </div>
+                            <small class="help-text" id="mapPacksStatus"></small>
+                        </div>
+
+                        <div class="setting">
+                            <div class="setting-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="showTourBtn"
+                                        data-i18n="onboarding.reopen">Show the welcome tour</button>
+                            </div>
+                            <small class="help-text" data-i18n="onboarding.reopen.help">The short tour from the
+                                first start: language, where the map goes, what the markers mean, the
+                                hotkeys and auto-detect. It changes the same settings as this window.</small>
                         </div>
 
                         <div class="setting">
@@ -251,9 +320,9 @@
                                 <button type="button" class="btn btn-secondary btn-sm" id="openLogFolder"
                                         data-i18n="settings.openLogFolder">Open log folder</button>
                             </div>
-                            <small class="help-text" data-i18n-html="settings.openLogFolder.help">If
-                                auto-detect misbehaves, open this folder and send <code>detector.log</code> — it records
-                                what the detector decided, never any image.</small>
+                            <small class="help-text" data-i18n-html="settings.openLogFolder.help">If auto-detect
+                                misbehaves, open this folder and send <code>detector.log</code> — it
+                                records what the detector decided (map, score, timing), never any image.</small>
                         </div>
 
                         <div class="setting">
@@ -262,18 +331,16 @@
                                         data-i18n="diagnostics.create">Create diagnostic report</button>
                             </div>
                             <small class="help-text" data-i18n-html="diagnostics.create.help">Saves one
-                                <code>.zip</code> on your Desktop with the logs, your settings and a description of this PC,
-                                then opens the folder so you can attach it. Nothing is uploaded, and it contains no
-                                screenshots and no map images.</small>
+                                <code>.zip</code> on your Desktop with the logs, your settings and a
+                                description of this PC, then opens the folder so you can attach it.
+                                Nothing is uploaded, and it contains no screenshots and no map images.</small>
                         </div>
                     </div>
 
                     <!-- Overlay -->
                     <div class="tab-pane fade" id="settings-overlay" role="tabpanel">
-                        <div class="alert note-accent mb-3" data-i18n="settings.overlay.previewNotice">
-                            While this tab is open a preview image is shown on the overlay. Changes here apply to it
-                            directly.
-                        </div>
+                        <div class="alert note-accent mb-3" data-i18n="settings.overlay.previewNotice">While this tab is open a
+                            preview image is shown on the overlay. Changes here apply to it directly.</div>
 
                         <div class="setting">
                             <div class="setting-head">
@@ -314,8 +381,8 @@
 
                         <div class="setting">
                             <p class="setting-group-title" data-i18n="settings.glide">Fine-grain position</p>
-                            <small class="help-text mb-3 d-block" data-i18n="settings.glide.help">0 is the left/top
-                                edge of the screen, 100 the right/bottom edge.</small>
+                            <small class="help-text mb-3 d-block" data-i18n="settings.glide.help">0 is the left/top edge
+                                of the screen, 100 the right/bottom edge.</small>
                             <div class="setting-head">
                                 <label for="glideXRange" class="form-label" data-i18n="settings.glideX">Horizontal (X)</label>
                                 <span class="setting-value num" id="glideXValue"></span>
@@ -336,7 +403,7 @@
                                 <label for="rotationSelect" class="form-label" data-i18n="settings.rotation">Rotation</label>
                             </div>
                             <select class="form-select" id="rotationSelect">
-                                <option value="0" data-i18n="settings.rotation.none">None (0&deg;)</option>
+                                <option value="0" data-i18n="settings.rotation.none">None (0°)</option>
                                 <option value="90">90&deg;</option>
                                 <option value="180">180&deg;</option>
                                 <option value="270">270&deg;</option>
@@ -348,13 +415,14 @@
                                 <label for="mapLabelSelect" class="form-label" data-i18n="settings.mapLabel">Map name on the overlay</label>
                             </div>
                             <select class="form-select mb-2" id="mapLabelSelect">
-                                <option value="auto" data-i18n="settings.mapLabel.auto">After an automatic switch</option>
+                                <option value="auto" data-i18n="settings.mapLabel.auto">After an automatic
+                                    switch</option>
                                 <option value="always" data-i18n="settings.mapLabel.always">Always</option>
                                 <option value="never" data-i18n="settings.mapLabel.never">Never</option>
                             </select>
-                            <small class="help-text" data-i18n="settings.mapLabel.help">Shown at the
-                                bottom of the overlay, never rotated with the map, at the same opacity. The OBS window
-                                follows the same setting.</small>
+                            <small class="help-text" data-i18n="settings.mapLabel.help">Shown at the bottom of
+                                the overlay, never rotated with the map, at the same opacity. The OBS
+                                window follows the same setting.</small>
                         </div>
 
                         <div class="setting">
@@ -372,21 +440,172 @@
                                      two with jQuery .show()/.hide(). -->
                                 <button class="btn btn-warning btn-sm" id="unset-pos" style="display: none" data-i18n="settings.stopSetPosition">Stop setting position</button>
                             </div>
-                            <div class="alert note-warn d-none mb-3" id="waylandWarning" data-i18n="settings.waylandWarning">
-                                This session runs on Wayland, where dragging the overlay does not work. Use the fine-grain
-                                position sliders instead.
-                            </div>
+                            <div class="alert note-warn d-none mb-3" id="waylandWarning" data-i18n="settings.waylandWarning">This session runs on
+                                Wayland, where dragging the overlay does not work. Use the fine-grain
+                                position sliders instead.</div>
                             <small class="help-text mb-3 d-block" data-i18n-html="settings.placeByHand">To place the overlay by
-                                hand: show a map, press <em>Set position</em>, drag the overlay with the mouse, then press
-                                <em>Stop setting position</em>.</small>
-                            <div class="alert note-warn" data-i18n="settings.setPositionWarning">
-                                Forgetting to stop setting position leaves the overlay catching your mouse clicks in game.
+                                hand: show a map, press <em>Set position</em>, drag the overlay with the
+                                mouse, then press <em>Stop setting position</em>.</small>
+                            <div class="alert note-warn" data-i18n="settings.setPositionWarning">Forgetting to stop
+                                setting position leaves the overlay catching your mouse clicks in game.</div>
+                        </div>
+
+                        <!-- Markers: the POSSIBLE storm-cellar / gate / car /
+                             gas-can locations. On the four bundled maps the
+                             first three rings are already drawn into the map
+                             image, so only the gas cans are added there; the
+                             in-game Tab map has none of them and gets all
+                             four. See src/shared/marker-rules.js. -->
+                        <div class="setting">
+                            <p class="setting-group-title" data-i18n="settings.markers">Markers</p>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="markersCheck" role="switch">
+                                <label class="form-check-label" for="markersCheck" data-i18n="settings.markers.enabled">Show markers</label>
                             </div>
+                            <small class="help-text mb-3 d-block" data-i18n-html="settings.markers.help">Every marker is a
+                                <strong>possible</strong> location — the game switches a different
+                                subset on each match. On the maps that ship with the app the cellar,
+                                gate and car rings are already drawn on the image, so only the gas cans
+                                are added.</small>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="markerCellarCheck" role="switch">
+                                <label class="form-check-label" for="markerCellarCheck">
+                                    <span class="marker-dot marker-dot-cellar" aria-hidden="true"></span>
+                                    <span data-i18n="markers.layer.cellar">Storm cellar — possible
+                                        location</span>
+                                </label>
+                            </div>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="markerGateCheck" role="switch">
+                                <label class="form-check-label" for="markerGateCheck">
+                                    <span class="marker-dot marker-dot-gate" aria-hidden="true"></span>
+                                    <span data-i18n="markers.layer.gate">Escape gate — possible location</span>
+                                </label>
+                            </div>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="markerCarCheck" role="switch">
+                                <label class="form-check-label" for="markerCarCheck">
+                                    <span class="marker-dot marker-dot-car" aria-hidden="true"></span>
+                                    <span data-i18n="markers.layer.car">Car — possible location</span>
+                                </label>
+                            </div>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="markerGasCheck" role="switch">
+                                <label class="form-check-label" for="markerGasCheck">
+                                    <span class="marker-dot marker-dot-gas" aria-hidden="true"></span>
+                                    <span data-i18n="markers.layer.gas">Gas can — possible location</span>
+                                </label>
+                            </div>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="markerLegendCheck" role="switch">
+                                <label class="form-check-label" for="markerLegendCheck" data-i18n="settings.markers.legend">Show the legend</label>
+                            </div>
+                            <div class="setting-head">
+                                <label for="markerOpacityRange" class="form-label" data-i18n="settings.markers.opacity">Marker opacity</label>
+                                <span class="setting-value num" id="markerOpacityValue"></span>
+                            </div>
+                            <input type="range" class="form-range mb-3" min="0.1" max="1" step="0.05" value="0.9" id="markerOpacityRange">
+                        </div>
+
+                        <!-- Tab-map mode. Experimental and off by default: it
+                             needs auto-detect, and it looks at the game window
+                             a little more while the map key is held. -->
+                        <div class="setting">
+                            <p class="setting-group-title" data-i18n="settings.tabMarkers">Markers on the in-game
+                                map (experimental)</p>
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="tabMarkersCheck" role="switch">
+                                <label class="form-check-label" for="tabMarkersCheck" data-i18n="settings.tabMarkers.enabled">Draw them on the game's
+                                    own map</label>
+                            </div>
+                            <small class="help-text mb-3 d-block" data-i18n-html="settings.tabMarkers.help">While you hold
+                                <kbd>Tab</kbd> the game shows a big map with an arrow marking where you
+                                are. With this on, the markers are drawn straight onto <em>that</em>
+                                map, in the game's own scale, and disappear the moment you let go. The
+                                corner overlay keeps working exactly as before.</small>
+                            <div class="alert note-warn d-none" id="tabMarkersNeedsDetect" data-i18n-html="settings.tabMarkers.needsDetect">This needs
+                                <em>Auto-detect map</em>, which is switched off. The markers can only be
+                                placed once the app knows which map you are playing.</div>
+
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="tabHidesMinimapCheck" role="switch">
+                                <label class="form-check-label" for="tabHidesMinimapCheck" data-i18n="settings.tabMarkers.hideMinimap">Hide the corner
+                                    overlay</label>
+                            </div>
+                            <small class="help-text mb-3 d-block" data-i18n-html="settings.tabMarkers.hideMinimap.help">If the
+                                game's own map is all you need, the corner overlay stays off screen for as
+                                long as this mode is running. It comes back by itself whenever this mode
+                                cannot run — for example with <em>Auto-detect map</em> switched off.</small>
+
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="tabMarkersInstantCheck" role="switch">
+                                <label class="form-check-label" for="tabMarkersInstantCheck" data-i18n="settings.tabMarkers.instant">Show them the
+                                    moment I press the key</label>
+                            </div>
+                            <small class="help-text mb-3 d-block" data-i18n="settings.tabMarkers.instant.help">After the app has
+                                seen the map once in a match, the markers fade in together with the game's
+                                map instead of waiting for the app to see it on screen. If you press the key
+                                where the map does not open — the chat, the pause menu — you may see a faint
+                                flash of markers for about half a second. Switch this off to always wait:
+                                nothing can flash, and the markers appear about a third of a second
+                                later.</small>
+
+                            <!-- The game's map key. NOT an accelerator: it is a
+                                 Windows virtual-key code the app asks about with
+                                 GetAsyncKeyState, so the key stays the game's
+                                 and there is a key-up event. It must never go
+                                 near globalShortcut or the hotkey tables. -->
+                            <div class="setting-head">
+                                <label for="tabMarkerKeyBtn" class="form-label" data-i18n="settings.tabMarkers.mapKey">Game's map key</label>
+                                <kbd class="num" id="tabMarkerKeyValue"></kbd>
+                            </div>
+                            <div class="setting-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="tabMarkerKeyBtn" data-i18n="settings.tabMarkers.mapKey.change">Change key…</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="tabMarkerKeyReset" data-i18n="common.reset">Reset</button>
+                            </div>
+                            <small class="help-text mb-3 d-block" data-i18n-html="settings.tabMarkers.mapKey.help">Whatever key opens the
+                                map in your game — <kbd>Tab</kbd> unless you rebound it. Press the
+                                button, then the key: one key on its own, no
+                                <kbd>Ctrl</kbd>/<kbd>Alt</kbd>/<kbd>Shift</kbd>, and mouse buttons
+                                cannot be used. When you switch this mode on the app checks once that
+                                Windows lets it ask at all — that check reads no key. After that, while
+                                the game is running, it asks Windows which program owns the window you
+                                are working in and — only when that is the game — whether <em>that one
+                                key</em> is held right now. It never receives, records or sees any other
+                                key, and it does not reserve this one, so the game still gets every
+                                press.</small>
+
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="markerTriggerPollingCheck" role="switch">
+                                <label class="form-check-label" for="markerTriggerPollingCheck" data-i18n="settings.tabMarkers.pollingOnly">Do not read the key
+                                    state</label>
+                            </div>
+                            <small class="help-text" data-i18n-html="settings.tabMarkers.pollingOnly.help">Uses only the slower
+                                method, which looks at the game's window a few times a second instead of
+                                asking about your map key. The feature still works; the markers take a
+                                little longer to appear.</small>
+                            <p class="help-text mb-0" id="tabMarkerMethod"></p>
                         </div>
                     </div>
 
                     <!-- Hotkeys -->
                     <div class="tab-pane fade" id="settings-hotkeys" role="tabpanel">
+                        <!-- On by default. A global shortcut is taken from every
+                             other application on the machine, so it is only held
+                             while the game (or this window) is in front. -->
+                        <div class="setting">
+                            <div class="form-check form-switch setting-switch">
+                                <input class="form-check-input" type="checkbox" id="hotkeysGameOnlyCheck" role="switch">
+                                <label class="form-check-label" for="hotkeysGameOnlyCheck" data-i18n="hotkeys.gameOnly">Only while the game is
+                                    in the foreground</label>
+                            </div>
+                            <small class="help-text" data-i18n-html="hotkeys.gameOnly.help">Hotkeys work while you
+                                are in <em>Halloween: The Game</em> or in this window; the rest of the
+                                time the combinations belong to whatever app is in front. Switch this
+                                off if your hotkeys do nothing in game — then they are reserved all the
+                                time, as in earlier versions.</small>
+                        </div>
+
                         <div class="table-section">
                             <div class="section-head">
                                 <h2 class="section-title" data-i18n="hotkeys.system">System</h2>
@@ -489,7 +708,8 @@
                     <input id="custom_name" type="text" class="form-control mb-3"
                            data-i18n-placeholder="custom.name.placeholder" placeholder="My map">
                     <div class="setting-head">
-                        <label for="custom_file" class="form-label" data-i18n="custom.file">Image file (PNG, JPG or WEBP)</label>
+                        <label for="custom_file" class="form-label" data-i18n="custom.file">Image file (PNG, JPG or
+                            WEBP)</label>
                     </div>
                     <input id="custom_file" class="form-control mb-3" type="file" accept="image/png,image/jpeg,image/webp">
                     <div class="setting-actions">
@@ -522,53 +742,136 @@
                 <div class="faq-item">
                     <h6 data-i18n="faq.fullscreen.q">The overlay does not show over the game</h6>
                     <p data-i18n-html="faq.fullscreen.a">Set <em>Halloween: The Game</em> to
-                        <strong>Borderless Windowed</strong> in its video settings.</p>
+                        <strong>Borderless Windowed</strong> in its video settings — that is the mode
+                        the overlay is built for. The overlay is an always-on-top window, so the game
+                        has to be a window too; and a game window with a border or a title bar also
+                        stops the markers being drawn on the game's own map.</p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.ban.q">Can the app get me banned?</h6>
-                    <p data-i18n-html="faq.ban.a">It only displays image files that ship with it.</p>
+                    <p data-i18n-html="faq.ban.a">It only displays image files that ship with it. It
+                        never reads the game's memory, never injects anything and never touches the game
+                        process in any way.</p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.screenshots.q">Does it take screenshots?</h6>
-                    <p data-i18n-html="faq.screenshots.a">Only if you switch <em>Auto-detect map</em> on, and it is
-                        <strong>off by default</strong>.</p>
+                    <p data-i18n-html="faq.screenshots.a">Only if you switch <em>Auto-detect map</em>
+                        on, and it is <strong>off by default</strong>. While it is on and the game is
+                        running, the app captures <strong>the game's own window</strong> — not your
+                        screen, not any other window — about every 0.7 seconds. While the game is not
+                        running it only checks every 2 seconds whether that window has appeared yet, and
+                        captures nothing. It compares that image, on your own computer, against small
+                        thumbnails of the in-game maps that ship inside the app. Nothing is saved to
+                        disk and nothing is uploaded: the only thing kept is which map it matched.
+                        Switch it off and nothing is captured at all. With <em>markers on the in-game
+                        map</em> also on there are a few more of those captures while you are holding
+                        your map key: with the key trigger, one when you press it plus a twice-a-second
+                        check while the markers are actually up; without it, every 0.45 s and about six
+                        times a second while they are up. Separately, the hotkey setting <em>Only while
+                        the game is in the foreground</em> looks once a second at the list of open
+                        windows and reads, for each one, its program name, its window title, its size
+                        and whether it has the keyboard — no pixels, nothing captured and nothing kept.</p>
+                </div>
+
+                <div class="faq-item">
+                    <h6 data-i18n="faq.keyboard.q">Does it read my keyboard?</h6>
+                    <p data-i18n-html="faq.keyboard.a">It reads <strong>one key</strong>, and only with
+                        <em>markers on the in-game map</em> switched on &mdash; which is <strong>off by
+                        default</strong> &mdash; and the game running. Switching that mode on makes the
+                        app check once that Windows lets it ask at all; that check reads no key. After
+                        that, each time, it first asks Windows which program owns the window you are
+                        working in; if that is not the game it stops there and <strong>no key is read at
+                        all</strong>. If it is the game, it asks "is the map key held right now?": the
+                        one key you set under <em>Game's map key</em>, plus <kbd>Alt</kbd> while that
+                        key is held, so <kbd>Alt</kbd> + <kbd>Tab</kbd> is not mistaken for you opening
+                        the map. There is <strong>no keyboard hook</strong> &mdash; the app does not
+                        receive keystrokes, cannot see what you type, and never asks about any other
+                        key. Nothing is written down except that your map key went down or came up. It
+                        does not reserve the key either, so the game still sees every press. Pressing it
+                        is also never enough on its own: a press only makes the app look at the game's
+                        window, and the markers appear only if what it sees really is the map screen.
+                        Switch that mode off, or switch on <em>Do not read the key state</em>, and
+                        nothing is read at all. Everything else the app does with the keyboard is its
+                        own hotkeys, which you choose and can unbind.</p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.internet.q">Does it use the internet?</h6>
-                    <p data-i18n-html="faq.internet.a">Once, at startup: it asks GitHub whether a newer version of this
-                        app has been released, and nothing else.</p>
+                    <p data-i18n-html="faq.internet.a">For two things, both of them a plain request for
+                        a public file on GitHub and nothing else. <strong>Updates</strong>: at startup
+                        it asks whether a newer version of this app has been released. <strong>New
+                        maps</strong>: at startup, and then at most once a day, it asks whether new or
+                        corrected map images exist &mdash; the maps that ship inside the app never
+                        change on their own, but the game gets new ones. No accounts, no telemetry, no
+                        analytics, nothing about you or your PC is sent either time. Each has its own
+                        switch under <em>Settings &rarr; General</em>, and with both off the app makes
+                        no network requests at all.</p>
+                </div>
+
+                <div class="faq-item">
+                    <h6 data-i18n="faq.newMaps.q">How do new maps arrive?</h6>
+                    <p data-i18n-html="faq.newMaps.a">The game gets new maps more often than this app
+                        gets a release, so each map is downloaded separately: a few hundred KB of image
+                        and detection data, checked against a published checksum before it is stored,
+                        instead of a 90 MB app update. It appears in the gallery straight away &mdash;
+                        no restart &mdash; and auto-detect learns it at the same moment. A download that
+                        is incomplete or does not match its checksum is thrown away whole and the map
+                        you already had is left alone. Turn it off under <em>Settings &rarr; General
+                        &rarr; Check for new maps</em>.</p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.updates.q">How do updates work?</h6>
-                    <p data-i18n-html="faq.updates.a">When a newer version exists it is downloaded quietly in the
-                        background.</p>
-                    <p data-i18n-html="faq.updates.a2">If an update still drags, what is left is usually your antivirus
-                        reading every unpacked file.</p>
+                    <p data-i18n-html="faq.updates.a">When a newer version exists it is downloaded
+                        quietly in the background, and then a green banner appears at the top of this
+                        window. <strong>Nothing is installed until you press <em>Restart and
+                        update</em></strong> there (or in the tray menu). The app then closes and a
+                        small window in the app's own colours takes its place, showing the steps and a
+                        progress bar; it works the disk for a few seconds, and then the app reopens by
+                        itself. The installer runs at <strong>low priority</strong>, so the rest of the
+                        PC stays responsive while it unpacks. If that window cannot start for any
+                        reason, the plain Windows installer runs instead &mdash; the update still
+                        happens. You are not asked anything and Windows does not prompt for permission
+                        &mdash; it installs only for your own user account. Press <em>Later</em> and the
+                        banner goes away for now; the update stays waiting for the next time you start
+                        the app. Closing or quitting the app never installs anything. The check itself
+                        only runs at startup, so if the app has been open for a while, <em>Settings
+                        &rarr; General &rarr; Check for updates now</em> asks again on the spot &mdash;
+                        the same single request, and it works even with the startup switch off.</p>
+                    <p data-i18n-html="faq.updates.a2">If an update still drags, what is left is usually
+                        your antivirus reading every unpacked file. Adding
+                        <code>%LOCALAPPDATA%\Programs\Halloween Map Overlay</code> to the exclusions
+                        under <em>Windows Security &rarr; Virus &amp; threat protection &rarr; Manage
+                        settings &rarr; Exclusions</em> removes that cost.</p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.autodetect.q">How does auto-detect work?</h6>
-                    <p data-i18n-html="faq.autodetect.a">Switch <em>Auto-detect map</em> on above the gallery, then press
-                        <kbd>Tab</kbd> in the game once at the start of a match.</p>
+                    <!-- No `data-i18n-html`: these two answers name key
+                         combinations, which are rebindable, so they take the
+                         *live* accelerators as parameters and are rendered from
+                         `src/js/hotkeys.js` (which also re-renders them on a
+                         language change and whenever a binding is edited). -->
+                    <p id="faqAutodetect"></p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.inTheWay.q">The overlay is in the way</h6>
-                    <p data-i18n-html="faq.inTheWay.a">Press <kbd>Ctrl</kbd> + <kbd>H</kbd> to hide it.</p>
+                    <p id="faqInTheWay"></p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.obs.q">How do I record it in OBS?</h6>
-                    <p data-i18n-html="faq.obs.a">Press <em>Open OBS window</em>, then capture that window in OBS.</p>
+                    <p data-i18n-html="faq.obs.a">Press <em>Open OBS window</em>, then capture that
+                        window in OBS and key out the green background with a chroma-key filter.</p>
                 </div>
 
                 <div class="faq-item">
                     <h6 data-i18n="faq.customMaps.q">Can I add my own map images?</h6>
-                    <p data-i18n-html="faq.customMaps.a">Yes — <em>Add custom image</em> in the menu.</p>
+                    <p data-i18n-html="faq.customMaps.a">Yes — <em>Add custom image</em> in the menu.
+                        They appear in the gallery under the <strong>Custom</strong> creator.</p>
                 </div>
             </div>
             <div class="modal-footer">
@@ -593,16 +896,247 @@
                         <!-- target="_blank" is routed to the system browser by
                              setWindowOpenHandler in main-window.js -->
                         <a class="small" target="_blank" data-i18n="credits.originalPost"
-                           href="https://www.reddit.com/r/TheHalloweenGame/comments/1wauwcx/">Original post on r/TheHalloweenGame</a></p>
+                           href="https://www.reddit.com/r/TheHalloweenGame/comments/1wauwcx/">Original post on
+                            r/TheHalloweenGame</a></p>
                     <p data-i18n-html="credits.basedOn">This app is based on
-                        <a target="_blank" href="https://github.com/LucaFontanot/dbd-map-overlay"><strong>DBD Map Overlay</strong></a>
-                        by <strong>LucaFontanot</strong>, used under the Apache License 2.0.</p>
-                    <p class="credits-disclaimer" data-i18n-html="credits.disclaimer">Not affiliated with, endorsed
-                        by or connected to the developers or publishers of <em>Halloween: The Game</em>.</p>
+                        <a target="_blank" href="https://github.com/LucaFontanot/dbd-map-overlay"><strong>DBD
+                        Map Overlay</strong></a> by <strong>LucaFontanot</strong>, used under the Apache
+                        License 2.0.</p>
+                    <p class="credits-disclaimer" data-i18n-html="credits.disclaimer">Not affiliated with,
+                        endorsed by or connected to the developers or publishers of <em>Halloween: The
+                        Game</em>.</p>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="common.close">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Welcome tour. A panel over the home page, not a second BrowserWindow: the
+     whole point is that every control in it is the *same* control as in
+     Settings, and the overlay preview on step 2 belongs to this renderer.
+     Shown automatically only to an install that is owed it (`onboardingPending`
+     and `onboardingDone` — see `src/shared/onboarding-rules.js`) and reopenable
+     from Settings › General. `src/js/onboarding.js` drives it; it is deliberately
+     *not* a Bootstrap modal, because it is opened at most once by itself and has
+     to trap focus while the Settings modal is closed under it.
+
+     `tabindex="-1"` is load-bearing: a click on a paragraph, a table or an alert
+     in here has no focusable ancestor otherwise, so focus fell back to <body>,
+     the panel's own keydown listener stopped firing, Esc died and Tab walked the
+     page behind the backdrop. With it, such a click lands focus on the dialog
+     itself. (The `focusin` guard and `inert` in src/js/onboarding.js are the
+     other two halves.) -->
+<div id="tour" class="tour d-none" role="dialog" aria-modal="true" tabindex="-1"
+     data-i18n-aria-label="onboarding.title" aria-label="Welcome tour">
+    <div class="tour-dialog">
+        <div class="modal-content">
+            <div class="modal-header tour-head">
+                <!-- "Step 2 of 6": one string with two numbers, and the total
+                     comes from ONBOARDING_STEPS, so JS owns it. -->
+                <p class="tour-progress num" id="tourProgress"></p>
+                <button type="button" class="btn-close" id="tourClose"
+                        data-i18n-aria-label="onboarding.skip" aria-label="Skip"></button>
+            </div>
+            <div class="modal-body tour-body">
+
+                <!-- 1 ── Welcome + language. The picker writes through the real
+                     one in Settings › General, so there is one code path and one
+                     setting; see `mirrorSelect` in src/js/onboarding.js. -->
+                <section class="tour-step d-none" data-tour-step="welcome">
+                    <h2 class="tour-title" data-i18n="onboarding.welcome.title">Welcome</h2>
+                    <p class="tour-lead" data-i18n-html="onboarding.welcome.body">This app puts the map
+                        you are playing on top of the game, in a corner you choose, and lets you hide it
+                        or switch maps with a keyboard shortcut. A few short steps and you are set — you
+                        can skip them and change everything later under <em>Settings</em>.</p>
+                    <div class="setting">
+                        <div class="setting-head">
+                            <label for="tourLanguage" class="form-label" data-i18n="settings.language">Language</label>
+                        </div>
+                        <!-- Filled by cloning the options of #languageSelect. -->
+                        <select class="form-select mb-2" id="tourLanguage"></select>
+                        <small class="help-text" data-i18n="settings.language.help">Applies straight away —
+                            no restart. Map and creator names are never translated.</small>
+                    </div>
+                </section>
+
+                <!-- 2 ── Where the map goes. While this step is open the real
+                     overlay shows the sample map through `Options.startPreview()`,
+                     the same preview the Overlay settings tab uses. -->
+                <section class="tour-step d-none" data-tour-step="placement">
+                    <h2 class="tour-title" data-i18n="onboarding.placement.title">Where the map goes</h2>
+                    <p class="tour-lead" data-i18n="onboarding.placement.body">Pick the screen, the
+                        corner and how big the map should be. Its opacity, rotation and a finer position
+                        are under Settings → Overlay, and you can also drag it into place by hand.</p>
+                    <div class="alert note-accent mb-3" data-i18n="onboarding.placement.preview">A sample map is on the
+                        overlay right now, so you can see exactly where it lands while you change these.</div>
+                    <div class="setting">
+                        <div class="setting-head">
+                            <label for="tourMonitor" class="form-label" data-i18n="settings.monitor">Monitor</label>
+                        </div>
+                        <select class="form-select" id="tourMonitor"></select>
+                    </div>
+                    <div class="setting">
+                        <div class="setting-head">
+                            <label for="tourCorner" class="form-label" data-i18n="settings.corner">Corner</label>
+                        </div>
+                        <select class="form-select" id="tourCorner"></select>
+                        <!-- Shown only while the picker above is disabled, which
+                             Settings does when the overlay is draggable. A
+                             greyed-out control with no explanation is reachable
+                             whenever the tour is reopened later. -->
+                        <small class="help-text mt-2 d-none" id="tourCornerLocked"
+                               data-i18n-html="onboarding.placement.dragging">The corner is fixed while
+                            <em>Overlay draggable</em> is on — you are placing the overlay by hand.
+                            Switch that off under Settings &rarr; Overlay to pick a corner again.</small>
+                    </div>
+                    <div class="setting">
+                        <div class="setting-head">
+                            <label for="tourSize" class="form-label" data-i18n="settings.size">Overlay size</label>
+                            <span class="setting-value num" id="tourSizeValue"></span>
+                        </div>
+                        <!-- min/max/step are set from SIZE_MIN/SIZE_MAX/SIZE_STEP
+                             in src/js/onboarding.js rather than written here: the
+                             three numbers already live in two places (this file's
+                             #sizeRange and hotkeys-constants) and a third copy
+                             would be one more thing to keep in step. -->
+                        <input type="range" class="form-range" id="tourSize">
+                    </div>
+                </section>
+
+                <!-- 3 ── Markers. A step of its own, before the hotkeys, so the
+                     "Show / hide markers" row lands on something just explained.
+                     The one thing it has to get across is that a marker is a
+                     *possible* location — the same wording as the legend, the
+                     Settings help and the README. -->
+                <section class="tour-step d-none" data-tour-step="markers">
+                    <h2 class="tour-title" data-i18n="onboarding.markers.title">What the markers mean</h2>
+                    <p class="tour-lead" data-i18n-html="onboarding.markers.body">The overlay marks where
+                        the game <strong>may</strong> put the ways out and the gas cans — never where
+                        they are. A different subset is active each match, so read a marker as "worth
+                        checking".</p>
+                    <div class="setting">
+                        <div class="form-check form-switch setting-switch">
+                            <input class="form-check-input" type="checkbox" id="tourMarkersCheck" role="switch">
+                            <label class="form-check-label" for="tourMarkersCheck" data-i18n="settings.markers.enabled">Show markers</label>
+                        </div>
+                        <small class="help-text" data-i18n-html="onboarding.markers.bundled">The ways out are already
+                            drawn on the map images; the yellow gas-can markers are the ones this app
+                            adds. Each kind has its own switch under Settings &rarr; Overlay.</small>
+                    </div>
+                </section>
+
+                <!-- 4 ── Hotkeys. The table is built from the *live* bindings
+                     (`onboardingHotkeyRows`), never from a hard-coded list. -->
+                <section class="tour-step d-none" data-tour-step="hotkeys">
+                    <h2 class="tour-title" data-i18n="onboarding.hotkeys.title">Your hotkeys</h2>
+                    <p class="tour-lead" data-i18n="onboarding.hotkeys.body">These are the combinations
+                        the app starts with. Every one of them can be changed, or switched off entirely,
+                        under Settings → Hotkeys — and each map has its own number key.</p>
+                    <table class="table table-sm align-middle tour-hotkeys mb-3">
+                        <tbody id="tourHotkeyList"></tbody>
+                    </table>
+                    <!-- The home page's own conflict banner is behind the
+                         backdrop while the tour is open, so the step carries its
+                         own copy: otherwise the first thing a new user is told to
+                         press does nothing and the explanation is hidden under
+                         the panel giving the instruction. Filled from JS — it
+                         names accelerators. -->
+                    <div class="alert note-warn d-none mb-3" role="alert" id="tourHotkeyConflict"></div>
+                    <small class="help-text" data-i18n-html="onboarding.hotkeys.gameOnly">They are reserved only
+                        while <em>Halloween: The Game</em> — or this window — is in front, so the rest
+                        of the time those combinations still belong to your other programs.</small>
+                    <!-- Names a key combination, so it takes the live accelerator
+                         as a parameter and is rendered from JS, like the two FAQ
+                         answers that do the same. -->
+                    <p class="tour-tryit" id="tourTryIt"></p>
+                    <p class="tour-ack d-none" id="tourTryItOk" role="status"
+                       data-i18n="onboarding.hotkeys.tryIt.ok">That was it — the shortcut reached the
+                        app.</p>
+                </section>
+
+                <!-- 5 ── Auto-detect, with Tab-map mode inside it: that mode
+                     cannot work without this one, so it is the same step rather
+                     than a sixth the user could reach with the prerequisite off.
+                     Both switches are wired to their real IPC handlers
+                     (`map-detector-start/-stop`, `set-tab-markers`) — no
+                     parallel state — and the second follows the first live. -->
+                <section class="tour-step d-none" data-tour-step="detect">
+                    <h2 class="tour-title" data-i18n="onboarding.detect.title">Let it follow the game</h2>
+                    <p class="tour-lead" data-i18n-html="onboarding.detect.body">With this on, press
+                        <kbd>Tab</kbd> in game once at the start of a match: the overlay switches to the
+                        map you are playing and names it for a few seconds. It also clears the overlay
+                        when you are back in the main menu. It stays off unless you turn it on.</p>
+                    <div class="setting">
+                        <div class="form-check form-switch setting-switch">
+                            <input class="form-check-input" type="checkbox" id="tourDetectCheck" role="switch">
+                            <label class="form-check-label" for="tourDetectCheck" data-i18n="home.autoDetect">Auto-detect map</label>
+                        </div>
+                        <small class="help-text" data-i18n="onboarding.detect.privacy">To do that it reads the
+                            game's own window — not your screen, not any other window — a few times a
+                            second while the game is running. The picture never leaves this PC: nothing
+                            is saved to disk, nothing is uploaded, and the only thing kept is which map
+                            it matched.</small>
+                    </div>
+
+                    <div class="setting">
+                        <p class="setting-group-title" data-i18n="settings.tabMarkers">Markers on the in-game
+                            map (experimental)</p>
+                        <div class="form-check form-switch setting-switch">
+                            <input class="form-check-input" type="checkbox" id="tourTabMarkersCheck" role="switch">
+                            <label class="form-check-label" for="tourTabMarkersCheck" data-i18n="settings.tabMarkers.enabled">Draw them on the game's
+                                own map</label>
+                        </div>
+                        <small class="help-text mb-2 d-block" data-i18n="onboarding.detect.tab.body">Experimental, and off
+                            unless you turn it on: hold your map key in game and the possible locations
+                            appear on the game's own big map — the one with your position on it.</small>
+                        <!-- Filled from JS: it names the *live* map key, the same
+                             way the hotkey rows name live accelerators. The
+                             capture control itself is deliberately NOT duplicated
+                             here — this step points at Settings for that. -->
+                        <p class="help-text mb-2" id="tourTabKey"></p>
+                        <!-- Why the switch above is disabled, when it is. The
+                             auto-detect case reuses Settings' own string. -->
+                        <div class="alert note-warn d-none mb-2" id="tourTabBlocked"></div>
+                        <small class="help-text" data-i18n="onboarding.detect.tab.privacy">While this is on and the
+                            game is the window in front, the app asks Windows whether that one key is
+                            held right now. It never receives, records or sees any other key, it does
+                            not take the key away from the game, and nothing is stored or sent.</small>
+                    </div>
+                </section>
+
+                <!-- 6 ── Done, plus the whole of this app's network use in two
+                     sentences. It belongs here rather than on a step of its own:
+                     it is an assurance, not a task. -->
+                <section class="tour-step d-none" data-tour-step="done">
+                    <h2 class="tour-title" data-i18n="onboarding.done.title">That is everything</h2>
+                    <p class="tour-lead" data-i18n-html="onboarding.done.body">The rest lives under
+                        <em>Settings</em> in the menu bar: the overlay's position, size and opacity,
+                        every hotkey, the language and the OBS window. <em>FAQ</em> next to it answers
+                        the questions this tour skipped.</p>
+                    <div class="alert note-accent mb-3" data-i18n-html="onboarding.done.network">This app makes two kinds
+                        of request and no others: it asks GitHub whether a newer version exists, and
+                        whether new or corrected maps exist. Nothing about you or your PC is ever sent,
+                        and both can be switched off under <em>Settings &rarr; General</em>.</div>
+                    <small class="help-text" data-i18n-html="onboarding.done.reopen">You can open this tour
+                        again at any time from <em>Settings &rarr; General &rarr; Show the welcome
+                        tour</em>.</small>
+                </section>
+            </div>
+            <div class="modal-footer tour-foot">
+                <div class="tour-dots" id="tourDots" aria-hidden="true"></div>
+                <div class="banner-actions">
+                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-underline"
+                            id="tourSkip" data-i18n="onboarding.skip">Skip</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="tourBack"
+                            data-i18n="onboarding.back">Back</button>
+                    <!-- No data-i18n: this reads "Next" until the last step, where
+                         it becomes "Finish", so src/js/onboarding.js owns the text
+                         (the same reason the hotkey modal's title does). -->
+                    <button type="button" class="btn btn-primary btn-sm" id="tourNext"></button>
+                </div>
             </div>
         </div>
     </div>

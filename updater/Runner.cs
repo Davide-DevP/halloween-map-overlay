@@ -435,7 +435,8 @@ namespace HmoUpdater
                     // old version if it can read an UninstallString out of the
                     // registry, and an install whose registry entry never got
                     // written (a security product dropped it — seen on the
-                    // development machine, see AGENTS.md) simply overwrites the
+                    // development machine, see docs/agents/updater-and-installer.md)
+                    // simply overwrites the
                     // files in place: the folder never shrinks at all. Without
                     // this the bar would asymptote at 20 % and sit there for the
                     // whole install, which is precisely the "frozen bar" the

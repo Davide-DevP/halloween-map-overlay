@@ -37,7 +37,7 @@ class Language {
         });
     }
 
-    /** @returns {'en'|'it'} */
+    /** @returns {string} one of `LANGUAGES` in `shared/i18n.js` */
     current() {
         const setting = this.settings ? this.settings.get('language') : 'system';
         return resolveLanguage(setting, app.getLocale());
@@ -58,7 +58,7 @@ class Language {
  * is cheaper and cannot have side effects. A missing or corrupt file just means
  * `system`.
  *
- * @returns {'en'|'it'}
+ * @returns {string} one of `LANGUAGES` in `shared/i18n.js`
  */
 function languageWithoutSettings() {
     let setting = 'system';

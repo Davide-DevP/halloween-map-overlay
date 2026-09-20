@@ -49,14 +49,14 @@ const IDLE_INTERVAL = 2000;
 const MENU_TICKS_TO_HIDE = 3;
 
 /**
- * Minimum gap between two `show-map-command` messages **for the same key**.
+ * Minimum gap between two offers of the **same key** to the map controller.
  *
  * At 700 ms a held Tab press produces two or three accepted matches in a row.
- * Main no longer suppresses them by comparing against `lastDetected` (that is
+ * The loop does not suppress them by comparing against `lastDetected` (that is
  * what broke re-applying a map after a manual pick — see `shouldApplyDetected`),
- * so this throttle is what keeps a held Tab from spamming IPC. It is cheap and
- * it is not a correctness gate: the renderer is the judge of whether anything
- * actually changes.
+ * so this throttle is what keeps a held Tab from spamming the controller. It is
+ * cheap and it is **not** a correctness gate: the map state is the judge of
+ * whether anything actually changes.
  */
 const SEND_THROTTLE = 2000;
 
@@ -68,11 +68,24 @@ const SLOW_TICK_MS = 100;
 
 /**
  * The delay before the next tick.
+ *
+ * `gameMs` overrides `GAME_INTERVAL` for callers that have a reason to poll
+ * faster while the game is up — today the only one is Tab-map mode, which
+ * shortens it to `DETECT_INTERVAL` (450 ms) **while that mode is running**,
+ * because 700 ms is what decides how long its markers take to appear. The
+ * override is an argument rather than a second constant here so this module
+ * stays the one place a cadence is written down, and so the idle cadence (which
+ * costs one 0.2 ms enumeration and captures nothing) is not affected at all.
+ *
  * @param {boolean} gameWindowPresent whether this tick found the game window
+ * @param {{gameMs?: ?number}} [opts]
  * @returns {number} milliseconds
  */
-function tickInterval(gameWindowPresent) {
-    return gameWindowPresent ? GAME_INTERVAL : IDLE_INTERVAL;
+function tickInterval(gameWindowPresent, opts) {
+    if (!gameWindowPresent) return IDLE_INTERVAL;
+    const override = opts && opts.gameMs;
+    return typeof override === 'number' && Number.isFinite(override) && override > 0
+        ? override : GAME_INTERVAL;
 }
 
 /**
@@ -88,14 +101,16 @@ function throttleAllows(lastSentAt, now, window = SEND_THROTTLE) {
 }
 
 /**
- * Should the renderer act on a detected map?
+ * Should a detected map be acted on?
  *
- * This is the comparison that used to live in main as
- * `match.key !== this.lastDetected`, and being in main is what made it wrong:
- * after the player picked another map by hand, `lastDetected` still held the
- * detected map, so the next Tab press on that same map looked like "no change"
- * and the overlay was never put back. Only the renderer knows what is on the
- * overlay right now (`Maps.currentKey`), so only the renderer can answer this.
+ * This is the comparison that used to live inside the detector loop as
+ * `match.key !== this.lastDetected`, and *that* is what made it wrong: after
+ * the player picked another map by hand, `lastDetected` still held the detected
+ * map, so the next Tab press on that same map looked like "no change" and the
+ * overlay was never put back. The question can only be answered by whoever
+ * knows what is on the overlay right now — the *map state*, which is
+ * `shared/map-state.js` in the main process since 0.7 (and `src/js/maps.js` in
+ * the main window's renderer before that). The rule itself never changed.
  *
  * @param {?string} currentKey the key the overlay is showing ("" when hidden)
  * @param {?string} key the detected key
@@ -116,8 +131,10 @@ function shouldApplyDetected(currentKey, key) {
  * the game went back to the menu. The owner's field log shows it exactly: after
  * the manual picks, not one `menu-streak` line for the rest of the evening.
  *
- * What matters is whether **a map is on the overlay**, whoever put it there,
- * and only the renderer knows that — it reports it over `map-detector-shown`.
+ * What matters is whether **a map is on the overlay**, whoever put it there.
+ * `core/map-controller.js` reports that to the loop (`noteShown`) after every
+ * change; up to 0.7 it was the main window's renderer doing it over
+ * `map-detector-shown`, and the rule is unchanged by the move.
  *
  * @param {?string} shownKey the key the overlay is showing (""/null = hidden)
  * @param {*} hideInMenu the `hideInMenu` setting; only an explicit `false`
@@ -179,7 +196,7 @@ class MenuStreak {
         this.sawNonMenu = true;
     }
 
-    /** Forget everything (loop stop, Ctrl+Shift+D, a menu clear just fired). */
+    /** Forget everything (loop stop, clear-map, a menu clear just fired). */
     reset() {
         this.ticks = 0;
         this.sawNonMenu = false;
@@ -238,16 +255,102 @@ class SendThrottle {
     }
 }
 
+/*
+ * ─── Which window is the game ───────────────────────────────────────────────
+ *
+ * Extracted from `map-detector.js` so the detector loop and the foreground
+ * watcher (`core/foreground.js`, which decides whether the global hotkeys
+ * should be registered) cannot come to different conclusions about what the
+ * game's window is. The property *reads* stay in the impure callers — a
+ * `node-screenshots` Window can disappear between the enumeration and the
+ * read, which is a try/catch, not a rule — and this half is the decision.
+ */
+
+/**
+ * The game, matched on the window's **app name** — which comes from the
+ * running executable (`Halloween.exe` → "Halloween"), not from whatever the
+ * window happens to be displaying.
+ *
+ * Deliberately not the title: titles produce false positives constantly. On the
+ * machine this was developed on, a terminal window called "Halloween The Game
+ * mappe" (the project folder) and any browser tab about the game would both
+ * match `/halloween/i` on the title while having app names "Windows Terminal
+ * Host" and "Floorp". The title is only consulted when the app name is empty,
+ * i.e. when the OS would not tell us what owns the window.
+ */
+const GAME_NAME = /halloween/i;
+
+/** This app's own windows — the main one matches GAME_NAME too. */
+const OWN_NAME = /map\s*overlay/i;
+
+/** A window this small cannot be the game; skip splash/tooltip windows. */
+const MIN_WINDOW = {width: 320, height: 240};
+
+/**
+ * How one enumerated window relates to us.
+ *
+ * @param {{appName?: string, title?: string, minimized?: boolean, width?: number, height?: number, pid?: number}} info
+ * @param {number} ownPid this process's pid
+ * @returns {'own'|'game'|'game-maybe'|'other'}
+ *   `game` is an exact `Halloween` / `Halloween.exe` app name, `game-maybe` a
+ *   looser match that only wins if nothing exact turns up.
+ */
+function classifyWindow(info, ownPid) {
+    const w = info || {};
+    const appName = typeof w.appName === 'string' ? w.appName.trim() : '';
+    const title = typeof w.title === 'string' ? w.title.trim() : '';
+    // Our own windows first: the main window is literally called "Halloween
+    // Map Overlay", so both the pid and the name test are needed — the name
+    // catches a window of ours the pid check cannot see, the pid catches one
+    // somebody renamed.
+    if (w.pid !== undefined && w.pid === ownPid) return 'own';
+    if (OWN_NAME.test(`${appName} ${title}`)) return 'own';
+    // Windows hands back a stale or empty image for a minimized window, and a
+    // minimized window is not in the foreground either.
+    if (w.minimized) return 'other';
+    if ((w.width || 0) < MIN_WINDOW.width || (w.height || 0) < MIN_WINDOW.height) return 'other';
+    if (/^halloween(\.exe)?$/i.test(appName)) return 'game';
+    if (GAME_NAME.test(appName) || (!appName && GAME_NAME.test(title))) return 'game-maybe';
+    return 'other';
+}
+
+/**
+ * Index of the game's window in an enumerated list, or -1.
+ *
+ * An exact app-name match anywhere in the list beats a looser match, whatever
+ * the z order says — a browser window whose title mentions the game must not
+ * win just because it came first.
+ *
+ * @param {Array<Object>} infos the same shape `classifyWindow` takes
+ * @param {number} ownPid
+ * @returns {number}
+ */
+function pickGameWindow(infos, ownPid) {
+    if (!Array.isArray(infos)) return -1;
+    let fallback = -1;
+    for (let i = 0; i < infos.length; i++) {
+        const verdict = classifyWindow(infos[i], ownPid);
+        if (verdict === 'game') return i;
+        if (verdict === 'game-maybe' && fallback === -1) fallback = i;
+    }
+    return fallback;
+}
+
 module.exports = {
     GAME_INTERVAL,
     IDLE_INTERVAL,
     MENU_TICKS_TO_HIDE,
     SEND_THROTTLE,
     SLOW_TICK_MS,
+    GAME_NAME,
+    OWN_NAME,
+    MIN_WINDOW,
     tickInterval,
     throttleAllows,
     shouldApplyDetected,
     shouldWatchMenu,
+    classifyWindow,
+    pickGameWindow,
     MenuStreak,
     SendThrottle
 };

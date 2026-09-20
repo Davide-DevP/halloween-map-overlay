@@ -38,6 +38,40 @@ const MAP_PANEL_REL = {
 };
 
 /**
+ * The map panel interior **without** the 10 px inset — the exact 786x786 square
+ * the measurement above describes (x 877..1662, y 147..932 on 1919x1078).
+ *
+ * `MAP_PANEL_REL` is inset because a *template* must not contain the cursor
+ * highlight rectangle or the fixtures' few-pixel crop differences. Tab-map mode
+ * is the other problem: it draws markers **onto** that square, and the map's
+ * `tab` transform (`shared/marker-rules.js`) is expressed as a fraction of the
+ * full interior, so it needs the un-inset rectangle. Two names for one
+ * measurement, deliberately, rather than one name used for two jobs.
+ */
+const TAB_PANEL_REL = {
+    x: 877 / 1919,   // 0.457007
+    y: 147 / 1078,   // 0.136364
+    w: 786 / 1919,   // 0.409589
+    h: 786 / 1078    // 0.729128
+};
+
+/**
+ * Where Tab-map mode puts its legend: the empty lower-left of the game's own
+ * Objectives panel, below the objectives list and above the panel's bottom
+ * frame line. fs x 270..750, y 720..910 of a 1919x1078 frame.
+ *
+ * Relative to the frame like every other region here, so it follows the game's
+ * resolution with no per-resolution code — the same rule the gate regions and
+ * the map panel already follow.
+ */
+const TAB_LEGEND_REL = {
+    x: 270 / 1919,   // 0.140698
+    y: 720 / 1078,   // 0.667904
+    w: 480 / 1919,   // 0.250130
+    h: 190 / 1078    // 0.176253
+};
+
+/**
  * Lower ~2/3 of the left (objectives) panel: solid black on the Tab screen,
  * live game world or menu art on everything else. fs x 257..842, y 250..929.
  */
@@ -318,6 +352,200 @@ function toGrayScaled(pixels, width, height, outWidth, outHeight, order) {
 }
 
 /**
+ * `toGrayScaled`, but only for a **rectangle of the output grid**.
+ *
+ * This is the single biggest saving in the tick. `toGrayScaled` is the only
+ * thing that touches all two million captured pixels, and for most of a match
+ * the frame is ordinary gameplay that the Tab gate throws away — so the whole
+ * reduction was being computed to be discarded. The matcher never looks at more
+ * than the map panel (~28 % of the frame, ~32 % with the alignment margins) and
+ * the menu matcher at ~2.4 %, so the rest of it was never read even on the
+ * ticks that do match.
+ *
+ * **The numbers are the same, not merely close.** Every output cell of
+ * `toGrayScaled` depends on its own source box and nothing else — no
+ * neighbours, no running state — so computing a subset of the cells with the
+ * same `outWidth`/`outHeight` produces bit-identical values. Both loop bodies
+ * below are copied verbatim from `toGrayScaled`, in the same order, with only
+ * the iteration bounds and the output index changed; `test/detector-equality.test.js`
+ * asserts the identity over every fixture at four resolutions.
+ *
+ * `outWidth`/`outHeight` are still the **whole** frame's output size, because
+ * that is what fixes the sampling grid. `box` selects which of those cells to
+ * compute.
+ *
+ * @param {Uint8Array|Buffer} pixels 4 bytes per pixel
+ * @param {number} width source width
+ * @param {number} height source height
+ * @param {number} outWidth the full reduced frame's width
+ * @param {number} outHeight the full reduced frame's height
+ * @param {string} order 'bgra' or 'rgba'
+ * @param {{x, y, width, height}} box cells to compute, in output coordinates
+ * @returns {Float32Array} box.width * box.height values
+ */
+function toGrayScaledRegion(pixels, width, height, outWidth, outHeight, order, box) {
+    const n = width * height;
+    if (pixels.length < n * 4) {
+        throw new Error('toGrayScaledRegion: expected ' + (n * 4) + ' bytes, got ' + pixels.length);
+    }
+    const bx0 = Math.max(0, Math.min(outWidth, box.x));
+    const by0 = Math.max(0, Math.min(outHeight, box.y));
+    const bx1 = Math.max(bx0, Math.min(outWidth, box.x + box.width));
+    const by1 = Math.max(by0, Math.min(outHeight, box.y + box.height));
+    const outW = bx1 - bx0;
+    const rgba = order === 'rgba';
+    const rOff = rgba ? 0 : 2;
+    const bOff = rgba ? 2 : 0;
+    const out = new Float32Array(outW * (by1 - by0));
+
+    if (width % outWidth === 0 && height % outHeight === 0) {
+        const bx = width / outWidth;
+        const by = height / outHeight;
+        const scale = 1 / (bx * by * 255);
+        for (let oy = by0; oy < by1; oy++) {
+            const y0 = oy * by, y1 = y0 + by;
+            for (let ox = bx0; ox < bx1; ox++) {
+                const x0 = ox * bx, x1 = x0 + bx;
+                let sum = 0;
+                for (let y = y0; y < y1; y++) {
+                    let p = (y * width + x0) * 4;
+                    for (let x = x0; x < x1; x++, p += 4) {
+                        sum += 0.299 * pixels[p + rOff] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + bOff];
+                    }
+                }
+                out[(oy - by0) * outW + (ox - bx0)] = sum * scale;
+            }
+        }
+        return out;
+    }
+
+    const sx = width / outWidth;
+    const sy = height / outHeight;
+    for (let oy = by0; oy < by1; oy++) {
+        const fy0 = oy * sy, fy1 = (oy + 1) * sy;
+        const iy0 = Math.floor(fy0), iy1 = Math.min(height, Math.ceil(fy1));
+        for (let ox = bx0; ox < bx1; ox++) {
+            const fx0 = ox * sx, fx1 = (ox + 1) * sx;
+            const ix0 = Math.floor(fx0), ix1 = Math.min(width, Math.ceil(fx1));
+            let sum = 0, weight = 0;
+            for (let y = iy0; y < iy1; y++) {
+                const wy = Math.min(y + 1, fy1) - Math.max(y, fy0);
+                if (wy <= 0) continue;
+                const row = y * width;
+                for (let x = ix0; x < ix1; x++) {
+                    const wx = Math.min(x + 1, fx1) - Math.max(x, fx0);
+                    if (wx <= 0) continue;
+                    const p = (row + x) * 4;
+                    const luma = 0.299 * pixels[p + rOff] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + bOff];
+                    const wgt = wx * wy;
+                    sum += luma * wgt;
+                    weight += wgt;
+                }
+            }
+            out[(oy - by0) * outW + (ox - bx0)] = weight > 0 ? sum / (weight * 255) : 0;
+        }
+    }
+    return out;
+}
+
+/**
+ * The pixel rectangle a relative region resolves to, clamped to the frame.
+ *
+ * Extracted from `cropRegion` so that **one** piece of arithmetic decides where
+ * a region is, and the region-restricted grayscale path below can ask the same
+ * question without reproducing the rounding. Getting this even one pixel
+ * different from `cropRegion` would change every score.
+ *
+ * @param {number} width
+ * @param {number} height
+ * @param {{x:number,y:number,w:number,h:number}} rel fractions of the frame
+ * @returns {{x: number, y: number, width: number, height: number}}
+ */
+function regionCropRect(width, height, rel) {
+    const x0 = Math.max(0, Math.min(width - 1, Math.round(rel.x * width)));
+    const y0 = Math.max(0, Math.min(height - 1, Math.round(rel.y * height)));
+    const cw = Math.max(1, Math.min(width - x0, Math.round(rel.w * width)));
+    const ch = Math.max(1, Math.min(height - y0, Math.round(rel.h * height)));
+    return {x: x0, y: y0, width: cw, height: ch};
+}
+
+/**
+ * The smallest rectangle covering a region at **every** alignment offset.
+ *
+ * The match tries the region at 15 offsets (`DEFAULT_OFFSETS`) and each one
+ * crops a slightly different rectangle; this is their union, which is exactly
+ * how much of the frame the matcher will read. It is what lets the tick produce
+ * luminance for a third of the frame instead of all of it.
+ *
+ * Built from `regionCropRect`, including its clamping, so the union really does
+ * contain every crop that will be taken — an offset that pushes the region off
+ * the edge is clamped there by both.
+ *
+ * @param {number} width frame width
+ * @param {number} height frame height
+ * @param {{x,y,w,h}} region
+ * @param {Array<?{dx: number, dy: number}>} [offsets]
+ * @returns {{x: number, y: number, width: number, height: number}}
+ */
+function regionSearchBox(width, height, region, offsets) {
+    const list = (offsets && offsets.length) ? offsets : [null];
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const offset of list) {
+        const shifted = offset
+            ? {x: region.x + offset.dx, y: region.y + offset.dy, w: region.w, h: region.h}
+            : region;
+        const rect = regionCropRect(width, height, shifted);
+        if (rect.x < x0) x0 = rect.x;
+        if (rect.y < y0) y0 = rect.y;
+        if (rect.x + rect.width > x1) x1 = rect.x + rect.width;
+        if (rect.y + rect.height > y1) y1 = rect.y + rect.height;
+    }
+    return {x: x0, y: y0, width: x1 - x0, height: y1 - y0};
+}
+
+/**
+ * A **window** onto a luminance frame: the cells of a notional
+ * `frameWidth x frameHeight` grid, but only those inside `x, y, width, height`.
+ *
+ * Everything downstream still thinks in full-frame coordinates — the regions,
+ * the offsets and the rounding are all fractions of the whole frame — so the
+ * window carries its own origin and the crop subtracts it. A full frame is just
+ * the window at (0, 0) with the same size, which is how the ordinary callers
+ * keep working unchanged.
+ */
+function frameWindow(data, frameWidth, frameHeight, box) {
+    const b = box || {x: 0, y: 0, width: frameWidth, height: frameHeight};
+    return {
+        data,
+        x: b.x, y: b.y, width: b.width, height: b.height,
+        frameWidth, frameHeight
+    };
+}
+
+/**
+ * Crop a relative region out of a window. Same rectangle, same values and the
+ * same allocation as `cropRegion` on the full frame — it only reads the rows
+ * from a smaller buffer.
+ */
+function cropWindow(win, rel) {
+    const rect = regionCropRect(win.frameWidth, win.frameHeight, rel);
+    const out = new Float32Array(rect.width * rect.height);
+    // The caller guarantees the rectangle is inside the window (it comes from
+    // `regionSearchBox` over the same offsets). A rectangle that is not would
+    // silently read the wrong rows, so it is checked rather than assumed.
+    if (rect.x < win.x || rect.y < win.y
+        || rect.x + rect.width > win.x + win.width
+        || rect.y + rect.height > win.y + win.height) {
+        throw new Error('cropWindow: region outside the window');
+    }
+    for (let y = 0; y < rect.height; y++) {
+        const src = (rect.y + y - win.y) * win.width + (rect.x - win.x);
+        out.set(win.data.subarray(src, src + rect.width), y * rect.width);
+    }
+    return {data: out, width: rect.width, height: rect.height};
+}
+
+/**
  * Crop a relative region out of a luminance frame.
  * @param {Float32Array} gray
  * @param {number} width
@@ -326,16 +554,7 @@ function toGrayScaled(pixels, width, height, outWidth, outHeight, order) {
  * @returns {{data: Float32Array, width: number, height: number}}
  */
 function cropRegion(gray, width, height, rel) {
-    const x0 = Math.max(0, Math.min(width - 1, Math.round(rel.x * width)));
-    const y0 = Math.max(0, Math.min(height - 1, Math.round(rel.y * height)));
-    const cw = Math.max(1, Math.min(width - x0, Math.round(rel.w * width)));
-    const ch = Math.max(1, Math.min(height - y0, Math.round(rel.h * height)));
-    const out = new Float32Array(cw * ch);
-    for (let y = 0; y < ch; y++) {
-        const src = (y0 + y) * width + x0;
-        out.set(gray.subarray(src, src + cw), y * cw);
-    }
-    return {data: out, width: cw, height: ch};
+    return cropWindow(frameWindow(gray, width, height, null), rel);
 }
 
 /**
@@ -433,6 +652,59 @@ function ncc(a, b) {
     return r > 1 ? 1 : (r < -1 ? -1 : r);
 }
 
+/**
+ * The half of an NCC that depends on **one** signal: its mean and the sum of
+ * its squared deviations.
+ *
+ * `ncc(a, b)` walks both arrays twice — once for the two means, once for the
+ * numerator and the two variances. In a tick that is the same work over and
+ * over: one view's thumbnail is scored against every template, and one
+ * template against every view, so each array's statistics were recomputed
+ * (templates x views) times instead of once.
+ *
+ * **Same numbers, not similar ones.** The mean is accumulated in the same index
+ * order and divided the same way, and the deviations are then formed from that
+ * identical float, so `u`, `v` and every accumulation below match what the
+ * single-pass version produced. `test/detector-equality.test.js` asserts it
+ * over every fixture rather than taking it on trust.
+ *
+ * @param {Float32Array|number[]} arr
+ * @returns {{mean: number, dev: number}} `dev` is Σ(x−mean)², not a variance
+ */
+function nccStats(arr) {
+    const n = arr.length;
+    let m = 0;
+    for (let i = 0; i < n; i++) m += arr[i];
+    m /= n;
+    let dev = 0;
+    for (let i = 0; i < n; i++) {
+        const u = arr[i] - m;
+        dev += u * u;
+    }
+    return {mean: m, dev};
+}
+
+/**
+ * Zero-mean normalized cross-correlation with both signals' statistics already
+ * known. Bit-identical to `ncc(a, b)`; see `nccStats`.
+ *
+ * @param {Float32Array|number[]} a
+ * @param {{mean: number, dev: number}} sa
+ * @param {Float32Array|number[]} b
+ * @param {{mean: number, dev: number}} sb
+ * @returns {number}
+ */
+function nccWith(a, sa, b, sb) {
+    const n = Math.min(a.length, b.length);
+    if (n === 0) return 0;
+    if (sa.dev <= 0 || sb.dev <= 0) return 0;
+    const ma = sa.mean, mb = sb.mean;
+    let num = 0;
+    for (let i = 0; i < n; i++) num += (a[i] - ma) * (b[i] - mb);
+    const r = num / Math.sqrt(sa.dev * sb.dev);
+    return r > 1 ? 1 : (r < -1 ? -1 : r);
+}
+
 /** Mean of an array-like of numbers. */
 function mean(arr) {
     let s = 0;
@@ -478,6 +750,85 @@ function TAB_SCREEN_GATE(gray, width, height) {
 }
 
 /**
+ * The fraction of one relative region of a **raw RGBA/BGRA frame** that is
+ * below (or at/above) a luminance level — the gate's arithmetic, read straight
+ * off the capture with no intermediate.
+ *
+ * `TAB_SCREEN_GATE` works on a luminance frame the tick has already reduced to
+ * 640 px wide, which is right when the same frame is about to be matched
+ * anyway. Tab-map mode's fast check is the other case: it asks only "is the Tab
+ * screen still up?", every 150 ms, and the reduction is then the whole cost.
+ * Measured on the dev machine against a real 1920x1032 window:
+ *
+ *   toGrayScaled(640) over the whole frame + the gate   5.5 ms of blocking JS
+ *   this, over the two gate regions only (21.9 %)       1.40 ms
+ *   …its early-out (the left panel alone)               1.34 ms
+ *
+ * and it allocates **nothing** — no Float32Array, no crop, one pass over 21.9 %
+ * of the pixels. (`node-screenshots` cannot capture less than a whole window;
+ * `Image.crop` before `toRaw` was measured and is a net loss, costing 3.5 ms of
+ * native crop to save 1.9 ms of copy.)
+ *
+ * Identical arithmetic to the luminance path — `toGray` divides by 255 and this
+ * multiplies the threshold by 255 instead — so the two agree on every frame,
+ * which is asserted rather than assumed.
+ *
+ * @param {Uint8Array|Buffer} pixels 4 bytes per pixel
+ * @param {number} width
+ * @param {number} height
+ * @param {{x,y,w,h}} rel region, as fractions of the frame
+ * @param {number} level luminance threshold in 0..1
+ * @param {boolean} below true counts pixels **under** `level`, false at/above
+ * @param {string} [order] 'bgra' (default) or 'rgba'
+ * @returns {number} 0..1
+ */
+function rawRegionFraction(pixels, width, height, rel, level, below, order) {
+    const n = width * height;
+    if (pixels.length < n * 4) {
+        throw new Error('rawRegionFraction: expected ' + (n * 4) + ' bytes, got ' + pixels.length);
+    }
+    const rgba = order === 'rgba';
+    const rOff = rgba ? 0 : 2;
+    const bOff = rgba ? 2 : 0;
+    // Same clamping as `cropRegion`, so the two crop the same rectangle.
+    const x0 = Math.max(0, Math.min(width - 1, Math.round(rel.x * width)));
+    const y0 = Math.max(0, Math.min(height - 1, Math.round(rel.y * height)));
+    const cw = Math.max(1, Math.min(width - x0, Math.round(rel.w * width)));
+    const ch = Math.max(1, Math.min(height - y0, Math.round(rel.h * height)));
+    const cut = level * 255;
+    let hit = 0;
+    for (let y = 0; y < ch; y++) {
+        let p = ((y0 + y) * width + x0) * 4;
+        for (let x = 0; x < cw; x++, p += 4) {
+            const luma = 0.299 * pixels[p + rOff] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + bOff];
+            if (below ? luma < cut : luma >= cut) hit++;
+        }
+    }
+    return hit / (cw * ch);
+}
+
+/**
+ * The Tab-screen gate, read straight off a raw capture. Same verdict as
+ * `TAB_SCREEN_GATE`, a quarter of the blocking cost — see `rawRegionFraction`.
+ *
+ * The left panel is tested first and returns early, because that is the test an
+ * ordinary gameplay frame fails: the name box is never read on the frames there
+ * are most of.
+ *
+ * @param {Uint8Array|Buffer} pixels
+ * @param {number} width
+ * @param {number} height
+ * @param {string} [order] 'bgra' (default) or 'rgba'
+ * @returns {boolean}
+ */
+function tabGateFromRaw(pixels, width, height, order) {
+    const dark = rawRegionFraction(pixels, width, height, LEFT_PANEL_REL, GATE_DARK_LEVEL, true, order);
+    if (dark < GATE_MIN_DARK_FRACTION) return false;
+    const bright = rawRegionFraction(pixels, width, height, NAME_BOX_REL, GATE_NAME_BOX_LEVEL, false, order);
+    return bright >= GATE_MIN_NAME_BOX_FRACTION;
+}
+
+/**
  * Reduce a frame to the 64x64 thumbnail the templates are stored as.
  * @param {Float32Array} gray
  * @param {number} width
@@ -495,7 +846,9 @@ function frameThumbnail(gray, width, height, opts) {
     const shifted = offset
         ? {x: region.x + offset.dx, y: region.y + offset.dy, w: region.w, h: region.h}
         : region;
-    const c = cropRegion(gray, width, height, shifted);
+    // From a window when one is given — the same rectangle out of a smaller
+    // buffer, so the thumbnail is identical.
+    const c = o.window ? cropWindow(o.window, shifted) : cropRegion(gray, width, height, shifted);
     return downsample(c.data, c.width, c.height, size);
 }
 
@@ -528,6 +881,10 @@ function scoreThumbnail(thumb, thumbGrad, template, size) {
  * @returns {Array<Float32Array>}
  */
 function templateVariants(entry) {
+    // Before the `length` test: a prepared entry is an object with a `variants`
+    // array and no `length` of its own, so asking about `length` first would
+    // quietly report that it holds no thumbnails at all.
+    if (entry && entry.prepared) return entry.variants.map(v => v.tpl);
     if (!entry || !entry.length) return [];
     if (entry instanceof Float32Array) return [entry];
     const first = entry[0];
@@ -535,6 +892,51 @@ function templateVariants(entry) {
         return Array.from(entry, v => (v instanceof Float32Array ? v : Float32Array.from(v)));
     }
     return [Float32Array.from(entry)];
+}
+
+/**
+ * Everything about a template set that does not change between ticks.
+ *
+ * Per tick, `matchMap` used to recompute each variant's **gradient magnitude**
+ * (a full Sobel pass over 4096 cells, eight reads each) and, inside every
+ * `ncc`, each variant's **mean and deviation** — once per view, so fifteen
+ * times over. None of that depends on the frame. Computing it once at load
+ * turns it into a fixed cost paid when `templates.json` is read and when a map
+ * pack is installed, which is exactly where the existing rule already says
+ * template work belongs ("never on a tick").
+ *
+ * The values are the same ones the per-tick code produced — same function, same
+ * order — so scores do not move; `test/detector-equality.test.js` checks that
+ * against the un-prepared path on every fixture.
+ *
+ * `matchMap` accepts either shape, so a caller that has not prepared anything
+ * (the tests, a one-off) still works.
+ *
+ * @param {Object<string, *>} templates key → variants, as `templateVariants` takes
+ * @param {number} [size]
+ * @returns {Object<string, {prepared: true, variants: Array}>}
+ */
+function prepareTemplates(templates, size) {
+    const n = size || DEFAULT_SIZE;
+    const out = {};
+    for (const key of Object.keys(templates || {})) {
+        const variants = templateVariants(templates[key]).map(tpl => {
+            const grad = gradientMagnitude(tpl, n);
+            return {tpl, grad, tplStats: nccStats(tpl), gradStats: nccStats(grad)};
+        });
+        if (!variants.length) continue;
+        out[key] = {prepared: true, variants};
+    }
+    return out;
+}
+
+/** The prepared variants of one entry, preparing it on the spot if needed. */
+function preparedVariants(entry, size) {
+    if (entry && entry.prepared) return entry.variants;
+    return templateVariants(entry).map(tpl => {
+        const grad = gradientMagnitude(tpl, size);
+        return {tpl, grad, tplStats: nccStats(tpl), gradStats: nccStats(grad)};
+    });
 }
 
 /**
@@ -598,9 +1000,17 @@ function matchMap(gray, width, height, templates, opts) {
     // passes a pre-cropped panel — there is nothing to align then).
     const region = o.region === undefined ? MAP_PANEL_REL : o.region;
     const offsets = region ? (o.offsets || DEFAULT_OFFSETS) : [null];
+    // `window` lets the caller hand over only the part of the reduced frame the
+    // regions below actually read (see `regionSearchBox`). `gray` is then the
+    // window's data and `width`/`height` still describe the **whole** frame, so
+    // every fraction, rounding and offset is unchanged.
+    const win = o.window || frameWindow(gray, width, height, null);
     const views = offsets.map(offset => {
-        const thumb = frameThumbnail(gray, width, height, Object.assign({}, o, {offset}));
-        return {thumb, grad: gradientMagnitude(thumb, size), offset};
+        const thumb = frameThumbnail(gray, width, height, Object.assign({}, o, {offset, window: win}));
+        const grad = gradientMagnitude(thumb, size);
+        // The view's own statistics, once per view instead of once per
+        // (view x template) pair inside `ncc`.
+        return {thumb, grad, offset, thumbStats: nccStats(thumb), gradStats: nccStats(grad)};
     });
 
     // Mean luminance of the map panel as the region names it — the unshifted
@@ -623,11 +1033,12 @@ function matchMap(gray, width, height, templates, opts) {
     const scores = {};
     let bestKey = null, best = -Infinity, second = -Infinity;
     for (const key of Object.keys(templates)) {
-        const variants = templateVariants(templates[key]).map(tpl => ({tpl, grad: gradientMagnitude(tpl, size)}));
+        const variants = preparedVariants(templates[key], size);
         let s = -Infinity;
-        for (const {tpl, grad} of variants) {
+        for (const {tpl, grad, tplStats, gradStats} of variants) {
             for (const view of views) {
-                const v = (ncc(view.thumb, tpl) + ncc(view.grad, grad)) / 2;
+                const v = (nccWith(view.thumb, view.thumbStats, tpl, tplStats)
+                    + nccWith(view.grad, view.gradStats, grad, gradStats)) / 2;
                 if (v > s) s = v;
             }
         }
@@ -649,7 +1060,12 @@ function matchMap(gray, width, height, templates, opts) {
         accepted: !!acceptedBy, acceptedBy, panelMean, gated: false
     };
     if (o.report) return result;
-    return accepted ? result : null;
+    // `acceptedBy`, not a bare `accepted`: that name was never declared in this
+    // scope, so every non-`report` call that got as far as a best match threw a
+    // ReferenceError. Latent only because `report: true` is what the detector
+    // loop and every logging caller pass — the tests' `matchMap(...)` negatives
+    // all return at the gate above. Covered now by its own test.
+    return acceptedBy ? result : null;
 }
 
 /*
@@ -678,7 +1094,7 @@ function menuThumbnail(gray, width, height, opts) {
     const region = offset
         ? {x: MENU_STRIP_REL.x + offset.dx, y: MENU_STRIP_REL.y + offset.dy, w: MENU_STRIP_REL.w, h: MENU_STRIP_REL.h}
         : MENU_STRIP_REL;
-    const c = cropRegion(gray, width, height, region);
+    const c = o.window ? cropWindow(o.window, region) : cropRegion(gray, width, height, region);
     return resample(c.data, c.width, c.height, tw, th);
 }
 
@@ -700,19 +1116,47 @@ function matchMenu(gray, width, height, template, opts) {
     const th = o.height || MENU_TEMPLATE_HEIGHT;
     const minScore = o.minScore === undefined ? MENU_MIN_SCORE : o.minScore;
     const tpl = template instanceof Float32Array ? template : Float32Array.from(template);
-    const tplGrad = gradientMagnitude(tpl, tw, th);
+    // Prepared once per call rather than once per offset — there are 25 of
+    // them, and none of this depends on the frame. `o.prepared` lets the
+    // detector hoist it out of the tick entirely.
+    const prep = o.prepared || {
+        tpl, grad: gradientMagnitude(tpl, tw, th),
+        tplStats: nccStats(tpl)
+    };
+    const gradStats = prep.gradStats || nccStats(prep.grad);
 
     let best = -Infinity;
     for (const offset of (o.offsets || MENU_OFFSETS)) {
-        const thumb = menuThumbnail(gray, width, height, {width: tw, height: th, offset});
-        const score = (ncc(thumb, tpl) + ncc(gradientMagnitude(thumb, tw, th), tplGrad)) / 2;
+        const thumb = menuThumbnail(gray, width, height, {width: tw, height: th, offset, window: o.window});
+        const thumbGrad = gradientMagnitude(thumb, tw, th);
+        const score = (nccWith(thumb, nccStats(thumb), prep.tpl, prep.tplStats)
+            + nccWith(thumbGrad, nccStats(thumbGrad), prep.grad, gradStats)) / 2;
         if (score > best) best = score;
     }
     return {score: best, accepted: best >= minScore};
 }
 
+/**
+ * The menu template's frame-independent half, for the detector to hold across
+ * ticks. Same values as `matchMenu` would compute itself.
+ * @param {number[]|Float32Array} template
+ * @param {number} [tw]
+ * @param {number} [th]
+ * @returns {?{tpl, grad, tplStats, gradStats}}
+ */
+function prepareMenuTemplate(template, tw, th) {
+    if (!template || !template.length) return null;
+    const width = tw || MENU_TEMPLATE_WIDTH;
+    const height = th || MENU_TEMPLATE_HEIGHT;
+    const tpl = template instanceof Float32Array ? template : Float32Array.from(template);
+    const grad = gradientMagnitude(tpl, width, height);
+    return {tpl, grad, tplStats: nccStats(tpl), gradStats: nccStats(grad)};
+}
+
 module.exports = {
     MAP_PANEL_REL,
+    TAB_PANEL_REL,
+    TAB_LEGEND_REL,
     LEFT_PANEL_REL,
     NAME_BOX_REL,
     MENU_STRIP_REL,
@@ -732,6 +1176,16 @@ module.exports = {
     GATE_MIN_NAME_BOX_FRACTION,
     toGray,
     toGrayScaled,
+    toGrayScaledRegion,
+    regionCropRect,
+    regionSearchBox,
+    frameWindow,
+    cropWindow,
+    nccStats,
+    nccWith,
+    prepareTemplates,
+    preparedVariants,
+    prepareMenuTemplate,
     cropRegion,
     downsample,
     resample,
@@ -739,6 +1193,8 @@ module.exports = {
     ncc,
     tabScreenFeatures,
     TAB_SCREEN_GATE,
+    rawRegionFraction,
+    tabGateFromRaw,
     frameThumbnail,
     scoreThumbnail,
     templateVariants,

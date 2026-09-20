@@ -1,0 +1,95 @@
+# Map packs — a map without a release
+
+[← AGENTS.md](../../AGENTS.md) · **Read before** touching `src/core/map-packs.js`,
+`map-pack-store.js`, `map-pack-install.js`, `map-pack-fetch.js`,
+`src/shared/map-pack-rules.js`, `scripts/build-pack.js` or anything in
+`packs/`.
+
+Spec: `docs/SPEC-MAP-PACKS.md`. The procedure in
+[maps-authoring.md](maps-authoring.md) ships a map in the **next
+release** (~93 MB for every user). A *pack* is the same map's data — the PNG
+(~300 KB) and that one map's templates (~48 KB, measured: `templates.json` is
+503 KB for four maps × 2 variants of 4096 numbers) — published in `packs/` and
+downloaded on its own. `npm run build-pack -- --key … --image … --fixture …`
+reuses `prepare-detector.js`'s `buildVariantsForKey` and validates the result
+with the runtime's own `shared/map-pack-rules.js` before writing: if the app
+would refuse the pack, the script refuses to publish it.
+
+- **Everything a pack carries is untrusted, and every rule is an allow-list.**
+  One host (`raw.githubusercontent.com`) under one path prefix, https only; a
+  pack supplies a *name*, never a URL, and `packFileUrl` derives the URL from
+  the index's base; `.png`/`.json` only; size + SHA-256 of every file checked
+  against the index before it is written; hard caps (index 256 KB, image 8 MB,
+  templates 8 MB, pack 16 MB, 48 template variants in total, 3 min for the whole
+  check) and two timeouts. `probeImage` is **mandatory**, and an image must also
+  pass `isPlausiblePngBytes` — a 33-byte signature+IHDR claiming 8192² passes
+  every other check, installs, and leaves the map blank forever. **Nothing from
+  a pack is ever executed** — `JSON.parse` only, no `require`, no `vm`.
+  `name`/`creator` are **derived from the key**, never taken from the manifest
+  (a pack calling itself another map's name hijacks every bare-name lookup;
+  `creator: "constructor"` broke the renderer's map picker for every map).
+- **A pack that fails anything is discarded whole and the previously installed
+  good version stays.** That is why `store.commit` parks the live directory
+  aside as `.old-<rand>-<dir>` — the directory is **in the name** so a `sweep()`
+  after a crash between the two renames renames it *back* rather than deleting
+  it — and why the staging directory is **inside userData**, never `%TEMP%` (a
+  cross-volume rename is not atomic, and see the Bitdefender trap in
+  [updater-and-installer.md](updater-and-installer.md)).
+  An installed pack is re-validated on **every start**, **SHA-256 of every file
+  included**: the size alone passed a `map.png` a power cut had zero-filled in
+  place, which left a replaced bundled map permanently blank while the next
+  check said "up to date". A pack that fails falls out of `list()`, so the
+  bundled map comes back *and* the next check re-downloads it.
+- **Precedence: a pack wins over the bundled map with the same key**, so a pack
+  also *fixes* a shipped map. Custom maps cannot collide — `isValidPackKey`
+  refuses the reserved `Custom` creator. One pure merge for the catalogue
+  (`mergeMapPacks`, given `sortCatalog`) and one for the detector
+  (`mergeTemplateSources`), **both folding case** (they disagreed, so a pack
+  published as `…/east haddonfield` replaced the gallery entry and left the bad
+  templates), so the gallery, next/prev, the first-run
+  Ctrl+Alt+1..9, the hotkey picker, `show-map=` and the matcher all see a pack
+  map as an ordinary one. Bundled maps are deliberately *not* re-shaped into
+  built-in packs — that would mean per-map template files, a rewritten
+  `prepare-detector.js` and a restructured `extraResources` for no behavioural
+  gain; the *decisions* are shared instead, the loaders are not, because the
+  trust levels differ.
+- **One directory per key, checked three times.** `packDirName` folds
+  punctuation, so `a/b c`, `a/b-c`, `a/b.c` and `a-b/c` share one directory and
+  reinstalled over each other on every check forever. `validateIndex`
+  (`duplicate-dir`), `store.commit` (`dir-owned-by-other-key`, since an index is
+  not the only way a folder gets there) and `build-pack.js` each refuse it.
+- **Templates are merged once at load**, `MapDetector.loadTemplates()` /
+  `reloadTemplates()`, never on a tick. See "The capture path"
+  ([detection.md](detection.md)). Packs past the
+  48-variant budget are dropped with a `templates-dropped` line: every variant
+  is scored on every gated-in frame at ~2 ms each.
+- **`checkForMapPacks`** (default true, Settings › General). With it off **no
+  request is made**: the gate is the pure `shouldCheckPacks`, which the startup
+  timer *and* the "Check for new maps now" button both go through, so they
+  cannot disagree. At most once per 24 h — **one hour after a check that
+  failed**, or a launch with no network burns the whole day's slot — remembered
+  in `map-packs/state.json`, not in `settings-app.json`, because every settings
+  write is an `app.log` line and this is bookkeeping. A **404 on the index** is
+  `notPublished`, a quiet distinct state, not a failure: that is what the
+  repository looks like until the first pack ships.
+- **A map a pack adds gets the next free Ctrl+Alt+N** (`planPackMapHotkey`,
+  pure; `Hotkeys.assignPackMapHotkey` writes through the one `hotkeys.json`
+  writer). `hotkeys.json` is written once, so before this a downloaded map never
+  got a number at all. Only for a key the catalogue did not already hold; never
+  when the file is absent (the first-run write owns that) or **present and
+  empty** ("I cleared them"); once per map ever, remembered as
+  `offeredHotkeys` in the pack state file so a binding the user deleted cannot
+  come back; and normalised against every bound system hotkey and every existing
+  entry so it can never conflict. The toast names the key
+  (`mapPacks.installedOneBound`) — binding a global accelerator silently would
+  be a surprise.
+- **A pack's key IS logged in full, like a shipped map's.** The
+  "custom maps are `(custom)`" rule is about *user text*; a pack key is
+  catalogue data from this project's own repository and `isValidPackKey` keeps
+  it to a charset with no newline and no `=`. "The new map never arrived" is
+  otherwise unanswerable. `system.txt` gains a `[map packs]` section.
+
+See also: [maps-authoring.md](maps-authoring.md) (the in-release procedure a
+pack short-circuits), [detection.md](detection.md) ("The capture path" and the
+template budget), [hotkeys.md](hotkeys.md) and
+[markers-and-tab-mode.md](markers-and-tab-mode.md).

@@ -21,29 +21,85 @@ class Detector {
         // The last status seen, so the line can be re-rendered in the new
         // language without waiting for the next push from main.
         this.lastStatus = null;
+        /** Anything else that draws this switch — see `onStatus`. */
+        this.statusListeners = [];
         onChange(() => this.render(this.lastStatus));
     }
 
     async init() {
         const self = this;
-        const $check = $("#mapDetectionCheck");
 
         ipcRenderer.on('map-detector-status', (event, status) => self.render(status));
 
-        $check.on("change", async function () {
-            const on = $(this).is(":checked");
-            $check.prop("disabled", true);
-            try {
-                const status = await ipcRenderer.invoke(on ? 'map-detector-start' : 'map-detector-stop');
-                self.render(status);
-            } finally {
-                $check.prop("disabled", false);
-            }
+        $("#mapDetectionCheck").on("change", async function () {
+            await self.setEnabled($(this).is(":checked"));
         });
 
         const status = await ipcRenderer.invoke('map-detector-status');
         debugLog("detector::init", JSON.stringify(status));
         this.render(status);
+    }
+
+    /**
+     * Start or stop the loop. The single path for it, so the home-page switch
+     * and the welcome tour's switch cannot end up doing it two slightly
+     * different ways.
+     *
+     * The setting is written by main's own start/stop handlers rather than
+     * through `Settings.set`, so the stored value and the running loop can
+     * never disagree.
+     * @param {boolean} on
+     */
+    async setEnabled(on) {
+        const $check = $("#mapDetectionCheck");
+        $check.prop("disabled", true);
+        try {
+            const status = await ipcRenderer.invoke(on ? 'map-detector-start' : 'map-detector-stop');
+            this.render(status);
+        } catch (err) {
+            // The invoke rejected (the handler threw, or main is on its way
+            // out). Without this the `render` never runs and every switch —
+            // the home page's and the tour's — is left showing the state the
+            // *click* implied over a loop that is not in it. Ask main what is
+            // actually true and draw that instead.
+            console.error("detector::setEnabled", err && err.message);
+            try {
+                this.render(await ipcRenderer.invoke('map-detector-status'));
+            } catch (statusErr) {
+                // Even the status call failed. "Off" is the safe claim: it is
+                // the state the user can recover from with one click, and a
+                // switch that says "watching" over a dead loop is the one thing
+                // this app must never show.
+                console.error("detector::setEnabled::status", statusErr && statusErr.message);
+                this.render({running: false});
+            }
+        } finally {
+            $check.prop("disabled", false);
+        }
+    }
+
+    /**
+     * Register a second view of the switch.
+     *
+     * The welcome tour has one on its auto-detect step, and it has to follow
+     * every status push rather than only its own click: the loop can also be
+     * started or stopped from the home page behind the tour, and a start that
+     * main refuses must not leave a ticked box.
+     * @param {(running: boolean) => void} callback
+     */
+    onStatus(callback) {
+        if (typeof callback === 'function') this.statusListeners.push(callback);
+    }
+
+    /** Tell every extra view what the switch is now. Never throws at a caller. */
+    notifyStatus(running) {
+        for (const listener of this.statusListeners) {
+            try {
+                listener(running);
+            } catch (err) {
+                console.error('detector::listener', err && err.message);
+            }
+        }
     }
 
     /**
@@ -67,6 +123,7 @@ class Detector {
         const s = status || this.lastStatus || {};
         this.lastStatus = s;
         $("#mapDetectionCheck").prop("checked", !!s.running);
+        this.notifyStatus(!!s.running);
 
         if (s.lastDetected) {
             this.lastKey = s.lastDetected;

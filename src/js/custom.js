@@ -1,6 +1,7 @@
 const {ipcRenderer} = require("electron");
 const {debugLog} = require("./logger");
 const {escapeHtml} = require("../shared/escape-html");
+const {setBusy} = require("./busy");
 const {t, onChange} = require("./i18n");
 
 /** Image MIME type → the extension the imported file is stored under. */
@@ -51,6 +52,9 @@ class Custom {
     async addCustomMap() {
         $('#loadingOverlay').slideDown();
         $("#loadingContent").text(t('app.saving'));
+        // The file the user picked only exists in this window; main must not
+        // tear it down mid-import. See `src/js/busy.js`.
+        setBusy('import', true);
         try {
             if ($("#custom_file").prop('files').length === 0) throw t('custom.error.pickFile');
             if ($("#custom_name").val().length === 0) throw t('custom.error.enterName');
@@ -79,6 +83,7 @@ class Custom {
             debugLog("custom::addCustomMap::error", e);
             alert(t('common.error', {message: e}));
         } finally {
+            setBusy('import', false);
             $('#loadingOverlay').slideUp();
         }
     }

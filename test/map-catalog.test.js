@@ -88,6 +88,36 @@ test('findClosestMapMatch: typos fall through to the closest name', () => {
     assert.strictEqual(findClosestMapMatch('orang grove estate', catalog).name, 'Orange Grove Estates');
 });
 
+test('findClosestMapMatch: a FULL key that matches nothing resolves to nothing', () => {
+    /*
+     * The fuzzy stage is skipped for a qualified `Creator/Name` query. Its
+     * bound is a fraction of the string's own length, and every key in a
+     * creator's folder shares that whole creator prefix — so
+     * `deftyconchgaming/Smiths Grove` was within 40 % of
+     * `deftyconchgaming/East Haddonfield` and resolved to it. A `hotkeys.json`
+     * entry for a map that is *gone* (an uninstalled map pack, a deleted
+     * custom image) therefore put a **different** map on the overlay: the user
+     * pressed their Smiths Grove key and got East Haddonfield with no
+     * explanation, which is worse than nothing happening. The renderer now
+     * says the map is missing instead.
+     */
+    for (const gone of [
+        'deftyconchgaming/Smiths Grove',
+        'deftyconchgaming/Silver Shamrock',
+        'deftyconchgaming/Haddonfield Hills',
+        'Custom/Deleted Image'
+    ]) {
+        assert.strictEqual(findClosestMapMatch(gone, catalog), null, gone);
+    }
+    // A bare name still gets the fuzzy stage — that is where a typed query
+    // comes from, and there is no shared prefix to weaken the bound.
+    assert.strictEqual(findClosestMapMatch('Est Haddonfeld', catalog).name, 'East Haddonfield');
+    // …and the two earlier stages still run for a full key, which is what the
+    // renamed-creator case has always relied on (test above).
+    assert.strictEqual(findClosestMapMatch('deftyconchgaming/East Haddonfield', catalog).name,
+        'East Haddonfield');
+});
+
 test('findClosestMapMatch: unrelated input matches nothing', () => {
     assert.strictEqual(findClosestMapMatch('Coal Tower', catalog), null);
     assert.strictEqual(findClosestMapMatch('', catalog), null);

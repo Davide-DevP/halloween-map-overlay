@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const {
     GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE,
     tickInterval, throttleAllows, shouldApplyDetected, shouldWatchMenu,
-    MenuStreak, SendThrottle
+    MenuStreak, SendThrottle, classifyWindow, pickGameWindow
 } = require('../src/shared/detector-rules');
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -244,4 +244,61 @@ test('MenuStreak: the tick count is configurable and honoured', () => {
     streak.noteMatch();
     assert.strictEqual(streak.note(true).clear, false);
     assert.strictEqual(streak.note(true).clear, true);
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Which window is the game
+ *
+ * Moved out of `map-detector.js` in 0.7 because `core/foreground.js` needs the
+ * same answer for `hotkeysGameOnly`, and two copies of this test would
+ * eventually disagree about what the game's window is.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const OWN_PID = 4242;
+const big = {width: 1920, height: 1080, minimized: false, pid: 7};
+
+test('classifyWindow: an exact app name is the game', () => {
+    assert.strictEqual(classifyWindow({...big, appName: 'Halloween', title: 'Halloween'}, OWN_PID), 'game');
+    assert.strictEqual(classifyWindow({...big, appName: 'halloween.exe', title: ''}, OWN_PID), 'game');
+    assert.strictEqual(classifyWindow({...big, appName: 'HALLOWEEN', title: ''}, OWN_PID), 'game');
+});
+
+test('classifyWindow: a looser name only ever wins as a fallback', () => {
+    assert.strictEqual(classifyWindow({...big, appName: 'Halloween The Game', title: ''}, OWN_PID), 'game-maybe');
+    // A title match is consulted only when the OS gave us no app name at all.
+    assert.strictEqual(classifyWindow({...big, appName: '', title: 'Halloween: The Game'}, OWN_PID), 'game-maybe');
+    // This is the real false positive from development: a terminal window
+    // named after the project folder.
+    assert.strictEqual(classifyWindow({...big, appName: 'Windows Terminal Host', title: 'Halloween The Game mappe'}, OWN_PID), 'other');
+    assert.strictEqual(classifyWindow({...big, appName: 'Floorp', title: 'Halloween The Game - Steam'}, OWN_PID), 'other');
+});
+
+test('classifyWindow: our own windows are ours, by pid and by name', () => {
+    assert.strictEqual(classifyWindow({...big, appName: 'Halloween', title: 'x', pid: OWN_PID}, OWN_PID), 'own');
+    // The main window is literally called "Halloween Map Overlay", so it also
+    // matches the game's own loose test — the name check is what keeps a
+    // window of ours out even when the pid differs.
+    assert.strictEqual(classifyWindow({...big, appName: 'Halloween Map Overlay', title: ''}, OWN_PID), 'own');
+    assert.strictEqual(classifyWindow({...big, appName: '', title: 'Halloween Map Overlay - OBS'}, OWN_PID), 'own');
+});
+
+test('classifyWindow: minimized and tiny windows are not the game', () => {
+    // Windows hands back a stale or empty image for a minimized window, and a
+    // minimized window is not in the foreground either.
+    assert.strictEqual(classifyWindow({...big, appName: 'Halloween', minimized: true}, OWN_PID), 'other');
+    assert.strictEqual(classifyWindow({...big, appName: 'Halloween', width: 200, height: 100}, OWN_PID), 'other');
+    assert.strictEqual(classifyWindow({appName: 'Halloween'}, OWN_PID), 'other');
+    assert.strictEqual(classifyWindow(null, OWN_PID), 'other');
+});
+
+test('pickGameWindow: an exact match beats an earlier loose one', () => {
+    const list = [
+        {...big, appName: 'Floorp', title: 'news'},
+        {...big, appName: 'Halloween The Game', title: ''},
+        {...big, appName: 'Halloween', title: ''}
+    ];
+    assert.strictEqual(pickGameWindow(list, OWN_PID), 2);
+    assert.strictEqual(pickGameWindow(list.slice(0, 2), OWN_PID), 1);
+    assert.strictEqual(pickGameWindow([list[0]], OWN_PID), -1);
+    assert.strictEqual(pickGameWindow(null, OWN_PID), -1);
 });

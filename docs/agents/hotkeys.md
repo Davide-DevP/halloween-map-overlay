@@ -1,0 +1,368 @@
+# Hotkeys
+
+[← AGENTS.md](../../AGENTS.md) · **Read before** touching `src/core/hotkeys.js`,
+`src/shared/hotkeys-constants.js`, `hotkeys-rules.js`,
+`hotkey-migration.js`, `src/core/foreground.js`, `src/js/hotkeys.js` or
+`hotkeys.json`.
+
+The Tab-map mode key trigger is **not** a hotkey and shares nothing with this
+file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
+
+## Where a pressed hotkey goes (0.7)
+
+- **Every accelerator is handled in the main process.** Up to 0.6 the callback
+  was `win.send(def.action)` and `src/js/maps.js` did the work, so *every hotkey
+  in the product* stopped at the moment the main window's renderer was not
+  there. It now goes to `Hotkeys.runAction(actionId)` → `MapController.action()`
+  (a system hotkey) or `MapController.select(mapKey, 'hotkey')` (a per-map
+  binding), and the decisions are the pure `shared/map-state.js`. That is what
+  makes the tray unload possible — `docs/SPEC-MAP-STATE.md`.
+- **`registerSystemHotkeys` no longer checks for a window.** It used to return
+  early with "Main window not available, cannot set system hotkeys", which is
+  precisely the dependency that had to go.
+- `hotkey-action` (`{action}`) is still pushed to the window, as a
+  **notification only**: the welcome tour uses it to tick off its "try it" step.
+  Nothing acts on it, and it is dropped when there is no window.
+- A new system action therefore needs three things, not two: an entry in
+  `SYSTEM_HOTKEY_DEFS`, a default in `DEFAULT_SETTINGS`, **and** an entry in
+  `ACTION_INTENTS` in `shared/map-state.js` — a test asserts the first and the
+  third agree, because an action with no intent would register and then
+  silently do nothing.
+
+## Defaults and the migration onto them
+
+- **Every default hotkey is `Ctrl+Alt+…` (0.7).** Ctrl is crouch in the game
+  and Ctrl+R / Ctrl+H / Ctrl+arrows / Ctrl+1..9 / Ctrl+Shift+D are browser,
+  Discord and text-field shortcuts — a *global* accelerator takes them away
+  system-wide. The size steps carry Shift as well because they share the arrows
+  with opacity. `SYSTEM_HOTKEY_DEFS`, `DEFAULT_SETTINGS` and
+  `MAP_HOTKEY_PREFIX` are the three places the values live and a test asserts
+  they agree. **Never hard-code a combination in a user-visible string**: the
+  two FAQ answers that name one take the live accelerator as a `{param}` and
+  are rendered from `Hotkeys.updateHotkeyTexts()` (renderer) rather than from
+  `data-i18n-html`, so they follow a rebind and an unbind.
+- **The move onto those defaults is a pure, once-only migration.**
+  `shared/hotkey-migration.js` → `planHotkeyDefaultsMigration({storedVersion,
+  freshInstall, settings, mapHotkeys})`, applied by
+  `Hotkeys.migrateDefaultHotkeys()` from the constructor. Four rules:
+  a stored value that still equals the **0.6.0** default
+  (`LEGACY_SYSTEM_DEFAULTS`, frozen historical data — do not derive it) moves;
+  a value the user changed, or unbound (`''`), is left alone; a `hotkeys.json`
+  key that is exactly Control+1..9 becomes `CommandOrControl+Alt+<n>`; and a
+  move that would collide with anything (checked with the §1/§2 rules) is
+  **blocked and the old value kept**. Guarded by the `hotkeyDefaultsVersion`
+  setting, whose *shipped default is deliberately `0`* — the back-fill in
+  `core/settings.js` would otherwise make an old file look already-migrated.
+  An action added **after** 0.6.0 (`toggle-markers`, Ctrl+Alt+M) has no entry in
+  `LEGACY_SYSTEM_DEFAULTS` and is therefore skipped — there is no old value to
+  move, and the missing key gets the shipped default from the back-fill, whose
+  safety net is the `shadowed` report below. `test/hotkey-migration.test.js`
+  lists those actions by hand (`ADDED_AFTER_060`) rather than deriving them,
+  for the same reason the legacy table is hand-written.
+  Four more details, each of which was a bug first:
+  - `stamp` is `stored < version`, **not** `!==`: a file stamped by a newer
+    build (the user downgraded) must be left alone, or the downgrade writes the
+    older number back and the newer build re-runs its migration on the next
+    upgrade.
+  - `Settings.freshInstall` (was the settings file created by this very start?)
+    skips **only the system half**. The map half always runs: a user whose
+    `settings-app.json` was deleted or reset while `hotkeys.json` survived has
+    a genuinely fresh settings file *and* nine stale Ctrl+1..9 bindings, and
+    skipping everything left those on the browser's tab shortcuts forever.
+    The system half would be a no-op on a fresh file anyway.
+  - **Two writes at most.** `hotkeys.json`, then **one** `merge()` carrying up
+    to nine accelerators *and* the version stamp (`{rollback: true}`). It used
+    to `set()` per key — ten synchronous rewrites of `settings-app.json` during
+    startup. The stamp still only rides along if the file write it also covers
+    landed, so a failed run is retried next start; retrying is safe because the
+    plan is recomputed from disk.
+  - The user is told once through `get-hotkey-notice`, which the renderer
+    collects on load (the migration happens before there is a window to toast
+    at). **Two wordings**, picked by `Hotkeys.defaultsMovedNotice`:
+    `hotkeys.defaultsMoved` names the live toggle-map accelerator, and is only
+    used when toggle-map's own move actually happened and it is bound;
+    otherwise `hotkeys.defaultsMovedPlain`, with no accelerator clause. Saying
+    *"the defaults moved off plain Ctrl — Ctrl + H now shows the map"* is a
+    sentence contradicting itself, and it was reachable two ways (toggle-map's
+    move blocked, so it is still on the old combination; or only map bindings
+    moved at all).
+  Logged as `hotkey-defaults-migrated`, with a `hotkey-defaults-kept` warning
+  per blocked move.
+- **First-run hotkeys**: `hotkeys.json` is written once, only when absent
+  (`Hotkeys.ensureDefaultMapHotkeys`), from the pure
+  `buildDefaultMapHotkeys(catalog, makeId)`, which hands
+  Ctrl+Alt+1..Ctrl+Alt+9 to the first nine **shipped maps in catalogue order**
+  (creator, then map name).
+  There is deliberately no hand-maintained map list — a new map gets its number
+  from the catalogue. A user who deleted every binding keeps it deleted.
+
+## Accelerator normalisation
+
+- **Every accelerator comparison is normalised** (`normalizeAccelerator` in
+  `shared/hotkeys-rules.js`). Up to 0.6.0 they were raw string equality, so a
+  hand-edited `Ctrl+R` did **not** collide with `CommandOrControl+R`,
+  `Shift+Ctrl+R` did not collide with `Ctrl+Shift+R`, and the second `register`
+  simply returned `false` and was reported as "taken by another application",
+  blaming Discord for our own file. `acceleratorKey()` is the comparison key
+  (canonical form, falling back to the lower-cased original for a string
+  Electron cannot parse, `''` for unbound) and `sameAccelerator()` the
+  predicate; both are used by `systemConflict`, `findMapConflict`, the reset
+  check, the shadow check, `ownAccelerators()`, the duplicate check and the
+  renderer's *Reset*-enabled test. **What is stored on disk is never rewritten
+  to normalise it** — compare normalised, register what is stored.
+
+  **The rules mirror Electron's real parser, read from the pinned version's
+  source, not the docs** (v40.10.6:
+  `shell/browser/ui/accelerator_util.cc` → `StringToAccelerator`, and
+  `shell/common/keyboard_util.cc` → `KeyboardCodeFromStr` /
+  `KeyboardCodeFromCharCode` / `KeyboardCodeFromKeyIdentifier`). Five findings,
+  and the first three are all counter-intuitive:
+  - **Empty segments are dropped, not errors** (`base::SPLIT_WANT_NONEMPTY`
+    plus `TRIM_WHITESPACE`). So `Ctrl++R` *is* `Ctrl+R`, `+R` is `R`, and
+    `Ctrl++` and `+` are invalid because they leave no key token at all. The
+    intuitive reading — `Ctrl++` means Ctrl plus the `+` key — is wrong.
+  - **Several key tokens are legal and the last wins**: the parser's loop ORs
+    modifier flags and lets anything else *overwrite* `key`. `Ctrl+A+B` is
+    `Ctrl+B`, and `Ctrl+Nonsense+A` is `Ctrl+A` (an unknown token is only
+    fatal when nothing valid follows). Replicated rather than rejected: a
+    `hotkeys.json` holding `Ctrl+A+B` really does register Ctrl+B and really
+    can collide with another entry's Ctrl+B.
+  - **A key token can carry an implicit Shift.** `KeyboardCodeFromCharCode`
+    returns a `shifted_char` for the shifted US punctuation and
+    `StringToAccelerator` then ORs in `EF_SHIFT_DOWN`, so `Ctrl+!` *is*
+    `Ctrl+Shift+1` and `Ctrl+Plus` *is* `Ctrl+Shift+=`. `SHIFTED_KEYS` is that
+    table transcribed (`! @ # $ % ^ & * ( ) _ + : " < > ? { } | ~` and
+    `plus`). This is reachable from the UI — recording Ctrl+Shift+1 gives
+    `KeyboardEvent.key === '!'`, so the app stores
+    `CommandOrControl+Shift+!`. The char→keycode map is hard-coded US *inside
+    Electron*, so folding by it is exactly what Electron does rather than a
+    layout guess; which physical key produces `!` is a separate question.
+  - **`cmd`, `command`, `meta` and `super` are one modifier** — all four
+    resolve to `VKEY_COMMAND` → `EF_COMMAND_DOWN` (the Win key on Windows), so
+    the canonical token is `Super`. They are still **never** folded into
+    Control: `cmdorctrl` is `VKEY_CONTROL` off macOS, so `Cmd+R` and `Ctrl+R`
+    genuinely differ here. (On macOS `cmdorctrl` would join the Super group;
+    `process.platform` is deliberately not consulted, because a stored value
+    has to mean the same thing whatever machine reads the file.)
+  - Non-ASCII is refused outright, and `Esc`/`Escape` + `Enter`/`Return` are
+    one key each.
+
+## Priority, conflicts and registration
+
+- **Hotkey priority**: system hotkeys register first. Saving a per-map hotkey
+  that matches a system one is refused (`Hotkeys.systemConflict`), and a stale
+  colliding entry already in `hotkeys.json` is skipped at registration *and*
+  reported in the status toast, so it is never silently inert. Two `hotkeys.json`
+  entries that are *different spellings of one combination* (`Ctrl+1` and
+  `CommandOrControl+1` — JSON allows that) are also skipped, reason
+  `duplicate`, rather than being blamed on another application.
+
+- **A `hotkey*` key missing from an old settings file gets the new default with
+  no conflict check** — the back-fill in `core/settings.js` cannot consult
+  anything. If a per-map binding already holds it, the system hotkey wins (it
+  registers first, which is the documented priority) and the map binding is
+  reported as `shadowed` in the banner, the toast and `system.txt`. That is the
+  existing safety net and it is tested; the migration cannot do better, because
+  a missing key has no old value to keep and unbinding an action the user never
+  configured would be worse than a reported shadow.
+
+- **Hotkey dry run vs. our own bindings.** `rejectIfUnregisterable` probes an
+  accelerator with `globalShortcut.register` while the app's real bindings are
+  live, so probing one we already hold returns `false` and used to produce a
+  bogus "taken by another application" toast. It now returns early for anything
+  in `ownAccelerators()` (system hotkeys + `hotkeys.json`) — which also means a
+  successful save runs `loadKeys()` once instead of three times.
+- **The modifier rule is enforced on both sides.** `keyEventToAccelerator`
+  refuses a modifier-less binding in the renderer, and `save-hotkeys` /
+  `save-system-hotkey` re-check with the pure `hasModifier()`. With
+  `nodeIntegration: true` the renderer is not a trust boundary, and Electron
+  will happily register a bare `H` globally.
+
+- **Accelerators are never taken straight from the DOM.** A
+  `KeyboardEvent.key` is not an Electron accelerator name (`ArrowRight` vs
+  `Right`, `" "` vs `Space`, `"+"` vs `Plus`), and `globalShortcut.register`
+  **throws** on a name it cannot parse — which aborts every registration after
+  it in `loadKeys`, so one bad saved binding disables all remaining hotkeys on
+  every future boot. Three layers stop that, keep all three:
+  1. `keyEventToAccelerator` (pure, in `hotkeys-constants.js`, unit tested)
+     translates the event and refuses unmapped keys *and* modifier-less ones.
+  2. `Hotkeys.rejectIfUnregisterable` dry-runs `globalShortcut.register` in a
+     try/catch before anything is written to settings or `hotkeys.json`.
+  3. `Hotkeys.safeRegister` wraps every real `register` call, so even a file
+     hand-edited to garbage only loses that one binding.
+
+## Only while the game is in front
+
+- **Hotkeys only while the game is in front** (`hotkeysGameOnly`, default
+  **true**, Settings › Hotkeys). `core/foreground.js` classifies the foreground
+  as game / own / other / unknown and calls `Hotkeys.setActive()` **only on a
+  change**; the pure decision is `shouldHotkeysBeActive({gameOnly, foreground,
+  suspended})` and our own windows count, so a hotkey can be tried straight
+  from the Settings window. Load-bearing details:
+  - The mechanism is `node-screenshots`' `Window.isFocused()` — already in the
+    installed 0.2.8 typings, so **no new dependency**. Measured with plain node
+    on the dev machine: `Window.all()` 0.27 ms cold / 0.06-0.09 ms warm, the
+    whole `all()` + `isFocused()` scan **0.06-0.32 ms**. At 1 s that is < 0.03 %
+    of one core. It is **not** the capture path: nothing is captured. Cadence
+    1000 ms with a game window, 2000 ms without, and no timer at all with the
+    setting off. `setTimeout` chaining, never `setInterval`.
+  - Own-window focus comes from `app.on('browser-window-focus'/'blur')`, not
+    from the poll, so alt-tabbing into Settings takes effect at once.
+  - **Two paths fail open** (→ `unknown` → hotkeys registered): an enumeration
+    that throws, and an enumeration in which *no* window reports focus. The
+    second one matters — that is what a game window the enumeration does not
+    return looks like (**the game has no exclusive-fullscreen mode**, so that is
+    *not* the cause; a window the OS keeps out of the enumeration, or the moment
+    in an alt-tab when nothing owns the foreground, produces the same answer),
+    and calling it `other` would switch
+    the hotkeys off while the player is in the game with nothing on screen to
+    explain it. Degrading to 0.6.0 behaviour is always the safe direction here.
+    The user's escape hatch is the setting, and its help text says so.
+  - `loadKeys()` honours `active`: while inactive it refreshes both renderer
+    tables and registers nothing, so a hotkey edit from Settings cannot re-arm
+    the set behind the setting's back.
+  - **Deactivating touches neither `conflicts` nor `previousConflicts` and
+    sends no `hotkey-conflicts`.** Clearing them would flash the home-page
+    banner off and on with every alt-tab; rebuilding them would report phantom
+    conflicts for bindings that are not registered; and resetting the baseline
+    would make "log only new conflicts" produce a fresh set of lines on every
+    activation.
+  - `rejectIfUnregisterable`'s probe works in both states —
+    register+unregister does not need our own bindings to be live, and the one
+    case that did (probing something we hold) is the `ownAccelerators()` early
+    return.
+  - The overlay window cannot steal the foreground from the game: it is
+    `focusable: false` + `skipTaskbar: true`, is created once in
+    `createWindow()` and is only ever `setSize`/`setBounds`/`setPosition`ed
+    afterwards — never `show()`n or `focus()`ed. Keep it that way.
+  - **`ForegroundWatcher.destroy()` must not report.** `destroy()` runs from
+    `before-quit`, which is also the update path, and `stop()` reports "the
+    setting is off, so register everything" — i.e. a full `loadKeys()`, a dozen
+    `globalShortcut.register` calls, *inside the quit handler* and while the
+    installer is being handed control. The `destroyed` flag is set **before**
+    `stop()` and gates `report`, `tick`, `schedule`, `start`, `evaluate` and
+    `syncWithSettings`. Turning the setting off still reports (that one has to
+    put the hotkeys back) — the two are tested against each other.
+  - `app`, `BrowserWindow` and `Window` are **injectable** (third constructor
+    argument) purely so `test/foreground.test.js` can exist. `require('electron')`
+    outside Electron is a path string, so without injection the class could not
+    be constructed at all and the lifecycle above would be untested. The real
+    app never passes them.
+  - `system.txt` prints `hotkeysGameOnly`, `hotkeys registered`, `foreground`
+    and `game running` at the top of `[health]` (`Diagnostics.setHotkeyState`),
+    because "the hotkeys do nothing" now has a second, legitimate cause — and
+    `hotkeys suspended = yes` when the bind dialog is open, which is a third.
+
+## Suspended while the bind dialog records
+
+- **The global shortcuts are suspended while the bind dialog records.**
+  Our own windows counting as "in front" is what makes a hotkey triable from
+  Settings, and it is also what made **re-recording impossible**: an
+  accelerator the app already holds is taken by `RegisterHotKey` before any
+  window is told about the keystroke, so pressing the current *Rotate map*
+  binding inside the dialog rotated the map instead of being recorded. Nobody
+  could swap two bindings or move one out of the way. (Pre-existing, but
+  `hotkeysGameOnly` made it the normal case rather than the lucky one.)
+  - The renderer invokes `suspend-hotkeys` on `shown.bs.modal` / `hidden.bs.modal`
+    (`Hotkeys.suspendGlobalHotkeys`), and on `visibilitychange` while the modal
+    is open — minimize-to-tray hides the window with the modal still "open", so
+    `hidden.bs.modal` never fires.
+  - It **composes** with the foreground rather than replacing it:
+    `Hotkeys.foregroundAllows` (from the watcher) and `Hotkeys.suspended` meet
+    in `applyRegistration()` via the pure
+    `hotkeysShouldBeRegistered({foregroundAllows, suspended})`. So closing the
+    dialog while the game is not in front registers nothing, and alt-tabbing
+    during a recording does not un-suspend. `shouldHotkeysBeActive` takes
+    `suspended` too, and a test asserts the two never disagree.
+  - **It always resumes.** Three nets: `hidden.bs.modal`, the `load-hotkeys` a
+    reloaded renderer sends (a fresh renderer is not recording), and a
+    `SUSPEND_MAX_MS` (2 min) watchdog that lifts it and logs a warning. Holding
+    *no* hotkeys with nothing on screen to explain it is the worst failure this
+    feature can have.
+  - `rejectIfUnregisterable`'s probe works while suspended: register+unregister
+    never needed our own bindings to be live.
+
+## Unbinding
+
+- **A system hotkey can be unbound** (Settings › Hotkeys › *Unbind*, IPC
+  `unbind-system-hotkey`). Unbound is the **empty string** stored under the
+  action's `ACTION_TO_SETTING_KEY`, not a deleted key: `core/settings.js`
+  back-fills anything `undefined` from `DEFAULT_SETTINGS`, so a deleted key
+  would come back as the shipped default on the next start. `DEFAULT_SETTINGS`
+  itself is unchanged — a fresh install still gets every default. Three rules
+  hold it together:
+  1. `stored || def.defaultAccelerator` is **wrong** and is gone. The pure
+     `resolveSystemAccelerator(stored, default)` is the single resolver
+     (`''` → unbound, non-string/missing → default) and both
+     `Hotkeys.getSystemHotkeys()` and `updateSystemHotkeysTable()` call it, so
+     the table can never claim a binding that is not registered.
+  2. **An empty string is never a held accelerator.** Everything that asks
+     "is this taken?" or "register these" goes through
+     `Hotkeys.boundSystemHotkeys()` (the pure `boundEntries`) —
+     `registerSystemHotkeys` (a literal
+     `globalShortcut.register('')` throws, which `safeRegister` would turn into
+     a phantom conflict-banner entry), `ownAccelerators`, `systemConflict`
+     and the `systemAccelerators` set in `registerCustomHotkeys`.
+  3. **Reset now checks for conflicts.** `reset-system-hotkey` used to write
+     the default blind, which was already wrong after a rebind and is far
+     more likely now. Unbind rotate, give Ctrl+Alt+R to a map, press Reset →
+     refused with the usual `conflictMessage` / `hotkeys.error.usedByMap`. The
+     rule itself is the pure `canResetToDefault`.
+  The Hotkeys tab shows a muted `hotkeys.notBound` label instead of a `<kbd>`,
+  disables *Unbind* when already unbound and keeps *Reset* enabled (unbound is
+  not the default). Editing works from the unbound state — recording a
+  combination re-binds it. `system.txt` prints `(unbound)` rather than `""`.
+
+## Hotkeys that change a setting
+
+- **A system hotkey that changes a setting follows `rotate-map`.** `opacity-up`
+  / `opacity-down` (Ctrl+Alt+Up/Down, 0.1 steps, 0.1..1.0) and `size-up` /
+  `size-down` (Ctrl+Alt+Shift+Up/Down, 25 px steps, 50..800) all do the same four
+  things, and since 0.7 they do them in `shared/map-state.js`'s `withSetting`:
+  write the setting, re-send `currentKey || lastKey` so **main** recomputes the
+  window bounds, toast the new value, and — through the `map-state` push — let
+  an **open Settings modal** move its slider (`Options.syncFromSettings`; the
+  renderer no longer writes the setting, so it has to follow rather than lead).
+  Do not resize the overlay anywhere else — only `applyMapChange` knows the
+  rotated bounding box.
+- **`toggle-markers` is the one that does *not* fall back to `lastKey`.** The
+  three above re-send `currentKey || lastKey`, which is 0.6.0 behaviour and is
+  defensible for them: they are aimed at the picture, so "make it bigger" with
+  nothing on screen reasonably means "put it back and make it bigger". A marker
+  switch is a switch on a *layer of* the picture, and turning markers on must
+  never be the thing that draws a map the player deliberately hid — or that the
+  menu clear took away when the match ended — back over their game. It is
+  `withSetting(…, {restore: false})` in `shared/map-state.js`, and it is
+  tested.
+  The step arithmetic is pure (`stepOpacity`/`stepSize`) because `0.6 + 0.1` is
+  `0.7000000000000001` and `0.7 + 0.1` is `0.7999999999999999`: without the
+  round-to-one-decimal the stored opacity drifts off the slider's own grid after
+  a couple of presses. The clamps are the slider `min`/`max` in
+  `src/index.html`; keep the three in step.
+
+## The conflict banner
+
+(The health check lives with the rest of the field diagnostics —
+[diagnostics.md](diagnostics.md) — but it is a hotkey rule, so it is written out
+here.)
+
+- **The hotkey-conflict health check is a banner, not a toast.** `safeRegister`
+  records every failure on `Hotkeys.conflicts`, rebuilt from scratch on each
+  `loadKeys()`; the toast is suppressed while `bulkLoading` is true, because a
+  reload binds a dozen accelerators at once and five toasts a session is
+  something a user learns to dismiss without reading. That gate covers the
+  `systemShadowsMap` toast too. The renderer both listens for
+  `hotkey-conflicts` and asks with `get-hotkey-conflicts`, since registration
+  happens before the window finishes loading.
+- **A persisting conflict is logged once, not once per reload.** `loadKeys()`
+  runs at least twice per start (`createWindow`, then the renderer's
+  `load-hotkeys`) and again after every hotkey edit. `noteConflict` skips the
+  log line when the accelerator was already failing at the end of the previous
+  load (`previousConflicts`), so a Discord user gets N lines on the first load
+  and nothing after — a *new* conflict is still news. The banner is rebuilt
+  from `conflicts` regardless.
+
+See also: [settings-and-onboarding.md](settings-and-onboarding.md) for the
+failed-write reporting and `{rollback: true}` that every hotkey writer uses,
+and [map-packs.md](map-packs.md) for the next-free-`Ctrl+Alt+N` a downloaded
+map is offered.

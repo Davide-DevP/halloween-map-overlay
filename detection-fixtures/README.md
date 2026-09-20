@@ -47,3 +47,30 @@ match and are NOT map features. As a civilian the Tab strip has three tabs
 | `tab-fullscreen-civilian-<map>.png` (1919x1079 full frames) | that map (positives only) |
 
 All four maps have both files.
+
+## Discovered-exit icons (added 2026-09-20, Tab-map mode)
+
+`tab-fullscreen-killer-found-*-haddonfield-heights.png` — four killer-view Tab
+screens of the same map with **0, 1, 2 and 3 exits already discovered**, so the
+game is drawing its own icons on the map panel. They exist because Tab-map mode
+draws over that panel for as long as the Tab screen is up, and the recognition
+has to survive the game's own annotations rather than only the pristine panel.
+Sources: `maps-src/tab-reference/heights-killer-*.png` (the owner's real
+screenshots).
+
+`tab-fullscreen-` so they are **positives only** and not template sources — the
+map already has its Michael and civilian variants, and a fifth thumbnail cut
+from a frame with exit icons on it would key the template on those icons.
+
+Measured, unchanged thresholds: the Tab gate passes at darkFraction
+0.986–0.995 / nameBoxFraction 0.084–0.115, and the map scores **0.949–0.995**
+with a margin of **0.459–0.493** at native resolution and at 1280x720 /
+2560x1440 / 640x360. The icons cost about 0.045 of the score per extra
+discovered exit and nothing at all of the margin, which is why no threshold
+moved.
+
+Note `locatePanel` finds the wrong row on `…found-gate-…` (dy 156 instead of 0)
+— harmless, because a `tab-fullscreen-` fixture is not a template source and
+the runtime matches these through `MAP_PANEL_REL`, not through `locatePanel`.
+Two of the four are also 1914 and 1918 px wide rather than 1919; the regions
+are fractions of the frame, so that changes nothing.

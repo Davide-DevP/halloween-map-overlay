@@ -7,8 +7,10 @@ const Options = require("./js/options.js");
 const Custom = require("./js/custom.js");
 const Detector = require("./js/detector.js");
 const Diagnostics = require("./js/diagnostics.js");
+const Onboarding = require("./js/onboarding.js");
 const {debugLog} = require("./js/logger.js");
 const {showStatus} = require("./js/status.js");
+const {watchModals} = require("./js/busy.js");
 const i18n = require("./js/i18n.js");
 const {t} = i18n;
 const {updateReadyHeadline, updatingHeadline} = require("./shared/update-message.js");
@@ -21,11 +23,29 @@ ipcRenderer.on("update-message", async (event, message) => {
 
 // The toast above auto-hides after 5 s; a downloaded update is too important
 // for that, so it also raises a banner that stays until the user acts on it.
-// "Later" only silences it for this session — main keeps the pending version,
-// and the tray item stays there too.
+// **"Later" is remembered in main**, not here: this window is destroyed while
+// the app sits in the tray (0.7), so a flag in the renderer meant the banner
+// the user had already dismissed came back the next time they opened it. Main
+// keeps the pending version and now the dismissal too, and the tray item stays
+// there regardless.
 let updateDismissed = false;
 /** Kept so the banner can be re-translated when the language changes. */
 let pendingVersion = null;
+
+/**
+ * Tell main the banner has actually been in front of a person.
+ *
+ * Until it has, the window is not torn down in the tray — the one thing the
+ * user has to act on must not be thrown away unseen. It takes **focus**, not
+ * `document.hidden`: a window built hidden paints (and therefore reports
+ * itself `visible`) with Electron's default `paintWhenInitiallyHidden`, and a
+ * window sitting behind the game is not one anybody has read.
+ */
+function noteBannerSeen() {
+    if (pendingVersion === null || updateDismissed) return;
+    if (!document.hasFocus()) return;
+    ipcRenderer.send('update-banner-shown');
+}
 
 function showUpdateBanner(version) {
     pendingVersion = version || null;
@@ -33,7 +53,12 @@ function showUpdateBanner(version) {
     // .text(), never interpolation: the version comes off the release feed.
     $("#updateReadyHeadline").text(updateReadyHeadline(i18n.language(), version));
     $("#updateReady").removeClass("d-none").hide().slideDown();
+    noteBannerSeen();
 }
+
+// …and the moment the window is actually looked at counts, however it got there.
+window.addEventListener('focus', noteBannerSeen);
+document.addEventListener('visibilitychange', noteBannerSeen);
 
 ipcRenderer.on("update-ready", async (event, info) => {
     showUpdateBanner(info && info.version);
@@ -81,6 +106,9 @@ const detector = new Detector(settings);
 const diagnostics = new Diagnostics();
 
 document.addEventListener('DOMContentLoaded', async function () {
+    // Before anything can open one: an open modal holds state that only exists
+    // in this window, and main must not tear the window down underneath it.
+    watchModals();
     // The product name is not translated; the version is not text.
     $("#title").text("Halloween Map Overlay v" + await ipcRenderer.invoke('version'));
 
@@ -91,14 +119,26 @@ document.addEventListener('DOMContentLoaded', async function () {
     maps.setOptions(options);
 
     await maps.loadCatalog();
+    // Which map the overlay is showing is main's answer, not this window's
+    // memory of it: this renderer may have been built seconds ago to replace
+    // one that was torn down in the tray (or that crashed) mid-match.
+    await maps.loadState();
     await maps.renderGallery();
     await custom.generateCustomList();
     await hotkeys.loadHotkeys();
     await detector.init();
     await diagnostics.init();
+    // The welcome tour. Built here rather than beside the others because it
+    // drives the *existing* settings controls (`options`) instead of holding
+    // any state of its own.
+    const tour = new Onboarding(options, hotkeys, detector, diagnostics);
+    await tour.init();
 
     $("#updateLater").on("click", function () {
         updateDismissed = true;
+        // Remembered in main for the rest of the session, so an unload and a
+        // reopen do not put a dismissed banner back in the user's face.
+        ipcRenderer.send('update-banner-dismissed');
         $("#updateReady").slideUp();
     });
     $("#updateRestart").on("click", function () {
@@ -107,11 +147,23 @@ document.addEventListener('DOMContentLoaded', async function () {
         ipcRenderer.invoke('install-update');
     });
     // `update-downloaded` can fire before this window finished loading (it was
-    // hidden in the tray, say), so ask as well as listen.
+    // hidden in the tray and torn down, say), so ask as well as listen. Main
+    // answers `null` once the banner has been dismissed with "Later", which is
+    // what makes that dismissal survive the window being destroyed.
     const pendingUpdate = await ipcRenderer.invoke('get-pending-update');
-    if (pendingUpdate) showUpdateBanner(pendingUpdate.version);
+    if (pendingUpdate) {
+        updateDismissed = !!pendingUpdate.dismissed;
+        showUpdateBanner(pendingUpdate.version);
+    }
 
-    $('#loadingOverlay').slideUp();
+    // The tour opens once the loading view is out of the way — it is the last
+    // thing this load does, so the crash notice, the hotkey-conflict banner,
+    // the update banner and the hotkey-defaults notice are all already up
+    // (behind it) rather than arriving on top of an open panel. It decides for
+    // itself whether this is a genuinely fresh install.
+    $('#loadingOverlay').slideUp(function () {
+        tour.maybeOpen().catch(err => debugLog("renderer::tour", err && err.message));
+    });
     debugLog("renderer::ready",
         "maps=" + maps.catalog.length,
         "cards=" + $("#results .map-card").length,

@@ -8,6 +8,10 @@ dist/
 build/updater/
 build/.updater-obj/
 
+# The owner's reference screenshots of the in-game Tab map: the ones the tests
+# need are already in `detection-fixtures/`.
+maps-src/tab-reference/*.png
+
 # Local agent/editor state, not part of the project
 .claude/
 .release-upload/

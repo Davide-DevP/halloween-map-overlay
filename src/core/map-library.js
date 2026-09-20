@@ -2,7 +2,8 @@ const {app, ipcMain} = require("electron");
 const fs = require("fs");
 const path = require("path");
 const {getFilesFromDir} = require("./utils");
-const {buildCatalog, mergeCustomMaps, findClosestMapMatch} = require("./map-catalog");
+const {buildCatalog, mergeCustomMaps, findClosestMapMatch, sortCatalog} = require("./map-catalog");
+const {mergeMapPacks} = require("../shared/map-pack-rules");
 
 /**
  * Owns the on-disk side of the map catalogue: where the maps live, which files
@@ -16,6 +17,14 @@ class MapLibrary {
 
     constructor() {
         this._catalog = null;
+        /**
+         * Installed map packs (`core/map-pack-store.js`), or null when the
+         * feature is not wired up. Injected from `index.js` rather than built
+         * here: `MapPacks` needs the main window for its toast and is therefore
+         * constructed later, while nothing reads the catalogue before
+         * `createWindow()`.
+         */
+        this._packs = null;
         ipcMain.handle('get-map-catalog', async () => this.getCatalog());
         ipcMain.handle('read-map-image', async (event, key) => {
             const file = this.resolve(key);
@@ -48,6 +57,31 @@ class MapLibrary {
         return path.join(app.getPath('userData'), "custom");
     }
 
+    /** Installed map packs, one directory per map. */
+    get packsRoot() {
+        return path.join(app.getPath('userData'), "map-packs");
+    }
+
+    /**
+     * Where installed packs come from. See `core/map-packs.js`.
+     * @param {?Object} store a `MapPackStore`, or null to turn packs off
+     */
+    setPackStore(store) {
+        this._packs = store && typeof store.list === 'function' ? store : null;
+        this.invalidate();
+    }
+
+    listPacks() {
+        if (!this._packs) return [];
+        try {
+            return this._packs.list();
+        } catch (err) {
+            // A broken packs folder must never stop the bundled maps loading.
+            console.error('MapLibrary: could not list map packs:', err && err.message);
+            return [];
+        }
+    }
+
     listShipped() {
         const root = this.mapsRoot;
         if (!fs.existsSync(root)) {
@@ -63,9 +97,19 @@ class MapLibrary {
         return getFilesFromDir(root).map(file => path.relative(root, file));
     }
 
+    /**
+     * The whole catalogue: bundled maps, installed map packs and the user's
+     * own imports, in one list and one order.
+     *
+     * A pack **replaces** the bundled map with the same key (see `mergeMapPacks`
+     * for why), so this is also how a pack fixes a shipped map's image. Custom
+     * maps are merged last and are never touched: their creator is reserved and
+     * a pack may not claim it.
+     */
     getCatalog() {
         if (!this._catalog) {
-            this._catalog = mergeCustomMaps(buildCatalog(this.listShipped()), this.listCustom());
+            const shipped = mergeMapPacks(buildCatalog(this.listShipped()), this.listPacks(), sortCatalog);
+            this._catalog = mergeCustomMaps(shipped, this.listCustom());
         }
         return this._catalog;
     }
@@ -92,7 +136,11 @@ class MapLibrary {
         if (typeof key !== 'string' || !key || key.length > 260) return null;
         const entry = findClosestMapMatch(key, this.getCatalog());
         if (!entry) return null;
-        const root = entry.custom ? this.customRoot : this.mapsRoot;
+        // Three roots, one rule: the entry says where it came from. `entry.pack`
+        // is the install directory name, which `packDirName` derived from the
+        // key — never a path the pack supplied.
+        const root = entry.custom ? this.customRoot
+            : (entry.pack ? path.join(this.packsRoot, entry.pack) : this.mapsRoot);
         const file = path.join(root, entry.file);
         if (!fs.existsSync(file)) return null;
         return Object.assign({}, entry, {path: file});

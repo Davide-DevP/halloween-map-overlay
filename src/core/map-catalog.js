@@ -140,13 +140,29 @@ function candidateForms(entry) {
  * without extension and in any case. Tried in order:
  *   1. exact match on any candidate form
  *   2. normalized substring match either way round
- *   3. closest candidate by Levenshtein distance (bounded, so garbage misses)
+ *   3. closest candidate by Levenshtein distance (bounded, so garbage misses),
+ *      **for a bare name only** — see below
+ *
+ * A *full* `Creator/Name` query deliberately stops after stage 2. The fuzzy
+ * bound is a fraction of the string's own length, and every key in a creator's
+ * folder shares that whole creator prefix, so the bound is far looser than it
+ * looks: `deftyconchgaming/Smiths Grove` is within 40 % of
+ * `deftyconchgaming/East Haddonfield` and resolved to it. That is how a
+ * `hotkeys.json` entry for a map that is *gone* — an uninstalled map pack, a
+ * deleted custom image — quietly put a **different** map on the overlay, which
+ * is worse than doing nothing: the user presses their Smiths Grove key and gets
+ * East Haddonfield with no explanation. A full key is a precise thing; if it
+ * matches nothing exactly and nothing by substring, it is gone, and the caller
+ * says so. Stage 2 still covers the case stage 3 was really there for — a
+ * renamed creator folder, where the map *name* is a substring of the stored key
+ * (covered by a test).
  *
  * @returns {object|null} the catalogue entry, or null when nothing is close
  */
 function findClosestMapMatch(key, catalog) {
     if (!key || !Array.isArray(catalog) || catalog.length === 0) return null;
-    const query = foldName(stripExtension(toPosix(key)));
+    const raw = toPosix(key);
+    const query = foldName(stripExtension(raw));
     if (!query) return null;
 
     for (const entry of catalog) {
@@ -159,6 +175,9 @@ function findClosestMapMatch(key, catalog) {
             return folded.includes(query) || query.includes(folded);
         })) return entry;
     }
+
+    // A qualified key gets no fuzzy stage — see the note above.
+    if (raw.includes('/')) return null;
 
     let best = null;
     let bestDistance = Infinity;
@@ -221,6 +240,11 @@ module.exports = {
     levenshtein,
     stripExtension,
     buildCatalog,
+    // Exported for `shared/map-pack-rules.js` `mergeMapPacks`, which is
+    // import-free by design and takes the ordering as an argument: a map pack
+    // must sort exactly like the bundled map it sits next to, and there is
+    // still only one implementation of that order.
+    sortCatalog,
     mergeCustomMaps,
     findClosestMapMatch,
     nextMap,

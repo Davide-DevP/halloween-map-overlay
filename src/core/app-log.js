@@ -200,6 +200,20 @@ class AppLog {
             gpu = {error: (err && err.message) || 'unavailable'};
         }
 
+        // Does the on-demand V8 collection actually work in **this** runtime?
+        // `core/gc.js` has a `vm`/`setFlagsFromString` trick that has only ever
+        // been exercised under plain node; a silent fall back to the no-op
+        // costs ~110 MB of peak in the main process during a match
+        // (`docs/MEMORY-REPORT-2.md` §4) and left no trace anywhere. Asking is
+        // also what builds the collector, which is why it is done once, here,
+        // rather than at require time.
+        let gc = 'unknown';
+        try {
+            gc = require('./gc').isAvailable() ? 'available' : 'noop';
+        } catch (err) {
+            gc = 'error';
+        }
+
         return {
             app: {
                 version,
@@ -221,7 +235,8 @@ class AppLog {
                 portable: !!process.env.PORTABLE_EXECUTABLE_DIR,
                 displays: displays.length,
                 maps,
-                customs
+                customs,
+                gc
             },
             displays,
             // The whole settings object. It holds no paths — see
