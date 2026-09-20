@@ -1,9 +1,18 @@
-const {test} = require('node:test');
+const {test, after} = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const {EventEmitter} = require('events');
 const sharp = require('sharp');
+
+
+// The code under test un-refs its timers (they must never keep the *app* alive),
+// so a test awaiting one of them leaves the event loop empty. Node 24 waits for
+// the test's promise anyway; Node 22 — what the release workflow runs — cancels
+// the test ('Promise resolution is still pending but the event loop has already
+// resolved'). One ref'd timer for the life of the file makes both behave alike.
+const keepAlive = setInterval(() => {}, 1000);
+after(() => clearInterval(keepAlive));
 
 const M = require('../src/core/map-detector/matcher');
 const FrameSource = require('../src/core/map-detector/frame-source');
