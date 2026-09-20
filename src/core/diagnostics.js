@@ -7,6 +7,7 @@ const {listCrashFiles, pendingCrash} = require('./diagnostics/crash');
 const {redactCustomMapKeys} = require('../shared/redact');
 const {CUSTOM_CREATOR} = require('./map-catalog');
 const {msg} = require('../shared/i18n');
+const {isUnbound} = require('../shared/hotkeys-constants');
 
 /**
  * The **Create diagnostic report** button, and the crash notice that offers it.
@@ -114,7 +115,14 @@ class Diagnostics {
         lines.push('', '[gpu]');
         for (const [key, value] of Object.entries(info.gpu)) lines.push(`${key} = ${value}`);
         lines.push('', '[settings]');
-        for (const [key, value] of Object.entries(info.settings)) lines.push(`${key} = ${JSON.stringify(value)}`);
+        for (const [key, value] of Object.entries(info.settings)) {
+            // An unbound system hotkey is stored as an empty string, and a bare
+            // `""` in a report reads like a value that went missing. Say what it
+            // means: "my hotkey does nothing" and "I switched that hotkey off"
+            // are otherwise the same line.
+            const shown = key.startsWith('hotkey') && typeof value === 'string' && isUnbound(value) ? '(unbound)' : JSON.stringify(value);
+            lines.push(`${key} = ${shown}`);
+        }
         lines.push('', '[health]');
         const conflicts = this.healthCheck ? (this.healthCheck() || []) : [];
         if (!conflicts.length) {

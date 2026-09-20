@@ -3,6 +3,8 @@ const {ipcRenderer} = require('electron');
 const {
     acceleratorToDisplay,
     keyEventToAccelerator,
+    isUnbound,
+    resolveSystemAccelerator,
     SYSTEM_HOTKEY_DEFS
 } = require("../shared/hotkeys-constants");
 const {escapeHtml} = require("../shared/escape-html");
@@ -140,17 +142,31 @@ class Hotkeys {
         $list.empty();
 
         for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
-            const currentAccel = this.systemHotkeys[actionId] || def.defaultAccelerator;
+            // Not `|| def.defaultAccelerator`: an action the user unbound is
+            // stored as `''`, and the old fallback drew the default key cap for
+            // it — a table that disagreed with what was actually registered.
+            const currentAccel = resolveSystemAccelerator(this.systemHotkeys[actionId], def.defaultAccelerator);
+            const unbound = isUnbound(currentAccel);
+            // Unbound is not the default, so Reset stays available: it is the
+            // way back to the shipped combination.
             const isDefault = currentAccel === def.defaultAccelerator;
+            // A muted word rather than an empty `<kbd>`, which reads as a
+            // rendering fault instead of a deliberate "no shortcut".
+            const binding = unbound
+                ? `<span class="hotkey-unbound">${escapeHtml(t('hotkeys.notBound'))}</span>`
+                : `<kbd class="system-hotkey-binding" data-action="${escapeHtml(actionId)}">${escapeHtml(acceleratorToDisplay(currentAccel))}</kbd>`;
 
             $list.append(`
                 <tr data-action="${escapeHtml(actionId)}">
                     <td>${escapeHtml(actionName(def))}</td>
-                    <td><kbd class="system-hotkey-binding" data-action="${escapeHtml(actionId)}">${escapeHtml(acceleratorToDisplay(currentAccel))}</kbd></td>
+                    <td>${binding}</td>
                     <td>
                         <span class="row-actions">
                             <button type="button" class="edit-system-btn btn btn-sm btn-quiet"
                                     data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.editTitle'))}">${escapeHtml(t('common.edit'))}</button>
+                            <button type="button" class="unbind-system-btn btn btn-sm btn-quiet"
+                                    data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.unbindTitle'))}"
+                                    ${unbound ? 'disabled' : ''}>${escapeHtml(t('hotkeys.unbind'))}</button>
                             <button type="button" class="reset-system-btn btn btn-sm btn-quiet"
                                     data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.resetTitle'))}"
                                     ${isDefault ? 'disabled' : ''}>${escapeHtml(t('common.reset'))}</button>
@@ -163,6 +179,11 @@ class Hotkeys {
         const self = this;
         $('.edit-system-btn').off('click').on('click', function () {
             self.startSystemHotkeyEdit($(this).data('action'));
+        });
+        // Fire and forget, like Reset: main answers with a status toast and a
+        // `system-hotkeys-updated` push, which is what redraws this table.
+        $('.unbind-system-btn').off('click').on('click', function () {
+            ipcRenderer.send('unbind-system-hotkey', {actionId: $(this).data('action')});
         });
         $('.reset-system-btn').off('click').on('click', function () {
             ipcRenderer.send('reset-system-hotkey', {actionId: $(this).data('action')});

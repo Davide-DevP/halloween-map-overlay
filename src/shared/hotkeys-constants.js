@@ -98,6 +98,61 @@ const ACTION_TO_SETTING_KEY = {
 };
 
 /*
+ * ─── Bound / unbound ────────────────────────────────────────────────────────
+ *
+ * A system action may hold no key combination at all. Somebody who never wants
+ * "Rotate map" would otherwise have to park it on *some* combination, which is
+ * then swallowed system-wide — the very thing the feature is meant to avoid.
+ */
+
+/**
+ * What an unbound system hotkey is stored as under its settings key.
+ *
+ * It has to be the empty string rather than a missing key: `core/settings.js`
+ * back-fills every key that is `undefined` from `DEFAULT_SETTINGS`, so a
+ * *deleted* key comes back as the shipped default on the next start. An empty
+ * string is a value the back-fill leaves alone, which is what makes "I never
+ * want this shortcut" survive a restart.
+ */
+const UNBOUND_ACCELERATOR = '';
+
+/**
+ * Does this *effective* accelerator hold no key combination?
+ *
+ * Whitespace counts as unbound as well: a hand-edited `" "` is not something
+ * `globalShortcut.register` can parse, and treating it as a binding would put a
+ * phantom entry in the conflict banner instead of simply leaving the action off.
+ *
+ * @param {*} accelerator
+ * @returns {boolean}
+ */
+function isUnbound(accelerator) {
+    return typeof accelerator !== 'string' || accelerator.trim() === '';
+}
+
+/**
+ * The accelerator one system action is actually on: what is stored, the shipped
+ * default when nothing is stored, and nothing at all when the user unbound it.
+ *
+ * That three-way distinction is the whole reason this helper exists. The old
+ * `stored || def.defaultAccelerator` cannot tell "deliberately unbound" (`''`)
+ * from "fresh install" (`undefined`) and turns the first back into the default
+ * — in main at registration time *and* in the renderer's table. Both call this
+ * instead, so the two can never disagree about what an action is bound to.
+ *
+ * @param {*} stored value held under the action's `ACTION_TO_SETTING_KEY`
+ * @param {string} defaultAccelerator the definition's own default
+ * @returns {string} an accelerator, or `UNBOUND_ACCELERATOR`
+ */
+function resolveSystemAccelerator(stored, defaultAccelerator) {
+    // Only a string can carry the user's intent. Anything else (a missing key,
+    // a null from a hand-edited settings file) is an absence, not a choice.
+    if (typeof stored !== 'string') return defaultAccelerator || UNBOUND_ACCELERATOR;
+    const trimmed = stored.trim();
+    return trimmed === '' ? UNBOUND_ACCELERATOR : trimmed;
+}
+
+/*
  * ─── Overlay step hotkeys ───────────────────────────────────────────────────
  *
  * The bounds are shared: `src/js/maps.js` applies them when a hotkey fires and
@@ -329,6 +384,7 @@ function keyEventToAccelerator(event) {
 module.exports = {
     SYSTEM_HOTKEY_DEFS,
     ACTION_TO_SETTING_KEY,
+    UNBOUND_ACCELERATOR,
     MAX_DEFAULT_MAP_HOTKEYS,
     MODIFIER_ONLY_KEYS,
     ACCELERATOR_MODIFIERS,
@@ -341,6 +397,8 @@ module.exports = {
     stepOpacity,
     stepSize,
     hasModifier,
+    isUnbound,
+    resolveSystemAccelerator,
     buildDefaultMapHotkeys,
     acceleratorToDisplay,
     acceleratorKeyName,

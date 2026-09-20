@@ -256,6 +256,32 @@ test/                           → node:test unit tests for the pure modules.
   that matches a system one is refused (`Hotkeys.systemConflict`), and a stale
   colliding entry already in `hotkeys.json` is skipped at registration *and*
   reported in the status toast, so it is never silently inert.
+- **A system hotkey can be unbound** (Settings › Hotkeys › *Unbind*, IPC
+  `unbind-system-hotkey`). Unbound is the **empty string** stored under the
+  action's `ACTION_TO_SETTING_KEY`, not a deleted key: `core/settings.js`
+  back-fills anything `undefined` from `DEFAULT_SETTINGS`, so a deleted key
+  would come back as the shipped default on the next start. `DEFAULT_SETTINGS`
+  itself is unchanged — a fresh install still gets every default. Three rules
+  hold it together:
+  1. `stored || def.defaultAccelerator` is **wrong** and is gone. The pure
+     `resolveSystemAccelerator(stored, default)` is the single resolver
+     (`''` → unbound, non-string/missing → default) and both
+     `Hotkeys.getSystemHotkeys()` and `updateSystemHotkeysTable()` call it, so
+     the table can never claim a binding that is not registered.
+  2. **An empty string is never a held accelerator.** Everything that asks
+     "is this taken?" or "register these" goes through
+     `Hotkeys.boundSystemHotkeys()` — `registerSystemHotkeys` (a literal
+     `globalShortcut.register('')` throws, which `safeRegister` would turn into
+     a phantom conflict-banner entry), `ownAccelerators`, `systemConflict`
+     and the `systemAccelerators` set in `registerCustomHotkeys`.
+  3. **Reset now checks for conflicts.** `reset-system-hotkey` used to write
+     the default blind, which was already wrong after a rebind and is far
+     more likely now. Unbind rotate, give Ctrl+R to a map, press Reset → refused with
+     the usual `conflictMessage` / `hotkeys.error.usedByMap`.
+  The Hotkeys tab shows a muted `hotkeys.notBound` label instead of a `<kbd>`,
+  disables *Unbind* when already unbound and keeps *Reset* enabled (unbound is
+  not the default). Editing works from the unbound state — recording a
+  combination re-binds it. `system.txt` prints `(unbound)` rather than `""`.
 - **Accelerators are never taken straight from the DOM.** A
   `KeyboardEvent.key` is not an Electron accelerator name (`ArrowRight` vs
   `Right`, `" "` vs `Space`, `"+"` vs `Plus`), and `globalShortcut.register`
@@ -1189,4 +1215,4 @@ Specifically:
    humans seeking tutorials. No fluff.
 5. **Never remove the self-updating rule**: This clause must survive all edits.
 
-*Last updated: 2026-09-18 (0.5.1)*
+*Last updated: 2026-09-20 (0.6.0)*

@@ -60,6 +60,12 @@ are written once on first run — <kbd>Ctrl</kbd> + <kbd>1</kbd> to
 maps added in a later version get their own number automatically — and are
 yours to edit or delete afterwards.
 
+Any of the nine system hotkeys can also be switched off entirely: **Unbind**
+leaves that action with no key combination, so the keys go back to the game and
+to every other program. The row then reads *Not bound*, **Reset** puts the
+default back (unless something else has taken it meanwhile) and **Edit** binds
+it again. Unbinding sticks across restarts.
+
 ## Language
 
 The interface is available in **English** and **Italian**. It follows your
@@ -420,6 +426,21 @@ Security → Virus & threat protection → Manage settings → Exclusions** remo
 that too.
 
 ## Changelog
+
+### 0.6.0
+
+- **System hotkeys can be switched off.** Settings › Hotkeys has an *Unbind*
+  button next to *Edit* and *Reset*: an action you never use (say *Rotate map*,
+  Ctrl+R) is no longer registered at all, so the combination goes back to the
+  game and every other application instead of having to be parked on some
+  out-of-the-way key. The row reads *Not bound*, the choice survives a restart,
+  *Edit* binds it again and *Reset* restores the default.
+- **Reset no longer double-books a combination.** If a map or another action
+  has taken a hotkey's default in the meantime, *Reset* says so instead of
+  putting two things on the same keys.
+- The diagnostic report lists a switched-off hotkey as `(unbound)`.
+- Note: versions up to 0.5.1 do not know about unbound hotkeys — going back to
+  one of them brings the default combination back.
 
 ### 0.5.1
 

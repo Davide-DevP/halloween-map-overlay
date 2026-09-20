@@ -1534,6 +1534,14 @@ body.is-updating {
     gap: 0.25rem;
 }
 
+/* The binding cell of a system hotkey the user unbound. Deliberately not a
+   `<kbd>`: an empty key cap looks like a broken render, and showing the default
+   there would claim a shortcut that is not registered. */
+.hotkey-unbound {
+    font-size: 0.8125rem;
+    color: var(--hmo-text-mute);
+}
+
 #customList img {
     width: 84px;
     height: 68px;

@@ -3,12 +3,15 @@ const assert = require('node:assert');
 const {
     SYSTEM_HOTKEY_DEFS,
     ACTION_TO_SETTING_KEY,
+    UNBOUND_ACCELERATOR,
     MAX_DEFAULT_MAP_HOTKEYS,
     buildDefaultMapHotkeys,
     acceleratorToDisplay,
     acceleratorKeyName,
     keyEventToAccelerator,
     hasModifier,
+    isUnbound,
+    resolveSystemAccelerator,
     OPACITY_STEP,
     OPACITY_MIN,
     OPACITY_MAX,
@@ -79,6 +82,78 @@ test('each system action fires the IPC event named by its definition', () => {
         assert.strictEqual(def.id, actionId);
         assert.ok(def.action, `${actionId} has no action`);
     }
+});
+
+// ─── Bound / unbound ───────────────────────────────────────────
+//
+// `resolveSystemAccelerator` is the one place "what is this action bound to?"
+// is decided, for both `Hotkeys.getSystemHotkeys()` and the renderer's table.
+// The three cases it has to keep apart are a stored override, a fresh install
+// (nothing stored) and an action the user deliberately unbound.
+
+test('a stored accelerator wins and a missing one falls back to the default', () => {
+    assert.strictEqual(resolveSystemAccelerator('Alt+K', 'CommandOrControl+R'), 'Alt+K');
+    for (const absent of [undefined, null, 0, false, {}]) {
+        assert.strictEqual(resolveSystemAccelerator(absent, 'CommandOrControl+R'),
+            'CommandOrControl+R', String(absent));
+    }
+});
+
+test('an empty stored accelerator means unbound, never the default', () => {
+    // The whole point: `stored || def.defaultAccelerator` gave the default back
+    // here, so an unbound action was re-registered on every start.
+    assert.strictEqual(resolveSystemAccelerator('', 'CommandOrControl+R'), UNBOUND_ACCELERATOR);
+    // Whitespace is not a registrable accelerator either, so it is unbound too
+    // rather than a binding that throws in globalShortcut.register.
+    assert.strictEqual(resolveSystemAccelerator('   ', 'CommandOrControl+R'), UNBOUND_ACCELERATOR);
+    assert.strictEqual(UNBOUND_ACCELERATOR, '');
+});
+
+test('every system default resolves to itself when nothing is stored', () => {
+    for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        assert.strictEqual(resolveSystemAccelerator(undefined, def.defaultAccelerator),
+            def.defaultAccelerator, actionId);
+        assert.ok(!isUnbound(resolveSystemAccelerator(undefined, def.defaultAccelerator)), actionId);
+        // …and unbinding it is visible as such, whatever the default was.
+        assert.ok(isUnbound(resolveSystemAccelerator('', def.defaultAccelerator)), actionId);
+    }
+});
+
+test('isUnbound: only a real key combination counts as bound', () => {
+    for (const value of ['', '  ', '\t', undefined, null, 0, 42, {}, []]) {
+        assert.ok(isUnbound(value), JSON.stringify(value) || String(value));
+    }
+    for (const value of ['CommandOrControl+R', 'Alt+F4', 'Shift+Space']) {
+        assert.ok(!isUnbound(value), value);
+    }
+});
+
+test('an unbound hotkey survives the settings back-fill', () => {
+    // This is why unbound is stored as `''` and not as a deleted key:
+    // `core/settings.js` fills in every key that is `undefined` from
+    // DEFAULT_SETTINGS, so a missing key comes back as the shipped default on
+    // the next start. Same loop, same order as the real one.
+    const stored = {hotkeyRotateMap: '', hotkeyToggleMap: undefined};
+    for (const key in DEFAULT_SETTINGS) {
+        if (stored[key] === undefined) stored[key] = DEFAULT_SETTINGS[key];
+    }
+    assert.strictEqual(stored.hotkeyRotateMap, '');
+    assert.strictEqual(stored.hotkeyToggleMap, DEFAULT_SETTINGS.hotkeyToggleMap);
+    assert.strictEqual(
+        resolveSystemAccelerator(stored.hotkeyRotateMap, SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator),
+        UNBOUND_ACCELERATOR
+    );
+});
+
+test('an unbound action is never registrable and never a held accelerator', () => {
+    // The two guards in main hang off these: `registerSystemHotkeys` skips an
+    // unbound action (globalShortcut.register('') throws) and `ownAccelerators`
+    // / `systemConflict` must not treat `''` as a combination anyone holds.
+    assert.ok(!hasModifier(UNBOUND_ACCELERATOR));
+    const effective = {'rotate-map': UNBOUND_ACCELERATOR, 'toggle-map': 'CommandOrControl+H'};
+    const bound = Object.entries(effective).filter(([, accel]) => !isUnbound(accel));
+    assert.deepStrictEqual(bound.map(([id]) => id), ['toggle-map']);
+    assert.ok(!new Set(bound.map(([, accel]) => accel)).has(UNBOUND_ACCELERATOR));
 });
 
 test('first-run defaults bind Ctrl+1..Ctrl+N in catalogue order', () => {

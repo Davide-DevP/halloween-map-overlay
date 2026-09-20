@@ -5,9 +5,12 @@ const {randomUUID} = require("crypto");
 const {
     SYSTEM_HOTKEY_DEFS,
     ACTION_TO_SETTING_KEY,
+    UNBOUND_ACCELERATOR,
     acceleratorToDisplay,
     buildDefaultMapHotkeys,
-    hasModifier
+    hasModifier,
+    isUnbound,
+    resolveSystemAccelerator
 } = require("../shared/hotkeys-constants");
 const {msg} = require("../shared/i18n");
 const appLog = require("./app-log");
@@ -148,13 +151,11 @@ class Hotkeys {
                 return classInstance.fail(msg('hotkeys.error.noModifier'));
             }
 
-            // Conflicts with the other system hotkeys
-            const current = classInstance.getSystemHotkeys();
-            for (const [otherActionId, otherAccel] of Object.entries(current)) {
-                if (otherActionId !== actionId && otherAccel === accelerator) {
-                    return classInstance.fail(conflictMessage(accelerator, otherActionId));
-                }
-            }
+            // Conflicts with the other system hotkeys. `systemConflict` is the
+            // one place that comparison lives now, so the unbound actions are
+            // skipped here exactly as they are for a per-map binding.
+            const systemTaken = classInstance.systemConflict(accelerator, actionId);
+            if (systemTaken) return classInstance.fail(systemTaken);
 
             // Conflicts with per-map hotkeys
             const customHotkeys = classInstance.readHotkeyFile();
@@ -171,7 +172,8 @@ class Hotkeys {
             return classInstance.ok(msg('hotkeys.savedSystem'));
         });
 
-        ipcMain.on('reset-system-hotkey', (event, {actionId}) => {
+        ipcMain.on('reset-system-hotkey', (event, payload) => {
+            const {actionId} = payload || {};
             const settingKey = ACTION_TO_SETTING_KEY[actionId];
             const def = SYSTEM_HOTKEY_DEFS[actionId];
             if (!settingKey || !def) {
@@ -179,8 +181,52 @@ class Hotkeys {
                 return;
             }
 
+            // The default is not guaranteed to be free. This used to write it
+            // blind, which was already wrong after a rebind (move rotate to
+            // Alt+K, give Ctrl+R to a map, press Reset); unbinding makes the
+            // obvious sequence — unbind "Rotate map", hand Ctrl+R to a
+            // map, press Reset — would put two things on one accelerator. The
+            // second registration then fails into the conflict banner (or the
+            // map binding is silently shadowed), which is a worse outcome than
+            // refusing the reset and saying why.
+            const systemTaken = classInstance.systemConflict(def.defaultAccelerator, actionId);
+            if (systemTaken) {
+                classInstance.mainWindow.sendUpdate(systemTaken);
+                return;
+            }
+            if (classInstance.readHotkeyFile()[def.defaultAccelerator]) {
+                classInstance.mainWindow.sendUpdate(msg('hotkeys.error.usedByMap',
+                    {accelerator: acceleratorToDisplay(def.defaultAccelerator)}));
+                return;
+            }
+
             classInstance.settings.set(settingKey, def.defaultAccelerator);
             classInstance.mainWindow.sendUpdate(msg('hotkeys.resetToDefault'));
+            classInstance.loadKeys();
+        });
+
+        // Unbinding is not "reset to nothing": the empty string is *stored*, so
+        // the settings back-fill cannot hand the default back on the next start
+        // (see `resolveSystemAccelerator`). It is what lets a user leave a
+        // combination to the rest of the system instead of parking an action
+        // they never use on a key that is then swallowed everywhere. The Edit
+        // button still works from here — recording a combination re-binds it.
+        ipcMain.on('unbind-system-hotkey', (event, payload) => {
+            const {actionId} = payload || {};
+            const settingKey = ACTION_TO_SETTING_KEY[actionId];
+            const def = SYSTEM_HOTKEY_DEFS[actionId];
+            if (!settingKey || !def) {
+                console.warn(`unbind-system-hotkey: unknown actionId "${actionId}"`);
+                return;
+            }
+
+            classInstance.settings.set(settingKey, UNBOUND_ACCELERATOR);
+            // Its own line, because `setting key=hotkeyRotateMap value=` reads
+            // like a write that lost its value. "The user turned this off" and
+            // "this hotkey does nothing" are the same support question
+            // otherwise.
+            appLog.event('hotkey-unbound', {action: actionId});
+            classInstance.mainWindow.sendUpdate(msg('hotkeys.unbound'));
             classInstance.loadKeys();
         });
     }
@@ -197,12 +243,19 @@ class Hotkeys {
     }
 
     /**
+     * @param {string} accelerator
+     * @param {?string} [exceptActionId] a system action to ignore — the one
+     *   being re-bound or reset, which must not conflict with itself.
      * @returns {{key: string, params: Object}|null} a conflict message when this
      *   accelerator is one of the system hotkeys, null otherwise.
      */
-    systemConflict(accelerator) {
-        for (const [actionId, accel] of Object.entries(this.getSystemHotkeys())) {
-            if (accel !== accelerator) continue;
+    systemConflict(accelerator, exceptActionId = null) {
+        // Nothing conflicts with "no combination at all", in either direction:
+        // an empty probe matches nothing, and the unbound actions are not in
+        // `boundSystemHotkeys()` to be matched against.
+        if (isUnbound(accelerator)) return null;
+        for (const [actionId, accel] of this.boundSystemHotkeys()) {
+            if (actionId === exceptActionId || accel !== accelerator) continue;
             return conflictMessage(accelerator, actionId);
         }
         return null;
@@ -251,12 +304,18 @@ class Hotkeys {
     }
 
     /**
-     * Every accelerator this app currently binds: every system hotkey in
-     * `SYSTEM_HOTKEY_DEFS` plus whatever is in `hotkeys.json`.
+     * Every accelerator this app currently binds: every *bound* system hotkey
+     * plus whatever is in `hotkeys.json`.
+     *
+     * An unbound action must not put `''` in here. `rejectIfUnregisterable`
+     * treats a member of this set as "already proven registrable" and returns
+     * early, which for an empty string would skip the one check that keeps an
+     * unparseable accelerator out of the settings file.
+     *
      * @returns {Set<string>}
      */
     ownAccelerators() {
-        const held = new Set(Object.values(this.getSystemHotkeys()));
+        const held = new Set(this.boundSystemHotkeys().map(([, accelerator]) => accelerator));
         for (const accelerator of Object.keys(this.readHotkeyFile())) held.add(accelerator);
         return held;
     }
@@ -289,17 +348,38 @@ class Hotkeys {
     }
 
     /**
-     * Current system hotkey accelerators: stored overrides merged over defaults.
-     * @returns {Object<string, string>} actionId → accelerator
+     * Current system hotkey accelerators: stored overrides merged over
+     * defaults, with `''` for every action the user unbound.
+     *
+     * This used to be `stored || def.defaultAccelerator`, which resurrected the
+     * default for an unbound action on every read. The three-way resolution
+     * lives in the pure `resolveSystemAccelerator` so the renderer's table
+     * cannot come to a different conclusion.
+     *
+     * @returns {Object<string, string>} actionId → accelerator, `''` = unbound
      */
     getSystemHotkeys() {
         const result = {};
         for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
             const settingKey = ACTION_TO_SETTING_KEY[actionId];
-            const stored = this.settings.get(settingKey);
-            result[actionId] = stored || def.defaultAccelerator;
+            result[actionId] = resolveSystemAccelerator(this.settings.get(settingKey), def.defaultAccelerator);
         }
         return result;
+    }
+
+    /**
+     * Only the system actions that actually hold a key combination.
+     *
+     * Everything that asks "is this accelerator taken?" or "register these"
+     * goes through here rather than `getSystemHotkeys()`. An unbound action
+     * carries `''`, and an empty string must never count as a held accelerator:
+     * `globalShortcut.register('')` throws, and an `''` in a "taken" set would
+     * make every unbound action collide with every other one.
+     *
+     * @returns {Array<[string, string]>} [actionId, accelerator] pairs
+     */
+    boundSystemHotkeys() {
+        return Object.entries(this.getSystemHotkeys()).filter(([, accelerator]) => !isUnbound(accelerator));
     }
 
     /**
@@ -364,7 +444,11 @@ class Hotkeys {
             return;
         }
 
-        for (const [actionId, accelerator] of Object.entries(this.getSystemHotkeys())) {
+        // `boundSystemHotkeys()`, not every definition: an unbound action has
+        // nothing to register, and `globalShortcut.register('')` throws — which
+        // `safeRegister` would turn into a phantom "invalid accelerator" entry
+        // in the conflict banner for an action the user switched off on purpose.
+        for (const [actionId, accelerator] of this.boundSystemHotkeys()) {
             const def = SYSTEM_HOTKEY_DEFS[actionId];
             if (!def) continue;
             this.safeRegister(accelerator, () => {
@@ -383,7 +467,10 @@ class Hotkeys {
         const win = this.mainWindow;
         if (!win) return;
 
-        const systemAccelerators = new Set(Object.values(this.getSystemHotkeys()));
+        // Unbound actions hold nothing, so they shadow nothing. Keeping `''` in
+        // this set would be harmless only by accident (no accelerator is the
+        // empty string), and the intent matters more than the accident.
+        const systemAccelerators = new Set(this.boundSystemHotkeys().map(([, accelerator]) => accelerator));
 
         for (const [hotkey, {mapKey, id}] of Object.entries(hotkeys)) {
             if (systemAccelerators.has(hotkey)) {
