@@ -1,40 +1,16 @@
 'use strict';
 
 /**
- * PURE marker rules. Imports nothing — no electron, no fs, no DOM.
- *
- * What a *marker* is: a place the game **may** put a storm cellar, an escape
- * gate, a car or a gas can. The game activates a varying subset every match, so
- * every point here is a possibility, never a fact — which is why the legend
- * says "possible location" and why nothing in this file ever claims otherwise.
- *
- * This module owns four decisions and nothing else:
- *   1. which layers exist, in which order, in which colour, and under which
- *      setting key (`MARKER_LAYERS` — the single list; the settings defaults,
- *      the Settings tab, the legend and both renderers all read it);
- *   2. which layers are actually drawn on a given **surface** — the corner
- *      minimap skips the layers the map image already draws
- *      (`baked`), the in-game Tab map draws all of them because the game's own
- *      map has none of them on it;
- *   3. where a point lands on the in-game Tab map panel (`tabPoint`);
- *   4. what the legend lists.
- *
- * The data itself is validated by `shared/map-pack-rules.js` `validateMarkers`
- * — one validator for a bundled map and a pack map alike — and reaches the
- * renderer through `get-map-markers`.
+ * PURE marker rules: which layers exist, which are drawn on which surface,
+ * where a point lands on the Tab panel, what the legend lists. A marker is a
+ * place the game **may** put a cellar, gate, car or gas can — a varying subset
+ * is active each match, so nothing here may ever read as a fact.
  */
 
 /**
- * The four layers, in draw order (back to front) and legend order.
- *
- * The colours are the approved variant B palette
- * (`dist/marker-variants/variant-B-brackets.png`). They are deliberately *not*
- * `app.css` design tokens: these are drawn over the game's own art on a
- * transparent window, so they have to read against grass, asphalt and the Tab
- * screen's two very different map renderings, not against this app's surfaces.
- *
- * `baked` is per-map data, not a property of the layer — a pack built from a
- * clean image has nothing baked and draws all four everywhere.
+ * The four layers, in draw and legend order — the single list the defaults, the
+ * Settings tab, the legend and both renderers read. The colours are
+ * deliberately *not* `app.css` tokens: they are drawn over the game's own art.
  */
 const MARKER_LAYERS = [
     {
@@ -59,9 +35,8 @@ const MARKER_LAYERS = [
         labelKey: 'markers.layer.car'
     },
     {
-        // The one layer that is nowhere on the bundled images: traced from
-        // u/deftyconchgaming's separate gas-spawn maps. Drawn as the same
-        // brackets rotated 45° and smaller, so it never reads as a ring.
+        // Nowhere on the bundled images, so never `baked`, and rotated 45° so
+        // it never reads as a ring.
         id: 'gas',
         colour: '#f0cf55',
         small: true,
@@ -86,15 +61,8 @@ function isFiniteNumber(value) {
 }
 
 /**
- * Is this layer switched on?
- *
- * Only an explicit `false` turns a layer off, so a settings file written before
- * markers existed behaves like the shipped defaults (all four on) rather than
- * like "everything off" — the same rule `hideInMenu` already uses.
- *
- * @param {Object} settings a plain object of setting key → value
- * @param {string} id
- * @returns {boolean}
+ * Is this layer on? Only an explicit `false` turns one off, so a `settings`
+ * object written before markers existed behaves like the shipped defaults.
  */
 function isLayerEnabled(settings, id) {
     const def = layerDef(id);
@@ -103,18 +71,9 @@ function isLayerEnabled(settings, id) {
 }
 
 /**
- * Is a layer already drawn by the surface itself?
- *
- * On the four bundled maps the image's author drew the cellar / gate / car
- * rings into the PNG, so drawing them again on the corner minimap would double
- * every one of them — the single most visible way this feature could look
- * broken. The in-game Tab map is the game's own rendering and has none of them,
- * so `baked` never applies there.
- *
- * @param {*} markers one map's markers document
- * @param {string} id
- * @param {string} surface `overlay` or `tab`
- * @returns {boolean}
+ * Is a layer already drawn by the `surface` (`overlay`|`tab`) itself? The
+ * bundled images have the rings in the PNG, so drawing them again would double
+ * every one; the game's own Tab map has none. Per-map data, not per-layer.
  */
 function isLayerBaked(markers, id, surface) {
     if (surface !== SURFACE_OVERLAY) return false;
@@ -123,16 +82,9 @@ function isLayerBaked(markers, id, surface) {
 }
 
 /**
- * The layers to draw on one surface, with their points and their look.
- *
- * Returns the whole drawing instruction so both renderers (and the Tab window)
- * share one answer: which layers, in which order, in which colour, with which
- * points, and whether each is the small 45°-rotated variant.
- *
- * A layer with no points is dropped — an empty legend chip is a promise the
- * data does not keep.
- *
- * @param {{markers: *, surface: string, settings: Object}} state
+ * The whole drawing instruction for one surface, so all three renderers share
+ * one answer. A layer with no points is dropped: an empty legend chip is a
+ * promise the data does not keep.
  * @returns {Array<{id, colour, small, labelKey, points: Array<{x, y}>}>}
  */
 function drawableLayers(state) {
@@ -159,16 +111,9 @@ function drawableLayers(state) {
 }
 
 /**
- * An image fraction → a fraction of the in-game Tab map panel's interior
- * square: `u = sx*x + tx`, `v = sy*y + ty`.
- *
- * The transform is per map and was measured by registering the community map's
- * boundary silhouette against the game's own panel (IoU 0.96-0.98; see
- * `maps-src/markers.json` `_about`). It is an affine fit, not a guess, which is
- * why it is stored per map rather than assumed to be the identity.
- *
- * @param {{x: number, y: number}} point an image fraction
- * @param {{sx: number, tx: number, sy: number, ty: number}} tab
+ * An image fraction → a fraction of the Tab panel's interior square. An affine
+ * fit measured per map against the game's own panel (IoU 0.96-0.98; provenance
+ * in `maps-src/markers.json` `_about`), never assumed to be the identity.
  * @returns {?{u: number, v: number}} null when the transform is unusable
  */
 function tabPoint(point, tab) {
@@ -181,15 +126,9 @@ function tabPoint(point, tab) {
 }
 
 /**
- * The same layers, transformed onto the Tab map panel and clipped to it.
- *
- * Clipped rather than clamped: a point the transform puts outside the panel
- * would be drawn over the game's *other* UI — the objectives list, the player
- * list, the map name — which is worse than not drawing it. None of the four
- * bundled maps produces one (the transforms are near-identity), so this is a
- * guard for a future pack whose fit is worse, not a filter that fires today.
- *
- * @param {{markers: *, settings: Object}} state
+ * The same layers on the Tab panel and **clipped** to it — not clamped, or a
+ * point outside lands on the game's objectives or player list. A guard for a
+ * future pack, not a filter that fires today.
  * @returns {Array<{id, colour, small, labelKey, points: Array<{u, v}>}>}
  */
 function tabLayers(state) {
@@ -210,30 +149,15 @@ function tabLayers(state) {
     return out;
 }
 
-/**
- * Can this map be drawn on the in-game Tab map at all?
- *
- * Needs the per-map affine fit. Without it nothing is drawn and the corner
- * minimap stays the fallback — a wrong overlay on the game's own map would be
- * worse than no overlay.
- *
- * @param {*} markers
- * @returns {boolean}
- */
+/** Drawable on the Tab panel? Without the fit, a wrong overlay is worse. */
 function hasTabTransform(markers) {
     return !!(markers && markers.tab && tabPoint({x: 0, y: 0}, markers.tab));
 }
 
 /**
- * The legend: one chip per layer actually being drawn, in layer order.
- *
- * Only the layers **we** draw. On the corner minimap that is normally just the
- * gas cans, because the map image already shows the other three — claiming
- * credit for rings somebody else drew would make the legend a lie the first
- * time a pack ships a clean image.
- *
- * @param {Array<{id, colour, labelKey}>} layers from `drawableLayers`/`tabLayers`
- * @returns {Array<{id: string, colour: string, labelKey: string}>}
+ * One chip per layer **we** actually draw (from `drawableLayers`/`tabLayers`) —
+ * normally just the gas cans. Claiming credit for rings the image already shows
+ * would make the legend a lie the moment a pack ships a clean image.
  */
 function legendItems(layers) {
     return (layers || []).map(layer => ({
@@ -244,15 +168,9 @@ function legendItems(layers) {
 }
 
 /**
- * The marker half of the settings, as both renderers want it.
- *
- * One place turns the flat settings file into the shape the drawing code takes,
- * so "markers are off" means the same thing on the overlay, on the OBS window
- * and in the Tab window. `markersEnabled` is the master switch the
- * *Show / hide markers* hotkey toggles.
- *
- * @param {Object} settings
- * @returns {{enabled: boolean, legend: boolean, tabMode: boolean, opacity: number, layers: Object}}
+ * The marker half of the settings, in one place, so "markers are off" means the
+ * same on all three surfaces. `enabled` is the master switch the hotkey toggles.
+ * @returns {{enabled, legend, tabMode, opacity, layers}}
  */
 function markerState(settings) {
     const s = settings || {};

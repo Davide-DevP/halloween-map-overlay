@@ -5,23 +5,9 @@ const path = require('path');
 const {redactHome} = require('../../shared/redact');
 
 /**
- * Crash files: one text file per fatal event, written in userData next to the
- * logs, and the small amount of bookkeeping around them.
- *
- * No electron import — the directory is injected, which is what lets the tests
- * drive this against a temp folder, exactly like the logs.
- *
- * Why a separate file at all, when `app.log` already carries the error line:
- * an `uncaughtException` takes the process with it, so the last thing written
- * to the log is the crash itself and the *context* — the two hundred lines
- * that led there — is only in memory. The crash file is that context, frozen
- * at the moment it still existed. It is also what makes "the app closed
- * unexpectedly last time" answerable on the next start without parsing a log.
- *
- * The name carries the time (`crash-2026-09-17T14-23-05-123Z.txt`) so the
- * files sort chronologically as plain strings, which is what `lastCrashSeen`
- * compares against and what `pruneCrashFiles` orders by. No `Date` parsing, no
- * `stat` calls, nothing that a copied or restored file could make lie.
+ * Crash files: one text file per fatal event, in userData next to the logs.
+ * fs-only tier, no electron — the directory is injected, like the logs.
+ * See `docs/agents/diagnostics.md`.
  */
 
 const CRASH_PREFIX = 'crash-';
@@ -31,7 +17,11 @@ const MAX_CRASH_FILES = 5;
 /** Lines of `app.log` carried into the file. */
 const RING_LINES = 200;
 
-/** `crash-2026-09-17T14-23-05-123Z.txt` — ISO with the illegal characters out. */
+/**
+ * `crash-2026-09-17T14-23-05-123Z.txt` — ISO with the illegal characters out,
+ * so the files sort chronologically as plain strings. `lastCrashSeen` and
+ * `pruneCrashFiles` rely on that: nothing a copied file could make lie.
+ */
 function crashFileName(at = Date.now()) {
     const iso = (at instanceof Date ? at : new Date(at)).toISOString();
     return CRASH_PREFIX + iso.replace(/:/g, '-').replace(/\./g, '-') + CRASH_SUFFIX;
@@ -42,25 +32,16 @@ function isCrashFile(name) {
 }
 
 /**
- * The body of a crash file.
- *
- * Everything that could carry a path — the message, the stack — goes through
- * `redactHome` first. The log lines have already been redacted on their way
- * into the log, but they are passed through again: the cost is nothing and the
- * rule is easier to keep when it has no exceptions.
- *
- * @param {{version?: string, electron?: string, platform?: string, arch?: string,
- *          kind?: string, message?: string, stack?: string, recent?: string[],
- *          at?: Date|number, home?: string}} info
- * @returns {string}
+ * The body of a crash file. PRIVACY: message, stack and log lines all go
+ * through `redactHome` — the lines were redacted on their way into the log
+ * already, but the rule is easier to keep with no exceptions.
  */
 function formatCrashReport(info = {}) {
     const at = info.at instanceof Date ? info.at : new Date(info.at || Date.now());
     const home = info.home || null;
     const lines = [
-        // ASCII only: this file is opened by double-clicking it on a Windows box,
-        // and a plain-text file with no BOM still renders an em dash as mojibake
-        // in older viewers. Nothing else in it is non-ASCII either.
+        // ASCII only: a BOM-less text file double-clicked on Windows renders an
+        // em dash as mojibake.
         'Halloween Map Overlay - crash report',
         `time      ${at.toISOString()}`,
         `version   ${info.version || 'unknown'}`,
@@ -82,12 +63,7 @@ function formatCrashReport(info = {}) {
     return lines.join('\n') + '\n';
 }
 
-/**
- * Crash files in `dir`, oldest first. Never throws — a missing directory is an
- * empty list.
- * @param {string} dir
- * @returns {string[]} file names, not paths
- */
+/** Oldest first; a missing directory is an empty list. File names, not paths. */
 function listCrashFiles(dir) {
     if (!dir) return [];
     try {
@@ -97,10 +73,7 @@ function listCrashFiles(dir) {
     }
 }
 
-/**
- * Delete all but the `keep` most recent crash files.
- * @returns {string[]} the names removed
- */
+/** Delete all but the `keep` most recent. @returns {string[]} the names removed */
 function pruneCrashFiles(dir, keep = MAX_CRASH_FILES) {
     const files = listCrashFiles(dir);
     if (files.length <= keep) return [];
@@ -117,11 +90,7 @@ function pruneCrashFiles(dir, keep = MAX_CRASH_FILES) {
     return removed;
 }
 
-/**
- * Write one crash file and prune the pile. Never throws: this runs while the
- * process is already on its way down.
- * @returns {{ok: boolean, name: ?string, path: ?string, error: ?string}}
- */
+/** Never throws: this runs while the process is already on its way down. */
 function writeCrashReport(dir, info = {}, keep = MAX_CRASH_FILES) {
     if (!dir) return {ok: false, name: null, path: null, error: 'no directory'};
     const name = crashFileName(info.at || Date.now());
@@ -137,17 +106,9 @@ function writeCrashReport(dir, info = {}, keep = MAX_CRASH_FILES) {
 }
 
 /**
- * The newest crash file the user has not been told about yet.
- *
- * Names sort chronologically, so "newer than the last acknowledged one" is a
- * string comparison. An unknown `lastSeen` (a fresh install, a hand-edited
- * settings file) means *every* crash file is unseen, which is the safe
- * direction: the banner is dismissible and the alternative is silence about a
- * crash that really happened.
- *
- * @param {string} dir
- * @param {?string} lastSeen the stored `lastCrashSeen` file name
- * @returns {?string} the file name, or null when there is nothing to report
+ * The newest crash file not yet acknowledged — a string comparison, since names
+ * sort chronologically. An unknown `lastSeen` means *every* file is unseen,
+ * which is the safe direction: the banner is dismissible, silence is not.
  */
 function pendingCrash(dir, lastSeen) {
     const files = listCrashFiles(dir);

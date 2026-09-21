@@ -15,31 +15,21 @@ const i18n = require("./js/i18n.js");
 const {t} = i18n;
 const {updateReadyHeadline, updatingHeadline} = require("./shared/update-message.js");
 
-// Main sends `{key, params}`, not English: the language can change while a
-// toast is on screen, and main has no business knowing which one is in force.
 ipcRenderer.on("update-message", async (event, message) => {
     showStatus(i18n.translateMessage(message));
 });
 
-// The toast above auto-hides after 5 s; a downloaded update is too important
-// for that, so it also raises a banner that stays until the user acts on it.
 // **"Later" is remembered in main**, not here: this window is destroyed while
-// the app sits in the tray (0.7), so a flag in the renderer meant the banner
-// the user had already dismissed came back the next time they opened it. Main
-// keeps the pending version and now the dismissal too, and the tray item stays
-// there regardless.
+// the app sits in the tray, so a flag kept here put a dismissed banner back in
+// the user's face on the next open.
 let updateDismissed = false;
 /** Kept so the banner can be re-translated when the language changes. */
 let pendingVersion = null;
 
 /**
- * Tell main the banner has actually been in front of a person.
- *
- * Until it has, the window is not torn down in the tray — the one thing the
- * user has to act on must not be thrown away unseen. It takes **focus**, not
- * `document.hidden`: a window built hidden paints (and therefore reports
- * itself `visible`) with Electron's default `paintWhenInitiallyHidden`, and a
- * window sitting behind the game is not one anybody has read.
+ * Until the banner has been in front of a person the window is not torn down in
+ * the tray. **Focus**, not `document.hidden`: a window built hidden paints (and
+ * reports itself `visible`) under Electron's `paintWhenInitiallyHidden`.
  */
 function noteBannerSeen() {
     if (pendingVersion === null || updateDismissed) return;
@@ -69,18 +59,14 @@ i18n.onChange(() => {
     $("#updateReadyHeadline").text(updateReadyHeadline(i18n.language(), pendingVersion));
 });
 
-// The hand-over to `hmo-updater.exe` (0.5.0). Main pushes this from
-// `installUpdate()` rather than the click handler doing it, because the tray
-// item is the other way in and both have to look the same. The view is the
-// picture the helper opens on top of, so it goes up *immediately* — before
-// anything is spawned — and it is never animated in: a slide would be a
-// visible difference from the helper's own fade.
+// Pushed by main's `installUpdate()`, not by the click handler, because the
+// tray item is the other way in. This view is the picture `hmo-updater.exe`
+// opens on top of, so it goes up *immediately* and is never animated.
 ipcRenderer.on("update-installing", async (event, info) => {
     const version = (info && info.version) || "";
     $("#updatingHeadline").text(updatingHeadline(i18n.language(), version));
-    // `overflow: hidden` on the body, or the home page's scrollbar keeps a
-    // 11 px strip of itself down the right edge of an otherwise full-window
-    // view — and the helper, which has no scrollbar, would not have one there.
+    // `overflow: hidden` on the body, or the home page's scrollbar keeps an
+    // 11 px strip down the right edge that the helper does not have.
     $("body").addClass("is-updating");
     $("#updatingOverlay").removeClass("d-none");
 });
@@ -91,8 +77,7 @@ ipcRenderer.on("update-install-result", async (event, result) => {
     if (result && result.themed) return;
     $("#updatingOverlay").addClass("d-none");
     $("body").removeClass("is-updating");
-    // The failure toast itself is main's (`sendUpdate(msg('update.installFailed'))`),
-    // so all that is left here is giving the button back.
+    // The failure toast is main's (`sendUpdate(msg('update.installFailed'))`).
     if (result && result.ok === false) {
         $("#updateRestart").prop("disabled", false).text(t('update.restart'));
     }
@@ -106,8 +91,8 @@ const detector = new Detector(settings);
 const diagnostics = new Diagnostics();
 
 document.addEventListener('DOMContentLoaded', async function () {
-    // Before anything can open one: an open modal holds state that only exists
-    // in this window, and main must not tear the window down underneath it.
+    // Before anything can open one: an open modal holds state that exists only
+    // here, and main must not tear the window down underneath it.
     watchModals();
     // The product name is not translated; the version is not text.
     $("#title").text("Halloween Map Overlay v" + await ipcRenderer.invoke('version'));
@@ -119,25 +104,21 @@ document.addEventListener('DOMContentLoaded', async function () {
     maps.setOptions(options);
 
     await maps.loadCatalog();
-    // Which map the overlay is showing is main's answer, not this window's
-    // memory of it: this renderer may have been built seconds ago to replace
-    // one that was torn down in the tray (or that crashed) mid-match.
+    // Main's answer, not this window's memory: this renderer may have been
+    // built seconds ago to replace one torn down in the tray mid-match.
     await maps.loadState();
     await maps.renderGallery();
     await custom.generateCustomList();
     await hotkeys.loadHotkeys();
     await detector.init();
     await diagnostics.init();
-    // The welcome tour. Built here rather than beside the others because it
-    // drives the *existing* settings controls (`options`) instead of holding
-    // any state of its own.
+    // The tour drives the *existing* settings controls rather than holding any
+    // state of its own, hence built after them.
     const tour = new Onboarding(options, hotkeys, detector, diagnostics);
     await tour.init();
 
     $("#updateLater").on("click", function () {
         updateDismissed = true;
-        // Remembered in main for the rest of the session, so an unload and a
-        // reopen do not put a dismissed banner back in the user's face.
         ipcRenderer.send('update-banner-dismissed');
         $("#updateReady").slideUp();
     });
@@ -146,21 +127,17 @@ document.addEventListener('DOMContentLoaded', async function () {
         $(this).prop("disabled", true).removeAttr("data-i18n").text(t('update.restarting'));
         ipcRenderer.invoke('install-update');
     });
-    // `update-downloaded` can fire before this window finished loading (it was
-    // hidden in the tray and torn down, say), so ask as well as listen. Main
-    // answers `null` once the banner has been dismissed with "Later", which is
-    // what makes that dismissal survive the window being destroyed.
+    // `update-downloaded` can fire before this window finished loading, so ask
+    // as well as listen. Main answers `null` after a "Later", which is what
+    // makes that dismissal survive the window being destroyed.
     const pendingUpdate = await ipcRenderer.invoke('get-pending-update');
     if (pendingUpdate) {
         updateDismissed = !!pendingUpdate.dismissed;
         showUpdateBanner(pendingUpdate.version);
     }
 
-    // The tour opens once the loading view is out of the way — it is the last
-    // thing this load does, so the crash notice, the hotkey-conflict banner,
-    // the update banner and the hotkey-defaults notice are all already up
-    // (behind it) rather than arriving on top of an open panel. It decides for
-    // itself whether this is a genuinely fresh install.
+    // The tour opens last, so every banner is already up behind it rather than
+    // arriving on top of an open panel.
     $('#loadingOverlay').slideUp(function () {
         tour.maybeOpen().catch(err => debugLog("renderer::tour", err && err.message));
     });
@@ -173,10 +150,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     }, 15000);
 });
 
-// A renderer error used to exist only in a devtools console nobody has open.
-// It is now forwarded to main, which writes it to app.log — the renderer never
-// touches the file itself: two processes appending to one log with two size
-// caches would lose lines at the rotation boundary.
+// Forwarded to main, which writes them to app.log: the renderer never touches
+// that file itself.
 window.addEventListener('error', (e) => {
     console.error('renderer::uncaught', e.message, e.filename, e.lineno);
     ipcRenderer.send('renderer-error', {

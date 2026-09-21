@@ -1,14 +1,13 @@
-// Pure positioning math for the overlay window, kept out of main-window.js
-// so it can be unit tested without Electron.
+// PURE positioning math for the overlay window; no electron, so it is tested.
+// See docs/agents/overlay-windows.md.
+//
+// Glide is a percentage of the free space around the overlay: 0 = left/top edge
+// of the work area, 100 = right/bottom. It is the mouse-free alternative to
+// click-to-drag, which needs window moves that do not work on Wayland.
 
-// Glide percentages place the overlay absolutely across the free space left
-// around it: 0 = left/top edge of the work area, 100 = right/bottom edge.
-// They exist as a mouse-free alternative to click-to-drag, which relies on
-// window moves that don't work on Wayland.
-
-// The corner preset from settings (1 TL, 2 TR, 3 BL, 4 BR) expressed as
-// glide percentages -- stored sometimes as a number (default config) and
-// sometimes as a string (select element). Unknown values mean top-left.
+// Corner preset (1 TL, 2 TR, 3 BL, 4 BR) as glide percentages. Stored as a
+// number (defaults) or a string (the select), hence `String(position)`; an
+// unknown value means top-left.
 const PRESET_GLIDE = {
     "1": {x: 0, y: 0},
     "2": {x: 100, y: 0},
@@ -22,8 +21,8 @@ function presetToGlide(position) {
 
 function clampPercent(value, fallback) {
     const n = parseFloat(value);
-    // null/garbage glide falls back to the corner preset, so installs that
-    // predate the sliders keep the corner they had picked
+    // Garbage falls back to the corner preset, so installs that predate the
+    // sliders keep the corner they had picked.
     if (!Number.isFinite(n)) return fallback;
     return Math.min(100, Math.max(0, n));
 }
@@ -40,8 +39,8 @@ function computeOverlayPosition({workArea, overlayWidth, overlayHeight, position
     };
 }
 
-// Bounding box of a width x height image rotated by `rotation` degrees, so
-// the overlay window can be sized to fit any angle without clipping corners.
+// Bounding box of a width x height image rotated by `rotation` degrees: the
+// overlay window is sized to this so no angle clips its corners.
 function rotatedSize({width, height, rotation}) {
     const a = (parseFloat(rotation) || 0) * Math.PI / 180;
     const cos = Math.abs(Math.cos(a));

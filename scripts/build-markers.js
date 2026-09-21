@@ -2,30 +2,15 @@
 'use strict';
 
 /**
- * Dev only. `maps-src/markers.json` → `src/core/map-markers/markers.json`.
- *
- * The source file is the *authoring* format, written by the scripts in
- * `maps-src/marker-tools/`: it spells the Tab transform `{ax, bx, ay, by}` and
- * carries the provenance (`_about`, `iou`, `imageSize`). The shipped file is
- * the *runtime* format — the same one a map pack uses (`docs/SPEC-MAP-PACKS.md`
- * §2), so `shared/map-pack-rules.js` `validateMarkers` is the single validator
- * for both and `src/core/map-markers.js` has one shape to read.
- *
- * Two things change on the way across, and nothing else:
- *   1. `tab: {ax, bx, ay, by}` → `tab: {sx, tx, sy, ty}` (sx=ax, tx=bx, …).
- *      One spelling at runtime; the conversion happens here, once.
- *   2. `baked` is added: on the four bundled images the map's author drew the
- *      cellar / gate / car rings into the PNG itself, so the corner minimap
- *      must not draw them a second time. The in-game Tab map has none of them,
- *      which is why `baked` says *where* a layer already exists rather than
- *      removing it.
- *
- * Positions are copied verbatim — this script must never move a point.
- *
- *   node scripts/build-markers.js [--check]
- *
- * `--check` re-builds and compares against the committed file without writing,
- * which is what `npm test` uses to prove the two have not drifted.
+ * Dev only: `maps-src/markers.json` (the authoring format) →
+ * `src/core/map-markers/markers.json` (the *pack* runtime format, so
+ * `validateMarkers` is the single validator for both).
+ * Exactly two things change on the way across: `tab: {ax, bx, ay, by}` becomes
+ * `{sx, tx, sy, ty}` — one spelling at runtime, converted here once — and
+ * `baked` is added. **Positions are copied verbatim; this script must never
+ * move a point.** See `docs/agents/markers-and-tab-mode.md`.
+ * `--check` re-builds and compares without writing, which is what `npm test`
+ * uses to prove the two have not drifted.
  */
 
 const fs = require('fs');
@@ -35,15 +20,9 @@ const ROOT = path.join(__dirname, '..');
 const SOURCE = path.join(ROOT, 'maps-src', 'markers.json');
 const OUTPUT = path.join(ROOT, 'src', 'core', 'map-markers', 'markers.json');
 
-/**
- * Layers the four bundled map images already draw themselves.
- *
- * Hand-written rather than derived, because it is a fact about the *pictures*
- * u/deftyconchgaming published, not about the data: the rings in the PNG are
- * exactly where `cellar`/`gate`/`car` were extracted from (Hough circles — see
- * the source file's `_about`). `gas` was traced from a separate spawn map and
- * is nowhere on the image, so it is the one layer the corner minimap adds.
- */
+/** Layers the four bundled images already draw themselves. Hand-written, not
+ * derived: a fact about the *pictures* — those rings are where `cellar`/`gate`/
+ * `car` came from, while `gas` was traced from a separate spawn map. */
 const BAKED_INTO_BUNDLED_IMAGES = ['cellar', 'gate', 'car'];
 
 /** Round to the precision the source already carries, so no digit is invented. */
@@ -57,8 +36,8 @@ function build() {
     const maps = {};
     for (const [key, entry] of Object.entries(source.maps || {})) {
         const out = {
-            // Only the layers that exist: a map with no gas data must not gain
-            // an empty layer, which would show an empty legend chip.
+            // Only the layers that exist: an empty one becomes an empty
+            // legend chip.
             layers: {},
             baked: BAKED_INTO_BUNDLED_IMAGES.filter(
                 name => Object.prototype.hasOwnProperty.call(entry.layers || {}, name))

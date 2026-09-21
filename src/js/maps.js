@@ -5,25 +5,12 @@ const {escapeHtml} = require("../shared/escape-html");
 const {t, onChange} = require("./i18n");
 
 /**
- * Home view: the map gallery and the readout of which map the overlay is
- * showing.
+ * Home view: the map gallery and the readout of which map the overlay shows.
  *
- * **This class decides nothing.** Since 0.7 the map state — `currentKey`,
- * `lastKey`, every hotkey, the detector's route to the overlay, the menu clear,
- * the markers toggle — lives in the main process (`src/shared/map-state.js` and
- * `src/core/map-controller.js`). This is a *view*: it asks main for the state
- * when it loads (`get-map-state`), renders it, sends user intents
- * (`map-intent`) and re-renders on the `map-state` pushes that come back.
- *
- * That inversion is what makes the main window disposable — it is destroyed
- * while the app sits in the tray during a match, which is ~32 MB of private
- * working set (`docs/MEMORY-REPORT-2.md` §3.3). It also means a renderer crash
- * costs nothing: `currentKey` used to be *here*, so a reloaded renderer came
- * back believing nothing was on the overlay while main knew better.
- *
- * The catalogue itself still comes from the main process, which owns the file
- * system side of it; the gallery, the object URLs for the thumbnails and the
- * creator filter are all genuinely view state and stay here.
+ * **This class decides nothing.** The map state lives in main
+ * (`shared/map-state.js`, `core/map-controller.js`); this asks on load
+ * (`get-map-state`), sends intents (`map-intent`) and re-renders on the
+ * `map-state` pushes. That inversion is what makes the window disposable.
  */
 class Maps {
 
@@ -31,18 +18,14 @@ class Maps {
         this.settings = settings;
         this.catalog = [];
         this.options = null;
-        // Mirrors of main's map state, for rendering only. `get-map-state`
-        // fills them before the first paint and `map-state` keeps them current;
-        // nothing here is ever the source of truth.
+        /** Mirrors of main's state, for rendering only — never a source of truth. */
         this.currentKey = "";
         this.lastKey = "";
         this.thumbnails = {};
-        // The staggered fade-up plays once, on the first gallery render. A
-        // filter change or a language change must not replay it.
+        /** The staggered fade-up plays once; a re-render must not replay it. */
         this.hasRendered = false;
         this.init();
-        // The gallery, the creator filter and the "showing" line are all built
-        // with t(), so they have to be rebuilt when the language changes.
+        // All three are built with t(), so they rebuild on a language change.
         onChange(() => {
             this.populateCreatorSelect();
             this.renderGallery().catch(err => debugLog("maps::onChange::render", err && err.message));
@@ -59,8 +42,7 @@ class Maps {
 
         $("#obsOpen").on("click", function () {
             ipcRenderer.send('obs-open');
-            // The OBS window opens empty; main re-sends whatever is on the
-            // overlay so the stream shows the same picture.
+            // The OBS window opens empty; the refresh makes main re-send.
             self.send({type: 'refresh', source: 'click'});
         });
         $("#hide").on("click", function () {
@@ -70,32 +52,27 @@ class Maps {
             self.renderGallery();
         });
 
-        // The one push. It arrives after every change main makes — a hotkey, a
-        // detector switch, the menu clear, a slider — and it is the *only* way
-        // this window learns what is on the overlay.
+        // The *only* way this window learns what is on the overlay.
         ipcRenderer.on('map-state', (event, state) => self.applyState(state));
 
-        // A map pack landed. The catalogue main holds has already been
-        // invalidated, so this only has to re-fetch it and redraw — no restart,
-        // and the map the overlay is showing is left exactly where it is.
+        // Main's catalogue is already invalidated, so this only re-fetches and
+        // redraws — the map on the overlay stays put.
         ipcRenderer.on('map-packs-updated', () => {
             debugLog("maps::map-packs-updated");
             self.invalidateCache().catch(err => debugLog("maps::map-packs-updated::failed", err && err.message));
         });
 
-        // "A map was applied while your preview is up." The sample image lives
-        // in this window's canvas, so only this window can put it back on top.
+        // A map landed while the preview is up, and the sample image lives in
+        // this window's canvas.
         ipcRenderer.on('refresh-preview', () => {
             if (self.options && self.options.previewActive) self.options.sendPreview();
         });
     }
 
     /**
-     * Adopt a `map-state` push (or the `get-map-state` answer).
-     *
      * `source` is present only when something actually landed on the overlay,
-     * which is when "set position" mode has to end — leaving it on would keep
-     * the overlay grabbing the player's clicks.
+     * which is when "set position" has to end: left on, it keeps the overlay
+     * grabbing the player's clicks.
      */
     applyState(state) {
         if (!state) return;
@@ -105,9 +82,7 @@ class Maps {
         if (state.source && this.options && this.options.setting) $("#unset-pos").click();
         this.highlightActive();
         this.renderCurrent();
-        // A hotkey may have moved opacity, size or rotation; the Settings
-        // controls have to follow, exactly as they did when the renderer wrote
-        // those settings itself.
+        // A hotkey may have moved opacity, size or rotation.
         if (state.source === 'hotkey' && this.options) {
             this.settings.refresh()
                 .then(() => this.options.syncFromSettings())
@@ -120,19 +95,14 @@ class Maps {
         $("#currentMap").text(this.currentKey ? this.currentKey.split("/").pop() : t('home.none'));
     }
 
-    /** Post an intent to the map controller in main. */
     send(intent) {
         ipcRenderer.send('map-intent', intent);
     }
 
     /**
-     * Load-time sync. Called from `renderer.js` before the gallery is drawn.
-     *
-     * A fresh renderer has no preview up, so it says so first: this window is
-     * the only thing that can produce the sample image, and if it died (or was
-     * torn down) with the Overlay tab open, main would be left believing a
-     * preview it can never refresh is still on screen. A no-op in the ordinary
-     * case, and it re-asserts the real map in the one that is not.
+     * A fresh renderer has no preview up, so it says so first: only this window
+     * can produce the sample image, and one that died with the Overlay tab open
+     * left main believing a preview it can never refresh is on screen.
      */
     async loadState() {
         this.send({type: 'preview-stop'});
@@ -157,8 +127,7 @@ class Maps {
         if (!select.length) return;
         const previous = select.val();
         const creators = listCreators(this.catalog);
-        // Built with .val()/.text() so a user-typed custom creator can never
-        // break out of the markup
+        // .val()/.text(), so a user-typed creator cannot break out of the markup
         select.empty().append($('<option>').val('').text(t('home.allCreators')));
         creators.forEach(c => select.append($('<option>').val(c).text(c)));
         if (previous && creators.includes(previous)) select.val(previous);
@@ -184,9 +153,8 @@ class Maps {
         const $results = $("#results").empty();
 
         if (!entries.length) {
-            // A composed empty state rather than a bare line of text. Both
-            // strings are catalogue strings, not user input — `home.noMaps`
-            // carries a <code> element, so its markup is ours on purpose.
+            // Catalogue strings, not user input: `home.noMaps` carries a
+            // <code> element, so its markup is ours on purpose.
             $results.append(`
                 <div class="map-empty">
                     <div class="map-empty-mark" aria-hidden="true"></div>
@@ -201,7 +169,7 @@ class Maps {
         let index = 0;
         for (const entry of entries) {
             const url = await this.thumbnail(entry.key);
-            // Custom map names are user-typed; an unescaped quote truncates
+            // Custom map names are user-typed: an unescaped quote truncates
             // data-key and an unescaped tag would run with Node access
             const $card = $(`
                 <div class="map-cell${stagger ? ' is-entering' : ''}" style="--hmo-i: ${index}">
@@ -219,8 +187,7 @@ class Maps {
                     </button>
                 </div>
             `);
-            // The skeleton shimmer clears when the thumbnail reports in. A
-            // cached object URL can be decoded before this runs, hence the
+            // A cached object URL can be decoded before this runs, hence the
             // `complete` check as well as the listener.
             const $thumb = $card.find(".map-card-thumb");
             const img = $card.find("img")[0];

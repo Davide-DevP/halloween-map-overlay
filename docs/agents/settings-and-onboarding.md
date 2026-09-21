@@ -59,6 +59,33 @@ consequences for anything in this document:
   make the stored position chase the cursor backwards. That is the whole reason
   it is opt-in rather than the default.
 
+  Two mechanics of the writers worth knowing before touching them. A rollback
+  for a key that was **not** there `delete`s it rather than setting
+  `undefined`: an `undefined` own property reads as "unset" to `get()` but is
+  not the state the write started from. And `merge()` guards the object it is
+  handed on the assignment as well as on the key list, because
+  `Object.assign(settings, 'nope')` would quietly add `{0: 'n', 1: 'o', …}` to
+  `settings-app.json`; it also notifies only the keys whose value actually
+  moved, so a `save-settings` that re-posts everything does not look like every
+  setting changing at once.
+- **`write()` is synchronous and wrapped, and both halves are deliberate.**
+  Synchronous, so a settings write cannot race the next one. Wrapped, because
+  an EPERM from an antivirus or a sync client holding `settings-app.json` open
+  would otherwise reach main's `uncaughtException` handler and end the session
+  mid-match — and the overlay's drag handler writes through here on every tick,
+  which is exactly where such a lock shows up. Losing one write is survivable;
+  losing the app mid-match is not.
+
+- **`JSON.parse` alone is not enough to read the file** — `Settings.parseFile`
+  (static and pure, so it is testable without an Electron `app`) also rejects
+  anything that is not a plain object. `null`, `[]`, `3` and `"x"` are all
+  *valid* JSON, so the `try/catch` around the read never fires for them, and the
+  constructor's back-fill then throws a TypeError on `null` (or quietly builds a
+  settings object out of an array or a boxed number). That throw happens
+  **before `app.whenReady()` and before `appLog.installCrashHandlers()`**, so
+  the app simply fails to start — no window, no crash file, on every start,
+  until the user finds and deletes a file they do not know exists. An array is
+  rejected explicitly because `typeof [] === 'object'`.
 - **Settings `get()` vs `raw()`**: the renderer's `Settings.get()` turns a
   stored `0`/`false`/`""` into `null`. Use `raw()` wherever a falsy value is
   meaningful (glide 0, rotation 0, monitor 0, every checkbox).
@@ -78,6 +105,68 @@ A `hotkey*` key missing from an old settings file gets the new default with no
 conflict check — the rule and its safety net are in [hotkeys.md](hotkeys.md).
 `hardwareAcceleration` must be read before `app.whenReady()`, which is why
 `Settings` is built above the window; see [memory.md](memory.md).
+
+## Settings reference
+
+`src/shared/settings-defaults.js` carries **a one-line note where the name does
+not say it** — what the setting is, and its unit. Anything that needs more than
+that is here. A key absent from a
+user's file is filled in from `DEFAULT_SETTINGS` on every start, so adding one is
+backwards compatible and removing one is not; and no value in that file is a path
+or user text, which is why `core/settings.js` may log every change.
+
+- **The "only an explicit `false` is off" rule.** Every default-on switch is read
+  as `raw(key) !== false`, in main and in the renderer alike, so a settings file
+  written before the setting existed behaves like the shipped default. That
+  covers `checkForUpdates`, `checkForMapPacks`, `hideInMenu`, `markers` and its
+  four `markerLayer*` keys, `markerLegend`, `tabMarkersInstant`,
+  `hotkeysGameOnly` and `unloadWindowInTray`. The pure `isLayerEnabled` applies
+  the same rule to the marker layers on the other side.
+- **A setting written from two places must be written as the same *type*.**
+  `size`, `opacity` and `rotation` are numbers: `shared/map-state.js` writes them
+  as numbers when the hotkeys move them, and a range input hands back a
+  **string**, so `src/js/options.js` goes through `parseInt`/`parseFloat`. A file
+  holding `"275"` one day and `275` the next makes `stepSize`'s input, the
+  diagnostic report and any future comparison depend on which side wrote last.
+- **`onboardingPending`'s shipped default must stay `false`.** The back-fill puts
+  the key into an *existing* settings file too, so an upgrade is never
+  interrupted; only `core/settings.js` sets it, once, on the start that creates
+  the file. `onboardingDone` is what stops the tour opening twice — see the tour
+  section below.
+- **`hotkeyDefaultsVersion`'s shipped default is deliberately `0`**, i.e. behind
+  `HOTKEY_DEFAULTS_VERSION`, so the back-fill cannot make an old file look
+  already-migrated. [hotkeys.md](hotkeys.md) owns the migration itself, and the
+  `hotkey*` accelerator defaults, which a test asserts agree with
+  `SYSTEM_HOTKEY_DEFS`.
+- **`lastCrashSeen` is a file name, not a timestamp** — the newest `crash-*.txt`
+  the user has already been shown the home-page notice for. The names sort
+  chronologically and cannot disagree with the files on disk; `null` means "never
+  seen one", so any crash file present at startup raises the banner.
+  [diagnostics.md](diagnostics.md) owns the crash policy.
+- **`mapDetection` ships off** and is the one setting that turns on a screen
+  capture; `hideInMenu` only ever acts while it is on.
+  [detection.md](detection.md).
+- **`tabMarkers` ships off** and needs `mapDetection`; `tabMarkerKey` is a
+  **Windows virtual-key code** (9 = Tab), never an accelerator and never
+  registered, and `tabMarkerKeyLabel` stores what the *browser* called that key
+  because a virtual-key code cannot be turned back into a name on anything but a
+  US layout. `markerTrigger` picks `auto` (the key trigger, falling back to
+  polling) or `polling`. `markerOpacity` is separate from the overlay's own
+  `opacity`: the map is a backdrop, the markers are the thing being read.
+  [markers-and-tab-mode.md](markers-and-tab-mode.md) and
+  `docs/SPEC-MARKERS.md` own the rest, including `tabMarkersInstant`'s
+  second-press rule and `tabHidesMinimap`.
+- **`hardwareAcceleration` ships off and `unloadWindowInTray` ships on** — both
+  measured decisions, with the numbers in [memory.md](memory.md). A change to
+  the first needs a restart (`app.disableHardwareAcceleration()` is ignored once
+  the app is ready), which is why `useHardwareAcceleration` treats any
+  non-boolean as the shipped default: a hand-edited file must not put the app in
+  a third state. When the second may actually happen is the pure
+  `shared/window-unload.js`.
+- **`language` is `'system'` or a catalogue code**, resolved once in main against
+  `app.getLocale()` — [i18n.md](i18n.md). `mapLabel` is the `MAP_LABEL_MODES`
+  enum (`auto`/`always`/`never`), normalised by `mapLabelMode` so a file
+  hand-edited to nonsense cannot make the overlay do something undefined.
 
 ## The first-run welcome tour
 
@@ -169,6 +258,12 @@ conflict check — the rule and its safety net are in [hotkeys.md](hotkeys.md).
     because only the browser knows what the active layout calls a virtual-key
     code — but the capture control is deliberately **not** duplicated in the
     tour.
+  - **The hotkeys step lists five of the ten system actions**
+    (`ONBOARDING_HOTKEY_ACTIONS`, in reading order). Clear and the four
+    opacity/size steps are refinements nobody needs in the first minute and the
+    full table is one click away; `toggle-map` is first because it is the one
+    the step invites the user to press, and `toggle-markers` is last because the
+    step above it has just explained what a marker is.
   - **The hotkeys step carries its own conflict warning** (`#tourHotkeyConflict`,
     from `onboardingConflictList`, plus the `tryIt.taken` branch of
     `onboardingTryIt`). The home-page banner is behind the backdrop, so without

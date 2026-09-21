@@ -4,8 +4,9 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * User-imported map images, stored flat in userData `custom/`.
- * The shipped maps are read-only and handled by `map-library.js` instead.
+ * User-imported map images, stored flat in userData `custom/`; the shipped maps
+ * are read-only and belong to `map-library.js`. Every `fileName` below goes
+ * through `path.basename`, so a name the user typed cannot escape `custom/`.
  */
 class UserData {
     constructor(mapLibrary) {

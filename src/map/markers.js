@@ -4,30 +4,12 @@ const {markerGeometry, bracketPaths, markerReach} = require('../shared/marker-ge
 const {t} = require('../shared/i18n');
 
 /**
- * The marker layer of the overlay and the OBS window.
- *
- * Both windows draw the same picture from the same payload — that is the point:
- * a streamer's capture must show what the player sees, and two drawing routines
- * would eventually disagree. The only difference is that the overlay rotates
- * with the map and the OBS window does not.
- *
- * ## Why SVG rather than a canvas
- *
- * The overlay is resized live (the size slider, Ctrl+Alt+Shift+Up/Down) and
- * rotated in 90° steps. A canvas would have to be re-rasterised on every change
- * and would still be blurry when the CSS scale is not 1; an SVG is re-laid out
- * by the compositor and stays crisp at 150 px and at 800 px alike.
- *
- * ## Why the viewport is in *rendered* pixels
- *
- * The obvious `viewBox="0 0 <image width> <image height>"` would scale the
- * stroke widths with the overlay, which is exactly what the sizing curve in
- * `shared/marker-geometry.js` exists to avoid. So the viewBox is the map's
- * **rendered** size and the geometry is literal pixels; a point's fraction is
- * multiplied by that size here and nowhere else.
- *
- * Nothing in this file decides *which* layers are drawn — `shared/marker-rules.js`
- * does, in the main process, and the payload is the answer.
+ * RENDERER tier: the marker layer of the overlay **and** the OBS window, one
+ * routine for both so a streamer's capture cannot disagree with the player's
+ * view. SVG, not a canvas, because the overlay is resized and rotated live.
+ * The viewBox is the map's **rendered** size, never the image's, or the stroke
+ * widths scale with the overlay and undo the sizing curve. *Which* layers are
+ * drawn is main's decision; the payload is the answer.
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -42,13 +24,9 @@ function viewportPadding(layers, extent) {
 }
 
 /**
- * Draw the marker layer into an `<svg>` element.
- *
- * @param {SVGElement} svg the element to fill (emptied first)
- * @param {{layers: Array, imageWidth: number, imageHeight: number, opacity: number}} payload
- *   `layers` is `shared/marker-rules.js` `drawableLayers()`; the image size is
- *   what main read off the PNG, so the aspect ratio does not have to wait for
- *   the browser to decode the image.
+ * Draw the marker layer into an `<svg>` element (emptied first).
+ * @param {{layers, imageWidth, imageHeight, opacity}} payload the image size is
+ *   main's read of the PNG, so the aspect ratio does not wait for the decode
  * @param {number} width the map's rendered width in px (the `size` setting)
  * @returns {{width: number, height: number}} the SVG's own box, for the caller
  */
@@ -65,9 +43,8 @@ function drawMarkers(svg, payload, width) {
 
     const height = width * imageHeight / imageWidth;
     const pad = viewportPadding(layers, width);
-    // The viewBox starts at -pad so the map's own (0, 0) stays at (0, 0) of the
-    // image while the element itself extends past it on every side; the caller
-    // offsets the element by the same amount, so the two line up exactly.
+    // Starting at -pad keeps the map's own (0, 0) put while the element
+    // extends past it; the caller offsets by the same amount.
     svg.setAttribute('viewBox', `${-pad} ${-pad} ${width + pad * 2} ${height + pad * 2}`);
     svg.setAttribute('width', String(width + pad * 2));
     svg.setAttribute('height', String(height + pad * 2));
@@ -84,9 +61,8 @@ function drawMarkers(svg, payload, width) {
         group.setAttribute('stroke-width', String(geometry.stroke));
         group.setAttribute('stroke-linecap', 'round');
         group.setAttribute('stroke-linejoin', 'round');
-        // One halo behind the whole layer rather than per marker: the brackets
-        // are drawn over the game's own art, and a thin dark outline is what
-        // keeps them readable on a pale street map as well as on a dark one.
+        // A dark halo keeps the brackets readable over the game's own art on a
+        // pale street map as well as a dark one.
         group.setAttribute('paint-order', 'stroke');
         for (const point of layer.points) {
             const marker = document.createElementNS(SVG_NS, 'g');
@@ -120,20 +96,8 @@ function round(value) {
 }
 
 /**
- * Fill the legend element with one chip per drawn layer.
- *
- * Only the layers **we** draw, which on a bundled map is normally just the gas
- * cans — the map image already shows the cellars, gates and cars, and a legend
- * claiming those would be wrong the moment a pack ships a clean image.
- *
- * Built with `textContent`, never markup: the strings are ours, but this window
- * runs with node integration and there is no reason to make that a judgement
- * call per string.
- *
- * @param {HTMLElement} element
- * @param {Array<{id, colour, labelKey}>} items
- * @param {string} lang
- * @param {boolean} show
+ * One legend chip per drawn layer. `textContent`, never markup: this window
+ * runs with node integration, so that is not a judgement call per string.
  */
 function drawLegend(element, items, lang, show) {
     while (element.firstChild) element.removeChild(element.firstChild);

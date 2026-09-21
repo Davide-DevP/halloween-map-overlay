@@ -511,8 +511,11 @@ passes) `matchMap` to identify the map. It costs what one ordinary detector tick
 costs, against a 450 ms poll that pays it whether anything was pressed or not. A
 press that is not the map screen stops at the gate after 1.4 ms of blocking JS.
 
-**Retried while the key is still held**, at +60 / +90 / +150 ms (so 60, 150 and
-300 ms after the press — the pure `confirmRetryDelay`). The game fades its Tab
+**Retried while the key is still held**, at `CONFIRM_RETRY_DELAYS` =
+`[50, 50, 50, 50, 50, 100]` ms, each counted from the end of the previous
+attempt (the pure `confirmRetryDelay`); the first schedule, +60 / +90 / +150 ms,
+was superseded after the 0.7.0 field log showed the game's fade takes
+250–330 ms — see `docs/agents/markers-and-tab-mode.md` § Measured constants. The game fades its Tab
 screen in, so the capture on the down edge can genuinely be too early; with one
 attempt and no retry the next chance was the detector's 700 ms tick, which is
 **slower than the polling path's 450 ms** — the trigger would have made the

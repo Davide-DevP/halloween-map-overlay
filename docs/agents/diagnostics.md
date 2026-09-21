@@ -14,7 +14,19 @@ local file, and the user decides whether to send it.
   200-line ring buffer) are separate *files* on purpose — a single match writes
   far more detector lines than app lines and one file would bury the other.
   Line format: `<ISO> [level] <event> k=v …`, one event per line always. A level
-  is optional so detector lines are byte-identical to what 0.3.1 wrote.
+  is optional so detector lines are byte-identical to what 0.3.1 wrote. A value
+  with whitespace in it is quoted, because one event per line is what makes the
+  file greppable. **Rotation**: an empty file is never rotated (rotating on the
+  first write would throw away the previous run for nothing), and the old `.1`
+  is unlinked *before* the `rename` — an EPERM from a scanner holding the backup
+  open would otherwise lose the rotation *and* the new line.
+- **Never a reason not to log.** Neither log is gated on `DEBUG`: the session
+  worth having a log for is the one that already went wrong. A failed write
+  costs the line plus one console complaint per process, never a throw at the
+  caller. `collect()` requires electron's `screen` **lazily** — `app-log.js` is
+  `index.js`'s very first import and `screen` throws before `ready` — and GPU
+  info is best effort, because `getGPUInfo` rejects on some drivers and in
+  headless sessions and a report without it is still a report.
 - **Never log a path, a frame, or user text.** Every string value that reaches
   `app.log` goes through `redactHome` (`shared/redact.js`, tested against both
   separator spellings and a home directory full of regex metacharacters), so a
@@ -59,9 +71,17 @@ local file, and the user decides whether to send it.
   - `appLog.flush()` runs **synchronously** right after the
     `render-process-gone` line. It is rare, it is one small append, and the
     whole value of the line is that it outlives whatever happens next.
+  - `fatal()` ends the process with `process.exit(1)`, **not** `app.quit()`:
+    quit runs handlers that may themselves be what threw.
   - At most 5 crash files. The name carries the time and sorts chronologically
     as a plain string — `lastCrashSeen` (a setting) is compared against it with
-    `>=`, no date parsing, nothing a copied file can make lie.
+    `>=`, no date parsing, nothing a copied file can make lie. An *unknown*
+    `lastCrashSeen` (fresh install, hand-edited settings file) makes every crash
+    file unseen, which is the safe direction: the banner is dismissible, silence
+    about a crash that really happened is not recoverable.
+  - Crash files are **ASCII only**. They are opened by double-clicking them on a
+    Windows box, where a BOM-less text file still renders an em dash as mojibake
+    in older viewers. `system.txt` follows the same rule.
 - **A `process.on('uncaughtException')` listener changes what a sync write
   costs.** Electron's default was a dialog and a living app; now an unhandled
   throw in main writes a crash file and exits. So **every synchronous fs write
@@ -72,7 +92,17 @@ local file, and the user decides whether to send it.
 - **The report is a file list, not a directory walk.** `LOG_FILES` in
   `diagnostics.js` plus the `crash-*.txt` plus two generated texts
   (`system.txt` and a redacted `hotkeys.json`) — so "no screenshots, no maps"
-  is checkable by reading one constant.
+  is checkable by reading one constant. `updater.log` is in that list although
+  the app never writes it: `hmo-updater.exe` does, and only once an update has
+  actually installed, so it is usually a skipped entry — it carries the step
+  timings and the folder-size curve, which is the only evidence there is after
+  "the update did nothing". An entry over 4 MB is included as its **tail**
+  behind a truncation note, and two sources with the same basename become
+  `name-2` rather than overwriting each other.
+- **An unbound system hotkey prints as `(unbound)`** in `system.txt`'s
+  `[settings]` block. It is stored as an empty string, and a bare `""` reads
+  like a value that went missing — "my hotkey does nothing" and "I switched that
+  hotkey off" would be the same line.
 - **`hotkeys.json` is redacted on its way into the zip**, which is why it is
   *not* in `LOG_FILES`: every entry names the map it is bound to, and a custom
   map's key is `Custom/` + a name the user typed. `redactCustomMapKeys`
@@ -93,6 +123,11 @@ local file, and the user decides whether to send it.
   format in an app that ships 350 MB per update. Two traps it already avoids,
   both covered by tests: method 8 needs `deflateRawSync` (a zlib header makes
   every unpacker refuse the file), and an entry deflate would *grow* is stored.
+  Two more deliberate details: the local header carries the sizes and the CRC up
+  front (no data descriptor — everything is in memory before it is written, and
+  that is what the strictest unpackers want), and DOS timestamps, which have
+  2-second resolution and start in 1980, are clamped rather than wrapping into a
+  nonsense date.
   `readZip` exists so the round-trip test proves the bytes are a real archive
   rather than proving the writer agrees with itself.
 

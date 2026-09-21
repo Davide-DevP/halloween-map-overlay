@@ -5,17 +5,9 @@ const {t, resolveLanguage, LANGUAGE_SETTING_VALUES} = require('../shared/i18n');
 const appLog = require('./app-log');
 
 /**
- * The main process's view of the UI language.
- *
- * Most user-facing text is drawn by the renderer, which translates on its own —
- * main sends `{key, params}` messages (see `msg()` in `src/shared/i18n.js`) so
- * a toast that is already on screen when the language changes is not stuck in
- * the old one. What main *draws itself* has no renderer to do that: the tray
- * menu and the "already running" dialog. Those go through this class.
- *
- * `system` (the default) is resolved here rather than in the renderer because
- * `app.getLocale()` is a main-process API and there is no reason to expose a
- * second way of answering the same question.
+ * The main process's view of the UI language: for the two things main draws
+ * itself, the tray menu and the "already running" dialog. Everything else
+ * travels as a `{key, params}` message. See `docs/agents/i18n.md`.
  */
 class Language {
 
@@ -24,9 +16,8 @@ class Language {
         this.onChange = typeof onChange === 'function' ? onChange : null;
 
         ipcMain.handle('get-language', async () => this.current());
-        // The renderer writes the setting through `set-setting` like any other,
-        // then tells main to re-resolve it and push the result back — to itself
-        // (so `system` is resolved in one place) and to the tray.
+        // The renderer asks main to re-resolve and push the result back — to
+        // itself and to the tray — so `system` is resolved in one place.
         ipcMain.handle('set-language', async (event, value) => {
             const next = LANGUAGE_SETTING_VALUES.includes(value) ? value : 'system';
             if (this.settings) this.settings.set('language', next);
@@ -50,15 +41,9 @@ class Language {
 }
 
 /**
- * The language a process that has no `Settings` instance should use.
- *
- * The second-instance branch in `index.js` runs before any module is built and
- * quits again immediately; constructing `Settings` there would register a
- * second set of IPC handlers for a window that is never shown. Reading the file
- * is cheaper and cannot have side effects. A missing or corrupt file just means
- * `system`.
- *
- * @returns {string} one of `LANGUAGES` in `shared/i18n.js`
+ * The language for a process with no `Settings`: the second-instance branch in
+ * `index.js` quits immediately, and constructing `Settings` there would
+ * register a second set of IPC handlers for a window that is never shown.
  */
 function languageWithoutSettings() {
     let setting = 'system';

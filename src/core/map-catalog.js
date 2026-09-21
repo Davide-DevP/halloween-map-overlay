@@ -1,15 +1,10 @@
 'use strict';
 
 /**
- * Pure map catalogue. No electron, no fs — the caller passes a plain listing
- * of relative paths, so both processes and the unit tests can use it.
- *
- * Shipped maps live at `maps/<Creator>/<Map Name>.png`, so a listing entry
- * looks like `deftyconchgaming/East Haddonfield.png` and its catalogue key is
- * `deftyconchgaming/East Haddonfield`.
- *
- * User-imported maps are flat files in userData `custom/` and are merged in
- * under the reserved creator `Custom` (`Custom/My Map`).
+ * PURE map catalogue (no electron, no fs): the caller passes a listing of
+ * relative paths. A shipped `maps/<Creator>/<Map Name>.png` has the key
+ * `<Creator>/<Map Name>`; user imports are flat files in userData `custom/`
+ * merged in under the reserved creator `Custom`. `docs/agents/architecture.md`.
  */
 
 const CUSTOM_CREATOR = 'Custom';
@@ -23,10 +18,8 @@ function toPosix(p) {
     return String(p || '').replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
-/**
- * Accent/punctuation/case insensitive name folding. Single source of name
- * normalisation for this project — do not re-implement it elsewhere.
- */
+/** Accent/punctuation/case insensitive folding. The project's **single**
+ * name normaliser — do not re-implement it elsewhere. */
 function foldName(s) {
     return String(s || '')
         .normalize('NFD')
@@ -68,10 +61,8 @@ function makeEntry(creator, name, file, custom) {
     };
 }
 
-/**
- * Deterministic ordering: shipped maps first (creator, then map name), custom
- * maps last. `nextMap`/`prevMap` cycle in exactly this order.
- */
+/** Shipped maps first (creator, then name), custom last. `nextMap`/`prevMap`
+ * cycle in exactly this order. */
 function sortCatalog(entries) {
     return entries.slice().sort((a, b) => {
         if (a.custom !== b.custom) return a.custom ? 1 : -1;
@@ -81,18 +72,14 @@ function sortCatalog(entries) {
     });
 }
 
-/**
- * Build the catalogue from a maps-root listing.
- * @param {string[]} listing relative paths, e.g. ["deftyconchgaming/East Haddonfield.png"]
- * @returns {Array<{key: string, creator: string, name: string, file: string, custom: boolean}>}
- */
+/** Build the catalogue from a maps-root listing of relative paths. */
 function buildCatalog(listing) {
     const out = [];
     const seen = new Set();
     for (const raw of listing || []) {
         const parts = toPosix(raw).split('/').filter(Boolean);
-        // A shipped map needs at least <Creator>/<Map>; loose files in the maps
-        // root have no creator and are skipped rather than silently mis-filed.
+        // A shipped map needs <Creator>/<Map>: a loose file in the maps root has
+        // no creator, so it is skipped rather than silently mis-filed.
         if (parts.length < 2) continue;
         const fileName = parts[parts.length - 1];
         if (!IMAGE_EXTENSIONS.test(fileName)) continue;
@@ -106,12 +93,8 @@ function buildCatalog(listing) {
     return sortCatalog(out);
 }
 
-/**
- * Merge flat user-imported files (userData `custom/`) into a catalogue under
- * the `Custom` creator. Returns a new array; the input is not mutated.
- * @param {Array} catalog
- * @param {string[]} customListing file names, e.g. ["My Map.png"]
- */
+/** Merge a userData `custom/` listing of bare file names into a catalogue under
+ * the `Custom` creator. Returns a new array; the input is not mutated. */
 function mergeCustomMaps(catalog, customListing) {
     const base = (catalog || []).filter(e => !e.custom);
     const seen = new Set(base.map(e => e.key));
@@ -133,31 +116,16 @@ function candidateForms(entry) {
 }
 
 /**
- * Resolve a user/CLI/hotkey-supplied key to a catalogue entry.
- *
- * Accepts a full catalogue key (`deftyconchgaming/East Haddonfield`), a bare map name
- * (`east haddonfield`), or a custom-map file name (`My Map.png`), with or
- * without extension and in any case. Tried in order:
- *   1. exact match on any candidate form
- *   2. normalized substring match either way round
- *   3. closest candidate by Levenshtein distance (bounded, so garbage misses),
- *      **for a bare name only** — see below
- *
- * A *full* `Creator/Name` query deliberately stops after stage 2. The fuzzy
- * bound is a fraction of the string's own length, and every key in a creator's
- * folder shares that whole creator prefix, so the bound is far looser than it
- * looks: `deftyconchgaming/Smiths Grove` is within 40 % of
- * `deftyconchgaming/East Haddonfield` and resolved to it. That is how a
- * `hotkeys.json` entry for a map that is *gone* — an uninstalled map pack, a
- * deleted custom image — quietly put a **different** map on the overlay, which
- * is worse than doing nothing: the user presses their Smiths Grove key and gets
- * East Haddonfield with no explanation. A full key is a precise thing; if it
- * matches nothing exactly and nothing by substring, it is gone, and the caller
- * says so. Stage 2 still covers the case stage 3 was really there for — a
- * renamed creator folder, where the map *name* is a substring of the stored key
- * (covered by a test).
- *
- * @returns {object|null} the catalogue entry, or null when nothing is close
+ * Resolve a key, a bare map name or a custom-map file name — any case, with or
+ * without extension — to a catalogue entry: exact match on any candidate form,
+ * then normalised substring either way round, then closest by Levenshtein
+ * (bounded), **for a bare name only**.
+ * A full `Creator/Name` query must keep stopping after the substring stage: the
+ * fuzzy bound is a fraction of the string's length and every key in a creator's
+ * folder shares that whole prefix, so `<creator>/Smiths Grove` lands within
+ * 40 % of `<creator>/East Haddonfield` and a `hotkeys.json` entry for a map
+ * that is gone would silently put a *different* map on the overlay. The
+ * substring stage still covers a renamed creator folder (tested).
  */
 function findClosestMapMatch(key, catalog) {
     if (!key || !Array.isArray(catalog) || catalog.length === 0) return null;
@@ -176,7 +144,7 @@ function findClosestMapMatch(key, catalog) {
         })) return entry;
     }
 
-    // A qualified key gets no fuzzy stage — see the note above.
+    // A qualified key gets no fuzzy stage — see above.
     if (raw.includes('/')) return null;
 
     let best = null;
@@ -186,7 +154,7 @@ function findClosestMapMatch(key, catalog) {
             const folded = foldName(form);
             if (!folded) continue;
             const distance = levenshtein(query, folded);
-            // Bounded so an unrelated string does not resolve to a random map
+            // Bounded, so an unrelated string does not resolve to a random map.
             const limit = Math.max(2, Math.floor(Math.max(query.length, folded.length) * 0.4));
             if (distance > limit) continue;
             if (distance < bestDistance) {
@@ -208,8 +176,7 @@ function indexOfKey(currentKey, catalog) {
 function step(currentKey, catalog, delta) {
     if (!Array.isArray(catalog) || catalog.length === 0) return null;
     const index = indexOfKey(currentKey, catalog);
-    // Unknown/empty current key: stepping forward starts at the first map,
-    // stepping back at the last one.
+    // Unknown/empty key: forward starts at the first map, back at the last.
     if (index === -1) return delta > 0 ? catalog[0] : catalog[catalog.length - 1];
     const next = (index + delta + catalog.length) % catalog.length;
     return catalog[next];
@@ -240,10 +207,9 @@ module.exports = {
     levenshtein,
     stripExtension,
     buildCatalog,
-    // Exported for `shared/map-pack-rules.js` `mergeMapPacks`, which is
-    // import-free by design and takes the ordering as an argument: a map pack
-    // must sort exactly like the bundled map it sits next to, and there is
-    // still only one implementation of that order.
+    // Exported for `mergeMapPacks`, which is import-free and takes the ordering
+    // as an argument: a pack must sort exactly like a bundled map, and there is
+    // still one implementation of that order.
     sortCatalog,
     mergeCustomMaps,
     findClosestMapMatch,

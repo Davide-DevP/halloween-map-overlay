@@ -1,43 +1,16 @@
 'use strict';
 
 /**
- * PURE marker geometry. Imports nothing — no electron, no DOM.
- *
- * One marker is four **reticle corner brackets** around a point (the approved
- * look, `dist/marker-variants/variant-B-brackets.png`): an L at each corner of
- * a square, with the middle of every side left open. Hollow on purpose — on the
- * in-game Tab map the game draws its own icon on an exit the player has
- * discovered, and it has to show *through* ours rather than be covered by it.
- *
- * ## Why the size is a curve rather than a proportion
- *
- * The overlay is a user-set width between 50 and 800 px (`SIZE_MIN`/`SIZE_MAX`
- * in `shared/hotkeys-constants.js`), and the same marker has to be legible on a
- * 150 px minimap and not cartoonish on an 800 px one. Two obvious rules both
- * fail:
- *   - a fixed **proportion** of the map (e.g. 9 %) is 13 px across at 150 and
- *     72 px at 800 — three markers would swallow a street;
- *   - a fixed **pixel** size disappears at 800 and covers half the map at 150.
- *
- * So everything scales with `sqrt(extent / REFERENCE_EXTENT)`: doubling the map
- * grows a marker by ~1.41x, which keeps it recognisable at both ends while its
- * share of the map halves. The numbers are anchored on the default 250 px
- * overlay, where the approved mock-up was drawn, and clamped at both ends so a
- * hand-edited size cannot produce a hairline or a blob.
- *
- * The same function serves the in-game Tab map, where `extent` is the map
- * panel's own side (~786 px at 1080p) — one rule, two surfaces.
- *
- * Everything returned is in **rendered pixels**, because the renderers draw the
- * SVG in rendered-pixel space (viewBox `0 0 w h`) rather than in the image's
- * own coordinates. A stroke width in image coordinates would be multiplied by
- * the CSS scale and undo all of the above.
+ * PURE marker geometry — four hollow reticle corner brackets. Everything is in
+ * **rendered pixels**: a stroke width in image coordinates would be multiplied
+ * by the CSS scale and undo the sizing curve. One rule for both surfaces. Why
+ * each number: docs/agents/markers-and-tab-mode.md § Measured constants.
  */
 
 /** The overlay width the numbers below were drawn for (the shipped default). */
 const REFERENCE_EXTENT = 250;
 
-/** Half the side of the square the four brackets sit on, at REFERENCE_EXTENT. */
+/** Half the side of the brackets' square, at REFERENCE_EXTENT. */
 const REFERENCE_HALF = 11.25;
 
 /** Bracket stroke, at REFERENCE_EXTENT. */
@@ -46,7 +19,7 @@ const REFERENCE_STROKE = 1.6;
 /** Arm length as a fraction of `half`: how far each L runs along its side. */
 const ARM_RATIO = 0.42;
 
-/** Clamps. The extent clamp keeps the curve inside the range it was fitted on. */
+/** Clamps: the curve's fitted range, and no hairlines or blobs at the ends. */
 const MIN_EXTENT = 50;
 const MAX_EXTENT = 1600;
 const MIN_HALF = 5;
@@ -54,12 +27,7 @@ const MAX_HALF = 26;
 const MIN_STROKE = 1;
 const MAX_STROKE = 3.2;
 
-/**
- * Gas cans are drawn as the same brackets **rotated 45° and smaller**, so the
- * one layer that is not a ring on the map image is also the one that does not
- * read as a ring. Smaller because a diamond's corners reach further than a
- * square's for the same half-extent.
- */
+/** Gas: the same brackets rotated 45°, and smaller because a diamond reaches. */
 const GAS_SCALE = 0.78;
 const GAS_ROTATION = 45;
 
@@ -68,12 +36,11 @@ function clamp(value, min, max) {
 }
 
 /**
- * The geometry of one marker, in rendered pixels.
- *
- * @param {number} extent the drawn map's width in px — the overlay `size`
- *   setting on the corner minimap, the Tab panel's side in Tab mode.
- * @param {{small?: boolean}} [opts] `small` is the gas variant.
- * @returns {{half: number, arm: number, stroke: number, rotation: number}}
+ * One marker's geometry, in rendered pixels. Scales with
+ * `sqrt(extent / REFERENCE_EXTENT)`, so doubling the map grows a marker ~1.41x
+ * while halving its share of it.
+ * @param {number} extent the drawn map's width in px — the `size` setting, or
+ *   the Tab panel's own side. `opts.small` is the gas variant.
  */
 function markerGeometry(extent, opts) {
     const o = opts || {};
@@ -96,15 +63,8 @@ function round(value) {
 }
 
 /**
- * The four bracket paths of one marker, as SVG path data **centred on (0, 0)**.
- *
- * Centred so a marker is one `<g transform="translate(cx cy) rotate(r)">` with
- * four identical children: the renderer positions and rotates, it never does
- * geometry. Each path is a two-segment L — along the side, turn the corner,
- * along the other side.
- *
- * @param {{half: number, arm: number}} geometry from `markerGeometry`
- * @returns {string[]} four path `d` strings (TL, TR, BR, BL)
+ * The four bracket paths **centred on (0, 0)**, so a marker is one
+ * `<g transform>` and the renderer does no geometry. TL, TR, BR, BL.
  */
 function bracketPaths(geometry) {
     const h = geometry.half;
@@ -117,15 +77,7 @@ function bracketPaths(geometry) {
     ];
 }
 
-/**
- * How far a marker reaches from its centre, including half the stroke.
- *
- * The renderers use it to pad the SVG viewport, so a marker near the edge of
- * the map is not clipped in half. A diamond's corner is `half * sqrt(2)` away.
- *
- * @param {{half: number, stroke: number, rotation: number}} geometry
- * @returns {number}
- */
+/** Reach from the centre, half the stroke in: the SVG viewport's padding. */
 function markerReach(geometry) {
     const diagonal = geometry.rotation ? Math.SQRT2 : 1;
     return round(geometry.half * diagonal + geometry.stroke / 2);

@@ -13,48 +13,20 @@ const {acceleratorToDisplay} = require('../shared/hotkeys-constants');
 const {DEFAULT_SIZE} = require('./map-detector/matcher');
 
 /**
- * Map packs — new and updated maps without an app release. Spec:
- * `docs/SPEC-MAP-PACKS.md`.
- *
- * This is the **electron half**: where the packs live (`userData/map-packs`),
- * the setting that gates the request, when the check runs, the IPC the Settings
- * button calls, and who is told after a pack lands. Everything it decides is
- * pure (`shared/map-pack-rules.js`), everything it writes is fs-only
- * (`map-pack-store.js`), and everything it downloads goes through one injected
- * function (`map-pack-fetch.js`) — so the whole install is unit tested without
- * Electron and without the network.
- *
- * The rules that make this the app's *second* network request and not a
- * surprise:
- *
- * - **`checkForMapPacks` (default true, Settings › General).** With it off no
- *   request is made at all — the gate is in the pure `shouldCheckPacks`, so it
- *   cannot be forgotten at one of the two call sites, and the "Check for new
- *   maps" button honours it too.
- * - **Never before the window.** The startup check is a `setTimeout` after the
- *   main window has shown, deliberately later than the update check so two
- *   toasts do not arrive together on a slow connection.
- * - **At most once per 24 h**, remembered in `map-packs/state.json` rather than
- *   in the settings file.
- * - **Nothing is sent.** A GET of a public file, no query string, no cookies,
- *   no identifiers; the only header that says anything is the `User-Agent`.
- * - **A pack's key is logged in full, like a shipped map's.** The logging rule
- *   (`docs/agents/diagnostics.md`) is that a *custom* map's key is user text and becomes `Custom/(custom)`. A
- *   pack's key is not user text: it is catalogue data from a manifest published
- *   in this project's own repository, and `isValidPackKey` restricts it to a
- *   narrow character set with no newlines and no `=`, so it is safe in a
- *   `k=v` log line. Which pack failed to install is also the only thing that
- *   makes "the new map never arrived" answerable. Packs may not claim the
- *   reserved `Custom` creator, so this can never become a way to launder a
- *   user-typed name into the log.
+ * Map packs, the **electron half**: where packs live (`userData/map-packs`), the
+ * setting that gates the request, when the check runs, the IPC and who is told
+ * after a pack lands. Every decision is pure (`shared/map-pack-rules.js`), every
+ * write fs-only (`map-pack-store.js`), every download through one injected
+ * function (`map-pack-fetch.js`), so the install is unit tested without
+ * Electron and without the network. **Nothing is sent**: a GET of one public
+ * file, no query, no cookies, no identifiers. **A pack's key is logged in
+ * full**, unlike a custom map's — it is catalogue data, not user text. Spec:
+ * `docs/SPEC-MAP-PACKS.md`; reasoning: `docs/agents/map-packs.md`.
  */
 class MapPacks {
 
-    /**
-     * @param {Object} mainWindow for the status toast and the refresh push
-     * @param {Object} settings the `checkForMapPacks` gate
-     * @param {Object} mapLibrary invalidated after an install
-     */
+    /** `mainWindow` takes the toast and the refresh push, `settings` holds the
+     * `checkForMapPacks` gate, `mapLibrary` is invalidated after an install. */
     constructor(mainWindow, settings, mapLibrary) {
         this.mainWindow = mainWindow;
         this.settings = settings;
@@ -78,26 +50,17 @@ class MapPacks {
             appVersion: MapPacks.appVersion(),
             templateSize: DEFAULT_SIZE
         });
-        // Leftovers from a run that was killed mid-download or mid-swap.
-        // Mostly housekeeping — but a pack parked aside by a swap the process
-        // did not live to finish is *restored* here rather than deleted, which
-        // is the one case where it is recovery.
+        // Housekeeping, except that a pack parked aside by an unfinished swap
+        // is *restored* here rather than deleted.
         const swept = this.store.sweep();
         if (swept.removed || swept.restored) {
             appLog.event('map-pack-sweep', {removed: swept.removed, restored: swept.restored});
         }
 
         const self = this;
-        // The "Check for new maps" button. `handle`, not `on`: the button is
-        // disabled until it answers.
+        // `handle`, not `on`: the button stays disabled until it answers.
         ipcMain.handle('check-map-packs', async () => self.check({force: true}));
-        // What Settings shows next to the button, and what the renderer needs
-        // to say "3 installed, last checked …" without a second source.
         ipcMain.handle('get-map-pack-state', async () => self.info());
-        // `get-map-markers` used to be handled here. It now lives in
-        // `core/map-markers.js`, which asks `markers()` below first and falls
-        // back to the bundled file — one channel, one precedence rule, whether
-        // the map came from a pack or from `maps/`.
     }
 
     /** The running app's version, for `minAppVersion`. */
@@ -109,34 +72,23 @@ class MapPacks {
         }
     }
 
-    /**
-     * `MapDetector`, so a freshly installed pack's templates are picked up
-     * without a restart. Injected rather than held from the constructor: the
-     * detector is built after this class in `index.js`.
-     */
+    /** So a new pack's templates are picked up without a restart. Injected,
+     * not taken in the constructor: it is built after this class. */
     setDetector(detector) {
         this.detector = detector && typeof detector.reloadTemplates === 'function' ? detector : null;
     }
 
-    /**
-     * `Hotkeys`, so a map that arrives *after* the first run still gets a
-     * number key. Injected for the same reason as the detector: it is built
-     * before this class but the dependency runs the other way, and the file
-     * writing stays in the one place that owns `hotkeys.json`.
-     */
+    /** So a map arriving after the first run still gets a number key. Injected
+     * so the write stays in the one place that owns `hotkeys.json`. */
     setHotkeys(hotkeys) {
         this.hotkeys = hotkeys && typeof hotkeys.assignPackMapHotkey === 'function' ? hotkeys : null;
     }
 
-    /** Installed packs, as the catalogue and the diagnostic report want them. */
     list() {
         return this.store.list();
     }
 
-    /**
-     * Every installed pack's templates, for the detector's one-time load.
-     * @returns {Array<{key: string, templates: Object}>}
-     */
+    /** Every installed pack's templates, for the detector's one-time load. */
     templates() {
         const out = [];
         for (const pack of this.store.list()) {
@@ -146,22 +98,14 @@ class MapPacks {
         return out;
     }
 
-    /**
-     * The markers an installed pack carries for this key, or null.
-     * `core/map-markers.js` calls it first and falls back to the bundled file,
-     * so a pack overrides a bundled map's markers exactly as it overrides its
-     * image and its templates.
-     */
+    /** `core/map-markers.js` calls this before the bundled file, so a pack
+     * overrides markers as it overrides image and templates. */
     markers(key) {
         const pack = this.store.list().find(p => p.key === key);
         return pack ? this.store.readMarkers(pack) : null;
     }
 
-    /**
-     * Installed packs plus the last check, for `system.txt` and the renderer.
-     * @returns {{packs: Array<{key, version}>, lastCheckAt: number,
-     *            lastResult: string, lastError: ?string, skipped: Array}}
-     */
+    /** Installed packs plus the last check, for `system.txt` and Settings. */
     info() {
         const state = this.store.state();
         return {
@@ -178,16 +122,10 @@ class MapPacks {
         return !this.settings || this.settings.get('checkForMapPacks') !== false;
     }
 
-    /**
-     * The inputs of the pure `shouldCheckPacks`, in one place so the startup
-     * timer and the button cannot end up asking slightly different questions.
-     *
-     * `lastFailed` shortens the wait to an hour: a launch with no network fails
-     * in a second and would otherwise burn the whole day's slot, so coming back
-     * online ten minutes later would find nothing until tomorrow. A 404 on the
-     * index is **not** a failure — it is "nothing published yet" — so it does
-     * not shorten anything either.
-     */
+    /** The inputs of the pure `shouldCheckPacks`, in one place so the startup
+     * timer and the button cannot ask different questions. `lastFailed`
+     * shortens the wait to an hour; a 404 is "nothing published yet", **not** a
+     * failure, so it shortens nothing. */
     gateState(force) {
         const state = this.store.state();
         return {
@@ -199,14 +137,8 @@ class MapPacks {
         };
     }
 
-    /**
-     * The startup check: after the window is up, never blocking it.
-     *
-     * The delay is longer than the update check's 4 s on purpose — the two are
-     * the app's only two requests, and arriving together they would produce two
-     * toasts over a freshly drawn home page.
-     * @param {number} [delayMs]
-     */
+    /** After the window is up, never blocking it, and later than the update
+     * check's 4 s so the two toasts cannot land together. */
     scheduleStartupCheck(delayMs) {
         if (this.startupTimer) clearTimeout(this.startupTimer);
         const decision = rules.shouldCheckPacks(this.gateState());
@@ -223,22 +155,16 @@ class MapPacks {
         if (this.startupTimer.unref) this.startupTimer.unref();
     }
 
-    /**
-     * Check the index and install what is new.
-     *
-     * @param {{force?: boolean, startup?: boolean}} [opts] `force` is the
-     *   button: it ignores the 24 h interval but **not** the setting.
-     * @returns {Promise<{ok: boolean, installed: number, error: ?string,
-     *                    state: object}>}
-     */
+    /** Check the index and install what is new. `opts.force` is the button: it
+     * ignores the 24 h interval but **not** the setting. */
     async check(opts) {
         const options = opts || {};
         if (this.checking) return {ok: false, installed: 0, error: 'busy', state: this.info()};
 
         const decision = rules.shouldCheckPacks(this.gateState(options.force));
         if (!decision.check) {
-            // With the setting off this is the whole story: no socket is
-            // opened, and the button says so rather than doing nothing.
+            // With the setting off no socket is opened, and the button says so
+            // rather than appearing to do nothing.
             if (decision.reason === 'disabled' && options.force) {
                 this.toast(msg('mapPacks.disabled'));
             }
@@ -247,10 +173,8 @@ class MapPacks {
 
         this.checking = true;
         if (options.force) this.toast(msg('mapPacks.checking'));
-        // Which map keys the catalogue held *before* the check. A pack key that
-        // is not in here is a genuinely new map and is offered a number key;
-        // one that is replaces a bundled map (or an older version of itself)
-        // and keeps whatever binding that map already had.
+        // The catalogue's keys *before* the check: only a key missing from it is
+        // a new map, and only a new map is offered a number key.
         const before = this.catalogKeys();
         let result;
         try {
@@ -262,7 +186,7 @@ class MapPacks {
                 log: (event, fields) => appLog.event(event, fields)
             });
         } catch (err) {
-            // `checkForPacks` is written never to throw; if it ever does, being
+            // `checkForPacks` is written never to throw; if it does, being
             // offline still must not be more than a toast.
             appLog.error('map-pack-check', {result: 'threw', message: (err && err.message) || String(err)});
             result = {ok: false, error: 'threw', notPublished: false, installed: [], skipped: [], failed: []};
@@ -287,8 +211,7 @@ class MapPacks {
         if (installed) {
             this.applyNewPacks(result.installed, before);
         } else if (options.force) {
-            // "Nothing published yet" is a different sentence from "you have
-            // them all" — and until the first pack ships it is the honest one.
+            // "Nothing published yet" ≠ "you have them all".
             this.toast(result.notPublished ? msg('mapPacks.notPublished') : msg('mapPacks.upToDate'));
         }
         return {ok: true, installed, error: null, state: this.info()};
@@ -304,25 +227,19 @@ class MapPacks {
         }
     }
 
-    /**
-     * A pack landed: make it visible everywhere, without a restart.
-     *
-     * The catalogue first, because the gallery refresh, the detector and the
-     * hotkey assignment all read through it.
-     *
-     * @param {Array<{key: string, version: number}>} installed
-     * @param {Set<string>} [before] catalogue keys from before the check
-     */
+    /** A pack landed: make it visible everywhere without a restart. The
+     * catalogue first — the gallery refresh, the detector and the hotkey
+     * assignment all read through it. `before` is its keys from before. */
     applyNewPacks(installed, before) {
         if (this.mapLibrary && typeof this.mapLibrary.invalidate === 'function') this.mapLibrary.invalidate();
-        // Templates are re-read here, once, and never on a tick — see
-        // "The capture path — do not make it heavier" in docs/agents/detection.md.
+        // Templates are re-read here, once, never on a tick — see "The capture
+        // path" in docs/agents/detection.md.
         if (this.detector) this.detector.reloadTemplates();
         const bound = this.assignHotkeys(installed, before);
         const names = installed.map(p => p.key.split('/').pop());
         if (installed.length === 1 && bound.length === 1) {
-            // Binding a *global* accelerator without saying so would be the
-            // kind of surprise this app does not do.
+            // The toast names the key: binding a *global* accelerator
+            // silently would be a surprise.
             this.toast(msg('mapPacks.installedOneBound', {
                 map: names[0],
                 accelerator: acceleratorToDisplay(bound[0].accelerator)
@@ -332,26 +249,16 @@ class MapPacks {
                 ? msg('mapPacks.installedOne', {map: names[0]})
                 : msg('mapPacks.installedMany', {count: installed.length}));
         }
-        // The gallery, the creator filter and the hotkey map picker all rebuild
-        // from the catalogue the renderer asks main for.
         if (this.mainWindow) this.mainWindow.send('map-packs-updated', {installed: installed.length});
     }
 
     /**
-     * Give each genuinely **new** map a default `Ctrl+Alt+N`.
-     *
-     * `hotkeys.json` is written once, on the first run, so a map that arrives a
-     * week later used to be a map with no number forever. The decision (and
-     * every rule that keeps it from re-arming what a user cleared, offering the
-     * same map twice, or creating a conflict) is the pure `planPackMapHotkey`;
-     * `Hotkeys.assignPackMapHotkey` owns the write, so there is still exactly
-     * one `hotkeys.json` writer.
-     *
-     * "Offered" is remembered in the pack store's state file rather than in
-     * `hotkeys.json`, because the whole point is that a binding the user
-     * **deleted** must not come back on the next start.
-     *
-     * @returns {Array<{key: string, accelerator: string}>} what was bound
+     * Give each genuinely **new** map a default `Ctrl+Alt+N`. The decision is
+     * the pure `planPackMapHotkey`; `Hotkeys.assignPackMapHotkey` owns the
+     * write, so there is still exactly one `hotkeys.json` writer. "Offered" is
+     * remembered in the pack store's state file, not in `hotkeys.json`, so a
+     * binding the user **deleted** cannot come back on the next start.
+     * @returns {Array<{key, accelerator}>} what was bound
      */
     assignHotkeys(installed, before) {
         if (!this.hotkeys) return [];
@@ -367,20 +274,15 @@ class MapPacks {
             if (outcome.accelerator) bound.push({key: pack.key, accelerator: outcome.accelerator});
         }
         if (remember.length) this.store.noteOfferedHotkeys(remember);
-        // One reload for however many arrived: `loadKeys` unregisters and
-        // re-registers everything, so calling it per map would be N times the
-        // work and N sets of renderer pushes.
+        // One reload for however many arrived: `loadKeys` re-registers
+        // everything, so per-map calls would be N times the work.
         if (bound.length && typeof this.hotkeys.loadKeys === 'function') this.hotkeys.loadKeys();
         return bound;
     }
 
-    /**
-     * `keep: true` — the startup check runs on a timer, so "3 new maps were
-     * installed (and one of them is on Ctrl+Alt+5)" can land while the main
-     * window is torn down in the tray. It is the only notice the user gets
-     * that their catalogue changed, so it waits for the next window rather
-     * than disappearing. See `MainWindow.sendUpdate`.
-     */
+    /** `keep: true`: the check runs on a timer, so this can fire while the main
+     * window is torn down in the tray, and it is the only notice that the
+     * catalogue changed — it waits for the next window. See `sendUpdate`. */
     toast(message) {
         if (this.mainWindow && typeof this.mainWindow.sendUpdate === 'function') {
             this.mainWindow.sendUpdate(message, {keep: true});
@@ -393,16 +295,9 @@ class MapPacks {
     }
 }
 
-/**
- * The image decoder main already has: `image-size` is a runtime dependency
- * required by `src/core/main-window.js` for the overlay's bounds. It parses the
- * header only — no pixels, no decode — which is exactly the amount of trust a
- * downloaded PNG deserves. Resolved lazily and wrapped so a pack can never
- * make the check itself throw.
- *
- * @param {Buffer} bytes
- * @returns {?{width: number, height: number, type: string}}
- */
+/** `image-size`, the decoder main already has for the overlay's bounds: header
+ * only, no pixels and no decode, which is the amount of trust a downloaded PNG
+ * deserves. Lazy and wrapped, so a pack cannot make the check itself throw. */
 MapPacks.probeImage = function probeImage(bytes) {
     try {
         const {imageSize} = require('image-size');

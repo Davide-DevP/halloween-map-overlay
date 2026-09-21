@@ -8,28 +8,19 @@ const LABEL_MS = 3000;
 let url = null;
 let labelTimer = null;
 /**
- * The last marker payload and the width it was drawn at, kept so a language
- * change can re-label the legend without a map change. Markers never outlive
- * the map they belong to: every `map-change` replaces this and `map-hide`
- * clears it, exactly like the map name.
+ * The last payload and the width it was drawn at, so a language change can
+ * re-label the legend. **Markers never outlive their map**: every `map-change`
+ * replaces this, `map-hide` clears it.
  */
 let markerState = null;
 
 /**
- * Name the map on the overlay.
+ * Name the map on the overlay. `mode` `auto` (the default) only ever gets a
+ * name for an *automatic* switch and takes it away again; `always` keeps it up;
+ * `never` arrives with an empty name and just hides the element.
  *
- * `auto` (the default) only ever gets a name for an automatic switch — the
- * player did not ask for the change, so the overlay says what it did, then
- * takes the name away again after a few seconds. `always` keeps it up for
- * whatever is showing; `never` never sends one in the first place, so this is
- * called with an empty name and simply hides the element.
- *
- * `.text()`, never markup: a map name can be a user-supplied custom name and
- * this window runs with node integration.
- *
- * @param {string} name
- * @param {number|string} opacity same opacity as the map itself
- * @param {'auto'|'always'|'never'} [mode]
+ * `.text()`, never markup: a map name can be user-supplied and this window runs
+ * with node integration.
  */
 function showLabel(name, opacity, mode) {
     const $label = $("#mapLabel");
@@ -49,13 +40,7 @@ function showLabel(name, opacity, mode) {
     }, LABEL_MS);
 }
 
-/**
- * Redraw the marker layer and its legend from whatever `map-change` last sent.
- *
- * Kept as its own function so `language-changed` can re-label the legend
- * without main having to re-send the map — the same reason the main window's
- * `i18n.onChange` hooks exist.
- */
+/** Redraw from whatever `map-change` last sent; also used by `language-changed`. */
 function renderMarkers() {
     const svg = document.getElementById('markerLayer');
     const legend = document.getElementById('markerLegend');
@@ -77,8 +62,7 @@ ipcRenderer.on('map-change', async (event, img, size, opacity, draggable, rotati
     let imgData = Buffer.from(img, "base64");
     let blob = new Blob([imgData]);
     url = URL.createObjectURL(blob);
-    // Width and rotation live on the wrapper now, so the markers rotate with
-    // the map rather than beside it; the image itself fills the wrapper.
+    // Width and rotation on the wrapper, so the markers rotate *with* the map.
     $("#mapStack").css({
         "width": size + "px",
         "transform": `rotate(${rotation || 0}deg)`
@@ -89,15 +73,13 @@ ipcRenderer.on('map-change', async (event, img, size, opacity, draggable, rotati
     } else {
         $("body").css("-webkit-app-region", "no-drag");
     }
-    // Markers ride on this payload rather than arriving on a channel of their
-    // own, for the same reason the map name does: the overlay must never be
-    // able to draw one map's markers over another map's image.
+    // Markers ride on this payload rather than a channel of their own, so one
+    // map's markers can never land over another map's image.
     markerState = (markers && markers.layers && markers.layers.length)
         ? {markers, width: parseInt(size, 10) || 0, lang: lang || 'en'}
         : null;
     renderMarkers();
-    // Every map-change settles the label: a new map either names itself or
-    // clears a label left over from the previous one.
+    // Settled on every change, so no label is left over from the last map.
     showLabel(mapLabel, opacity, labelMode);
 });
 
@@ -110,8 +92,7 @@ ipcRenderer.on('map-hide', async (event) => {
     showLabel("");
 });
 
-// The legend is the only translated thing on this window. Re-labelled in place
-// so a language change does not need a map change to take effect.
+// The legend is the only translated thing on this window.
 ipcRenderer.on('language-changed', (event, lang) => {
     if (!markerState) return;
     markerState.lang = lang || 'en';

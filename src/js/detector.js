@@ -3,12 +3,8 @@ const {debugLog} = require("./logger");
 const {t, onChange} = require("./i18n");
 
 /**
- * Home-page switch and status line for the automatic map detection.
- *
- * All the work happens in the main process (`src/core/map-detector.js`); this
- * is the switch, the label under it, and nothing else. The switch writes the
- * `mapDetection` setting through the start/stop IPC handlers rather than
- * through `Settings.set`, so the loop and the stored value can never disagree.
+ * Home-page switch and status line for the automatic map detection. All the
+ * work is in main (`core/map-detector.js`).
  */
 class Detector {
 
@@ -16,10 +12,9 @@ class Detector {
         this.settings = settings;
         this.lastKey = null;
         this.lastAt = null;
-        // True between "the menu cleared the map" and the next detection.
+        /** True between "the menu cleared the map" and the next detection. */
         this.inMenu = false;
-        // The last status seen, so the line can be re-rendered in the new
-        // language without waiting for the next push from main.
+        /** The last status seen, so the line can be re-rendered in a new language. */
         this.lastStatus = null;
         /** Anything else that draws this switch — see `onStatus`. */
         this.statusListeners = [];
@@ -41,14 +36,9 @@ class Detector {
     }
 
     /**
-     * Start or stop the loop. The single path for it, so the home-page switch
-     * and the welcome tour's switch cannot end up doing it two slightly
-     * different ways.
-     *
-     * The setting is written by main's own start/stop handlers rather than
-     * through `Settings.set`, so the stored value and the running loop can
-     * never disagree.
-     * @param {boolean} on
+     * The single path, so the home-page switch and the tour's cannot do it two
+     * different ways. The setting is written by main's own handlers, not
+     * through `Settings.set`, so value and loop can never disagree.
      */
     async setEnabled(on) {
         const $check = $("#mapDetectionCheck");
@@ -57,19 +47,14 @@ class Detector {
             const status = await ipcRenderer.invoke(on ? 'map-detector-start' : 'map-detector-stop');
             this.render(status);
         } catch (err) {
-            // The invoke rejected (the handler threw, or main is on its way
-            // out). Without this the `render` never runs and every switch —
-            // the home page's and the tour's — is left showing the state the
-            // *click* implied over a loop that is not in it. Ask main what is
-            // actually true and draw that instead.
+            // The invoke rejected; ask main what is actually true rather than
+            // leaving both switches showing what the *click* implied.
             console.error("detector::setEnabled", err && err.message);
             try {
                 this.render(await ipcRenderer.invoke('map-detector-status'));
             } catch (statusErr) {
-                // Even the status call failed. "Off" is the safe claim: it is
-                // the state the user can recover from with one click, and a
-                // switch that says "watching" over a dead loop is the one thing
-                // this app must never show.
+                // "Off" is the safe claim: a switch saying "watching" over a
+                // dead loop is the one thing this app must never show.
                 console.error("detector::setEnabled::status", statusErr && statusErr.message);
                 this.render({running: false});
             }
@@ -79,19 +64,15 @@ class Detector {
     }
 
     /**
-     * Register a second view of the switch.
-     *
-     * The welcome tour has one on its auto-detect step, and it has to follow
-     * every status push rather than only its own click: the loop can also be
-     * started or stopped from the home page behind the tour, and a start that
-     * main refuses must not leave a ticked box.
-     * @param {(running: boolean) => void} callback
+     * A second view of the switch (the tour has one), following every status
+     * push and not only its own click: a start main refuses must not leave a
+     * ticked box.
      */
     onStatus(callback) {
         if (typeof callback === 'function') this.statusListeners.push(callback);
     }
 
-    /** Tell every extra view what the switch is now. Never throws at a caller. */
+    /** Never throws at a caller. */
     notifyStatus(running) {
         for (const listener of this.statusListeners) {
             try {
@@ -102,20 +83,12 @@ class Detector {
         }
     }
 
-    /**
-     * The small state dot beside the status line. Four states, taken from the
-     * same status push that produces the sentence — nothing new is computed
-     * here, it is the existing branch written out as an attribute so CSS can
-     * colour it: `off` / `watching` / `menu` / `detected`.
-     * @param {'off'|'watching'|'menu'|'detected'} state
-     */
+    /** @param {'off'|'watching'|'menu'|'detected'} state — for CSS to colour */
     setState(state) {
         $("#detectorReadout").attr("data-state", state);
     }
 
     /**
-     * "Off" / "Watching for the in-game map (Tab)…" / "Back in menu — map
-     * cleared" / "Detected <Map> at 12:04".
      * @param {{running: boolean, lastDetected: ?string, lastAt: ?number,
      *          state: ?string, inMenu: ?boolean}} status
      */
@@ -134,7 +107,7 @@ class Detector {
             this.lastAt = null;
             this.inMenu = true;
         } else if (s.state === 'watching') {
-            // Ctrl+Shift+D cleared the last detection; go back to watching.
+            // The clear hotkey dropped the last detection; go back to watching.
             this.lastKey = null;
             this.lastAt = null;
             this.inMenu = false;
@@ -170,8 +143,7 @@ class Detector {
                 time: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`
             })
             : t('detector.detected', {map});
-        // .text(), never interpolated markup — the key comes from main, but the
-        // rule in this app is that no map name ever reaches innerHTML unescaped.
+        // .text(): no map name ever reaches innerHTML unescaped.
         $("#detectorStatus").text(text);
     }
 }

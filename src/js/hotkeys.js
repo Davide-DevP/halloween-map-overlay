@@ -1,3 +1,7 @@
+/**
+ * Renderer, Hotkeys tab: the two tables, the bind dialog and key capture.
+ * A VIEW — main owns every decision. See docs/agents/hotkeys.md.
+ */
 const {debugLog} = require("./logger");
 const {ipcRenderer} = require('electron');
 const {
@@ -12,20 +16,15 @@ const {escapeHtml} = require("../shared/escape-html");
 const {showStatus} = require("./status");
 const {t, translateMessage, onChange} = require("./i18n");
 
-/** The translated name of a system hotkey action, from its definition. */
 function actionName(def) {
     return def && def.descriptionKey ? t(def.descriptionKey) : (def && def.description) || '';
 }
 
 /**
- * One accelerator as a row of key caps: `Ctrl+Alt+H` → `<kbd>Ctrl</kbd> +
- * <kbd>Alt</kbd> + <kbd>H</kbd>`, which is how every hotkey is drawn in the
- * FAQ and the help paragraphs.
- *
- * **Escaped**, and not as a formality: an accelerator can come straight out of
- * a hand-edited `settings-app.json`, this goes into `innerHTML`, and the
- * renderer has `nodeIntegration: true`.
- *
+ * One accelerator as a row of `<kbd>` caps. **Escaped**, and not as a
+ * formality: an accelerator can come straight out of a hand-edited
+ * `settings-app.json`, this goes into `innerHTML`, and the renderer has
+ * `nodeIntegration: true`.
  * @param {string} accelerator Electron spelling, or `''` when unbound
  * @returns {string} markup
  */
@@ -37,7 +36,6 @@ function acceleratorKbd(accelerator) {
         .join(' + ');
 }
 
-/** Hotkeys tab: the system hotkey table, the per-map table and key capture. */
 class Hotkeys {
 
     constructor(maps, settings) {
@@ -46,36 +44,26 @@ class Hotkeys {
         this.recordingHotkey = false;
         // actionId while editing a system hotkey, null while adding a map hotkey
         this.editingSystemAction = null;
-        // The accelerator captured in the modal, in Electron's own spelling.
-        // Kept out of the input's text so nothing has to parse it back.
+        // Electron's own spelling, kept out of the input's text so nothing has
+        // to parse it back.
         this.recordedAccelerator = '';
         this.hotkeys = {};
         this.systemHotkeys = {};
-        // Both tables are built with t(), so both are rebuilt on a language
-        // change. The modal is left alone: if it is open the user is mid-edit.
+        // Everything built with t() is rebuilt on a language change; the modal
+        // is left alone, because if it is open the user is mid-edit.
         onChange(() => {
             this.updateHotkeys();
             this.updateSystemHotkeysTable();
-            // The picker's "Select a map…" placeholder is built in JS, not from
-            // markup — `applyDom` cannot reach it once the select is rebuilt.
+            // Built in JS, so `applyDom` cannot reach the placeholder.
             this.populateMapSelect();
             this.applyModalTitle();
-            // The two FAQ answers that name key combinations are rendered from
-            // here rather than from `data-i18n-html`, so they need the hook too.
             this.updateHotkeyTexts();
         });
     }
 
     /**
-     * Fill the FAQ answers that name key combinations with the **live**
-     * bindings.
-     *
-     * They used to hard-code `<kbd>Ctrl</kbd> + <kbd>H</kbd>` in the catalogue,
-     * which was wrong the moment anybody rebound or unbound the action — and
-     * wrong for everybody once the defaults moved off plain Ctrl. The strings
-     * take the accelerators as parameters instead, so there is one source for
-     * "what is this action on" and the FAQ cannot drift from the table two
-     * tabs away.
+     * The FAQ answers that name key combinations, from the **live** bindings:
+     * never hard-code a combination in a catalogue string.
      */
     updateHotkeyTexts() {
         const accel = (actionId) => {
@@ -83,9 +71,7 @@ class Hotkeys {
             if (!def) return '';
             return acceleratorKbd(resolveSystemAccelerator(this.systemHotkeys[actionId], def.defaultAccelerator));
         };
-        // Catalogue strings with our own markup substituted into them — the
-        // same contract as `data-i18n-html`, and `acceleratorKbd` escapes the
-        // one part that is not from a catalogue.
+        // `data-i18n-html`'s contract; `acceleratorKbd` escapes the rest.
         $('#faqAutodetect').html(t('faq.autodetect.a', {clear: accel('clear-map')}));
         $('#faqInTheWay').html(t('faq.inTheWay.a', {
             toggle: accel('toggle-map'),
@@ -97,9 +83,8 @@ class Hotkeys {
     }
 
     /**
-     * Title and placeholder of the bind modal, which JS owns rather than
-     * `data-i18n` because both depend on state: which action is being edited,
-     * and whether a key is being recorded right now.
+     * JS-owned rather than `data-i18n`, because both depend on state: which
+     * action is being edited, and whether a key is being recorded.
      */
     applyModalTitle() {
         const def = this.editingSystemAction ? SYSTEM_HOTKEY_DEFS[this.editingSystemAction] : null;
@@ -131,8 +116,6 @@ class Hotkeys {
         const modal = el && bootstrap.Modal.getInstance(el);
         if (modal) modal.hide();
     }
-
-    // ─── Per-map hotkey table ──────────────────────────────────
 
     updateHotkeys() {
         const $list = $('#hotkeyList').empty();
@@ -179,8 +162,6 @@ class Hotkeys {
         });
     }
 
-    // ─── System hotkey table ───────────────────────────────────
-
     async loadSystemHotkeys() {
         try {
             this.systemHotkeys = await ipcRenderer.invoke('get-system-hotkeys');
@@ -198,19 +179,15 @@ class Hotkeys {
         $list.empty();
 
         for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
-            // Not `|| def.defaultAccelerator`: an action the user unbound is
-            // stored as `''`, and the old fallback drew the default key cap for
-            // it — a table that disagreed with what was actually registered.
+            // Never `|| def.defaultAccelerator`, or the table claims a binding
+            // that is not registered.
             const currentAccel = resolveSystemAccelerator(this.systemHotkeys[actionId], def.defaultAccelerator);
             const unbound = isUnbound(currentAccel);
-            // Unbound is not the default, so Reset stays available: it is the
-            // way back to the shipped combination. Compared *normalised* like
-            // every other accelerator comparison in the app — a hand-edited
-            // `ctrl+alt+r` is the default and must not leave Reset enabled as
-            // though it were a custom binding.
+            // Unbound is not the default, so Reset stays available. Compared
+            // *normalised*: a hand-edited `ctrl+alt+r` is the default.
             const isDefault = sameAccelerator(currentAccel, def.defaultAccelerator);
-            // A muted word rather than an empty `<kbd>`, which reads as a
-            // rendering fault instead of a deliberate "no shortcut".
+            // A muted word, not an empty `<kbd>`, which reads as a rendering
+            // fault rather than a deliberate "no shortcut".
             const binding = unbound
                 ? `<span class="hotkey-unbound">${escapeHtml(t('hotkeys.notBound'))}</span>`
                 : `<kbd class="system-hotkey-binding" data-action="${escapeHtml(actionId)}">${escapeHtml(acceleratorToDisplay(currentAccel))}</kbd>`;
@@ -239,8 +216,8 @@ class Hotkeys {
         $('.edit-system-btn').off('click').on('click', function () {
             self.startSystemHotkeyEdit($(this).data('action'));
         });
-        // Fire and forget, like Reset: main answers with a status toast and a
-        // `system-hotkeys-updated` push, which is what redraws this table.
+        // Fire and forget: main answers with a toast and the
+        // `system-hotkeys-updated` push that redraws this table.
         $('.unbind-system-btn').off('click').on('click', function () {
             ipcRenderer.send('unbind-system-hotkey', {actionId: $(this).data('action')});
         });
@@ -248,8 +225,6 @@ class Hotkeys {
             ipcRenderer.send('reset-system-hotkey', {actionId: $(this).data('action')});
         });
     }
-
-    // ─── System hotkey editing ─────────────────────────────────
 
     startSystemHotkeyEdit(actionId) {
         const def = SYSTEM_HOTKEY_DEFS[actionId];
@@ -316,8 +291,6 @@ class Hotkeys {
         if (result.ok) this.closeModal();
     }
 
-    // ─── Wiring ────────────────────────────────────────────────
-
     async loadHotkeys() {
         this.populateMapSelect();
         this.applyModalTitle();
@@ -333,8 +306,7 @@ class Hotkeys {
             this.systemHotkeys = bindings;
             this.updateSystemHotkeysTable();
             this.updateHotkeyTexts();
-            // Main just wrote these straight to disk; pull the file back in so
-            // the next renderer-side write is not based on a stale copy.
+            // Main wrote these straight to disk, so pull the file back in.
             if (this.settings) await this.settings.refresh();
         });
 
@@ -346,17 +318,13 @@ class Hotkeys {
     }
 
     /**
-     * Settings › Hotkeys › *Only while the game is in the foreground*.
-     *
-     * Its own IPC handler rather than the generic `set-setting`, because main
-     * has to act on it: the foreground watcher starts or stops polling and the
-     * global shortcuts are registered or dropped in the same breath.
+     * Settings › Hotkeys › *Only while the game is in the foreground*. Its own
+     * IPC handler, because main has to act on it — see
+     * docs/agents/settings-and-onboarding.md § Writing settings.
      */
     loadGameOnlySwitch() {
         const $check = $('#hotkeysGameOnlyCheck');
         if (!$check.length) return;
-        // Default on: only an explicit false turns it off, like every other
-        // default-on switch in this app.
         $check.prop('checked', !this.settings || this.settings.raw('hotkeysGameOnly') !== false);
         const self = this;
         $check.off('input').on('input', async function () {
@@ -372,10 +340,8 @@ class Hotkeys {
     }
 
     /**
-     * One-time notices main could not show, because it decided them before
-     * this window existed. Right now that is only the hotkey-defaults
-     * migration; main clears the notice as it hands it over, so a renderer
-     * reload cannot show it twice.
+     * One-time notices main decided before this window existed. Main clears
+     * each one as it hands it over, so a reload cannot show it twice.
      */
     async collectNotice() {
         try {
@@ -391,13 +357,8 @@ class Hotkeys {
         if (!$select.length) return;
         $select.empty().append($('<option>').val('').text(t('hotkeys.modal.selectMap')));
 
-        // A `Map`, not an object literal. `byCreator[creator] || []` inherits
-        // from `Object.prototype`, so a creator called `constructor`,
-        // `toString` or `__proto__` yields a *function* (truthy) and `.push`
-        // throws a TypeError — which does not break that one map, it breaks the
-        // whole picker for every map. A creator is a folder name under `maps/`
-        // or a downloaded pack's key half, neither of which this file gets to
-        // assume anything about.
+        // A `Map`, never an object literal.
+        // Why: docs/agents/hotkeys.md § Priority, conflicts and registration.
         const byCreator = new Map();
         for (const entry of this.maps.catalog) {
             if (!byCreator.has(entry.creator)) byCreator.set(entry.creator, []);
@@ -410,8 +371,6 @@ class Hotkeys {
             $select.append($group);
         }
     }
-
-    // ─── Key capture ───────────────────────────────────────────
 
     startRecording() {
         this.recordingHotkey = true;
@@ -430,10 +389,8 @@ class Hotkeys {
             if (!self.recordingHotkey) return;
             e.preventDefault();
 
-            // Browser key names are not Electron accelerator names, and an
-            // accelerator Electron cannot parse makes globalShortcut.register
-            // throw — which is why this translation happens before anything is
-            // stored, not at registration time.
+            // Translated before anything is stored: a browser key name is not
+            // an Electron accelerator name.
             const result = keyEventToAccelerator({
                 ctrlKey: e.ctrlKey,
                 altKey: e.altKey,
@@ -471,13 +428,12 @@ class Hotkeys {
 
         $("#saveHotkeyBtn").on("click", () => this.saveHotkeyToFile());
 
-        // Native listeners, not jQuery's: Bootstrap dispatches these as DOM
-        // events, and jQuery .on() would treat ".bs.modal" as an event
-        // namespace and never fire (same trap as the tabs in options.js).
+        // Native listeners, not jQuery's: jQuery `.on()` treats ".bs.modal" as
+        // an event namespace and never fires (same trap as the tabs in
+        // options.js).
         const modal = document.getElementById('addHotkeyModal');
         if (!modal) return;
 
-        // Start listening as soon as the modal is up, however it was opened
         modal.addEventListener('shown.bs.modal', () => {
             self.startRecording();
             self.suspendGlobalHotkeys(true);
@@ -489,11 +445,9 @@ class Hotkeys {
             self.suspendGlobalHotkeys(false);
         });
 
-        // Minimize-to-tray (and a plain minimize) hides the window with the
-        // modal still "open", so `hidden.bs.modal` never fires. Nothing can be
-        // recorded from a hidden window anyway, and leaving the app holding no
-        // hotkeys at all would be the worst possible outcome of a feature whose
-        // whole point is that they work.
+        // Minimize-to-tray hides the window with the modal still "open", so
+        // `hidden.bs.modal` never fires and the app would be left holding no
+        // hotkeys at all.
         document.addEventListener('visibilitychange', () => {
             if (!modal.classList.contains('show')) return;
             self.suspendGlobalHotkeys(!document.hidden);
@@ -502,16 +456,9 @@ class Hotkeys {
 
     /**
      * Ask main to hold none of its global shortcuts while this dialog records.
-     *
-     * Without it the dialog cannot see a combination the app itself holds:
-     * `RegisterHotKey` takes the keystroke before any window is told about it,
-     * so pressing the current *Rotate map* hotkey inside the dialog rotated the
-     * map instead of being recorded — which made swapping two bindings, or
-     * moving one out of the way, impossible.
-     *
-     * Fire-and-forget on purpose: a failure here costs the convenience, not the
-     * edit, and main lifts the suspension by itself if this window goes away.
-     *
+     * Fire-and-forget: a failure costs the convenience, not the edit, and main
+     * lifts the suspension by itself.
+     * Why: docs/agents/hotkeys.md § Suspended while the bind dialog records.
      * @param {boolean} on
      */
     suspendGlobalHotkeys(on) {
@@ -522,8 +469,6 @@ class Hotkeys {
 }
 
 module.exports = Hotkeys;
-// The welcome tour prints the same key caps on its hotkeys step. Exported
-// rather than copied: the escaping is the load-bearing part (an accelerator can
-// come straight out of a hand-edited settings file and this goes into
-// `innerHTML`), and two copies of that rule is one too many.
+// Exported rather than copied into the welcome tour: the escaping is the
+// load-bearing part, and two copies of that rule is one too many.
 module.exports.acceleratorKbd = acceleratorKbd;

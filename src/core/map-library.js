@@ -6,24 +6,17 @@ const {buildCatalog, mergeCustomMaps, findClosestMapMatch, sortCatalog} = requir
 const {mergeMapPacks} = require("../shared/map-pack-rules");
 
 /**
- * Owns the on-disk side of the map catalogue: where the maps live, which files
- * are there, and how a key coming from the renderer / a hotkey / the CLI turns
- * into an absolute file path.
- *
- * All the matching logic itself lives in the pure `map-catalog.js`; this class
- * only supplies it with a directory listing.
+ * The fs side of the map catalogue: the three roots, the listings, and how a key
+ * from the renderer / a hotkey / the CLI becomes an absolute path. All matching
+ * logic is the pure `map-catalog.js`; this only supplies it a listing. See
+ * `docs/agents/architecture.md`.
  */
 class MapLibrary {
 
     constructor() {
         this._catalog = null;
-        /**
-         * Installed map packs (`core/map-pack-store.js`), or null when the
-         * feature is not wired up. Injected from `index.js` rather than built
-         * here: `MapPacks` needs the main window for its toast and is therefore
-         * constructed later, while nothing reads the catalogue before
-         * `createWindow()`.
-         */
+        // Injected from `index.js`, because `MapPacks` needs the main window
+        // and is built later; nothing reads the catalogue before that.
         this._packs = null;
         ipcMain.handle('get-map-catalog', async () => this.getCatalog());
         ipcMain.handle('read-map-image', async (event, key) => {
@@ -42,30 +35,24 @@ class MapLibrary {
         });
     }
 
-    /**
-     * Packaged builds ship the maps as an extraResource next to the app, dev
-     * runs read them straight out of the repo.
-     */
+    /** Packaged: an extraResource next to the app. Dev: straight out of the repo. */
     get mapsRoot() {
         return app.isPackaged
             ? path.join(process.resourcesPath, "maps")
             : path.join(global.dirname, "maps");
     }
 
-    /** User-imported maps (the "Custom" creator). */
+    /** User imports — the reserved "Custom" creator. */
     get customRoot() {
         return path.join(app.getPath('userData'), "custom");
     }
 
-    /** Installed map packs, one directory per map. */
+    /** Installed packs, one directory per map. */
     get packsRoot() {
         return path.join(app.getPath('userData'), "map-packs");
     }
 
-    /**
-     * Where installed packs come from. See `core/map-packs.js`.
-     * @param {?Object} store a `MapPackStore`, or null to turn packs off
-     */
+    /** `store` is a `MapPackStore`, or null to turn packs off. */
     setPackStore(store) {
         this._packs = store && typeof store.list === 'function' ? store : null;
         this.invalidate();
@@ -97,15 +84,10 @@ class MapLibrary {
         return getFilesFromDir(root).map(file => path.relative(root, file));
     }
 
-    /**
-     * The whole catalogue: bundled maps, installed map packs and the user's
-     * own imports, in one list and one order.
-     *
-     * A pack **replaces** the bundled map with the same key (see `mergeMapPacks`
-     * for why), so this is also how a pack fixes a shipped map's image. Custom
-     * maps are merged last and are never touched: their creator is reserved and
-     * a pack may not claim it.
-     */
+    /** Bundled maps, installed packs and the user's imports, in one list and one
+     * order. A pack **replaces** the bundled map with the same key, which is
+     * how a pack fixes a shipped map; custom maps are merged last and cannot be
+     * touched, since a pack may not claim their reserved creator. */
     getCatalog() {
         if (!this._catalog) {
             const shipped = mergeMapPacks(buildCatalog(this.listShipped()), this.listPacks(), sortCatalog);
@@ -114,31 +96,24 @@ class MapLibrary {
         return this._catalog;
     }
 
-    /** Drop the cached listing — call after a custom map is added or deleted. */
+    /** Call after a custom map or a pack is added or deleted. */
     invalidate() {
         this._catalog = null;
     }
 
-    /**
-     * The catalogue entry a key, a bare map name or a custom-map file name
-     * refers to, but only when its image is actually on disk. Returns null when
-     * nothing matches — callers then treat the payload as raw base64 image data.
-     *
-     * Kept separate from `resolve()` because the overlay label needs the map's
-     * *name*, and re-deriving it from the payload string would mean matching the
-     * name twice with two chances to disagree.
-     *
-     * @returns {{key, name, creator, file, custom, path}|null}
-     */
+    /** The catalogue entry a key, a bare map name or a custom-map file name
+     * refers to, but only when its image is on disk; null otherwise, and
+     * callers then treat the payload as raw base64 image data. Separate from
+     * `resolve()` because the overlay label needs the *name*, and re-deriving
+     * it would mean matching twice with two chances to disagree. */
     resolveEntry(key) {
-        // Base64 image payloads are also strings; a path/key never gets near
-        // this length, so bail out before fuzzy-matching a whole PNG.
+        // Base64 image payloads are strings too, and a key never gets near this
+        // length: bail out before fuzzy-matching a whole PNG.
         if (typeof key !== 'string' || !key || key.length > 260) return null;
         const entry = findClosestMapMatch(key, this.getCatalog());
         if (!entry) return null;
-        // Three roots, one rule: the entry says where it came from. `entry.pack`
-        // is the install directory name, which `packDirName` derived from the
-        // key — never a path the pack supplied.
+        // Three roots, one rule: the entry says which. `entry.pack` is the
+        // directory `packDirName` derived from the key, never a pack's path.
         const root = entry.custom ? this.customRoot
             : (entry.pack ? path.join(this.packsRoot, entry.pack) : this.mapsRoot);
         const file = path.join(root, entry.file);
@@ -146,11 +121,7 @@ class MapLibrary {
         return Object.assign({}, entry, {path: file});
     }
 
-    /**
-     * Turn a catalogue key, a bare map name or a custom-map file name into an
-     * absolute path. Returns null when nothing matches — callers then treat the
-     * payload as raw base64 image data instead.
-     */
+    /** `resolveEntry`, reduced to the absolute path. */
     resolve(key) {
         const entry = this.resolveEntry(key);
         return entry ? entry.path : null;

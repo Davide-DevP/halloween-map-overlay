@@ -11,11 +11,9 @@ let labelTimer = null;
 let markerState = null;
 
 /**
- * The same map name the transparent overlay shows, following the same
- * `mapLabel` setting, so a stream sees what the player sees.
- *
- * `.text()`, never markup: custom map names are typed by the user and this
- * window runs with node integration.
+ * The same map name the overlay shows, on the same `mapLabel` setting, so a
+ * stream sees what the player sees. `.text()`, never markup: custom map names
+ * are user-typed and this window runs with node integration.
  */
 function showLabel(name, mode) {
     const $label = $("#mapLabel");

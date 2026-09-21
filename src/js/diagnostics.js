@@ -6,27 +6,12 @@ const {acceleratorToDisplay} = require('../shared/hotkeys-constants');
 const {debugLog} = require('./logger');
 
 /**
- * The renderer half of the 0.3.2 field diagnostics: two home-page banners and
- * the button both of them (and Settings › General) point at.
+ * The renderer half of the field diagnostics: the crash notice, the
+ * hotkey-conflict banner and the **Create diagnostic report** button. See
+ * `docs/agents/diagnostics.md`.
  *
- * - **Crash notice.** Raised when the previous run ended in an
- *   `uncaughtException` the user has not been told about yet. It is asked for,
- *   not pushed: the crash it reports happened in a process that no longer
- *   exists, so there is nothing left to push it from. Dismissing it is what
- *   "acknowledged" means — main writes the crash file's name to
- *   `lastCrashSeen` and the same crash never greets the user twice.
- * - **Hotkey conflict warning.** Persistent for the session and updated in
- *   place, never a toast per failed registration: a reload binds a dozen
- *   accelerators at once, and five toasts a session is something a user learns
- *   to dismiss without reading. A hotkey that silently does nothing (Discord
- *   or the NVIDIA overlay took the combination first) is otherwise the single
- *   hardest thing to diagnose from a distance.
- * - **Create diagnostic report.** One zip on the Desktop. The success toast
- *   comes from main, which is also what opens the folder; this side only
- *   disables the button while it works and reports a failure.
- *
- * Both banners are built with `t()` at render time, so both re-render through
- * `i18n.onChange` — see the rule in `docs/agents/i18n.md`.
+ * The conflict banner is persistent for the session and updated in place, never
+ * a toast per failed registration: a reload binds a dozen accelerators at once.
  */
 class Diagnostics {
 
@@ -73,9 +58,8 @@ class Diagnostics {
     }
 
     /**
-     * Fill the conflict banner, or hide it when the last reload bound
-     * everything. `.text()`, never interpolation: an accelerator comes off a
-     * JSON file the user can hand-edit.
+     * `.text()`, never interpolation: an accelerator comes off a JSON file the
+     * user can hand-edit.
      */
     renderConflicts() {
         const banner = $("#hotkeyConflict");
@@ -92,8 +76,7 @@ class Diagnostics {
     async createReport() {
         if (this.busy) return;
         this.busy = true;
-        // Building the zip reads both logs and every crash file; main must not
-        // tear this window down while the button is waiting for the answer.
+        // Main must not tear this window down while the button waits.
         setBusy('report', true);
         const buttons = $("#createReport, #crashReportBtn");
         buttons.prop("disabled", true);

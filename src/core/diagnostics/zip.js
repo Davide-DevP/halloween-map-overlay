@@ -3,30 +3,10 @@
 const zlib = require('node:zlib');
 
 /**
- * A minimal ZIP writer (and matching reader), built on `node:zlib`.
- *
- * Why not `archiver`/`adm-zip`: the diagnostic report is a convenience for one
- * button, and this app ships ~350 MB to a user's machine on every update. A
- * new runtime dependency (and its transitive tree, and its own update cadence)
- * is not worth a format whose writer is a hundred lines. Electron already
- * carries zlib, which is the only part that is actually hard.
- *
- * Scope: exactly what the report needs — a handful of small files, stored or
- * deflated, no directories, no encryption, no zip64. Inputs are ASCII file
- * names we generate ourselves.
- *
- * Format notes that are easy to get wrong and are therefore spelled out:
- * - The local header carries the sizes and the CRC up front (no data
- *   descriptor), which is legal because everything is in memory before it is
- *   written and is what makes the file readable by the strictest unpackers.
- * - `deflateRawSync`, not `deflateSync`: method 8 in a zip is a **raw** deflate
- *   stream with no zlib header. Using `deflateSync` produces a file that every
- *   tool refuses with "unexpected end of archive".
- * - An entry is stored (method 0) whenever deflating did not actually make it
- *   smaller, which is the case for an empty file — deflate turns 0 bytes into
- *   2 and a "compressed" empty entry looks broken to a human reading the sizes.
- * - DOS timestamps have 2-second resolution and start in 1980; anything older
- *   is clamped rather than wrapping into a nonsense date.
+ * A minimal ZIP writer (and matching reader) on `node:zlib`, scoped to exactly
+ * what the report needs: a handful of small files, stored or deflated, no
+ * directories, no encryption, no zip64. No `archiver` / `adm-zip` — see
+ * `docs/agents/diagnostics.md`, which also holds the format traps.
  */
 
 const LOCAL_SIG = 0x04034b50;
@@ -54,10 +34,7 @@ function crcTable() {
     return table;
 }
 
-/**
- * @param {Buffer} buffer
- * @returns {number} unsigned CRC-32
- */
+/** @returns {number} unsigned CRC-32 */
 function crc32(buffer) {
     const table = crcTable();
     let crc = -1;
@@ -68,9 +45,8 @@ function crc32(buffer) {
 }
 
 /**
- * MS-DOS date/time, the only timestamp the base format has.
- * @param {Date} date
- * @returns {{time: number, date: number}}
+ * MS-DOS date/time, the only timestamp the base format has: 2-second
+ * resolution from 1980, so anything older is clamped rather than wrapping.
  */
 function dosDateTime(date) {
     const d = (date instanceof Date && !isNaN(date.getTime())) ? date : new Date();
@@ -80,16 +56,14 @@ function dosDateTime(date) {
     return {time: time & 0xFFFF, date: dosDate & 0xFFFF};
 }
 
-/** A name is flagged UTF-8 only when it needs to be. */
 function needsUtf8Flag(name) {
     return Buffer.byteLength(name, 'utf-8') !== name.length;
 }
 
 /**
- * Build a ZIP archive in memory.
- *
+ * Build a ZIP archive in memory. The local header carries the sizes and the CRC
+ * up front (no data descriptor), which the strictest unpackers want.
  * @param {Array<{name: string, data: Buffer|string, date?: Date}>} entries
- * @returns {Buffer}
  */
 function buildZip(entries) {
     const list = Array.isArray(entries) ? entries : [];
@@ -108,9 +82,11 @@ function buildZip(entries) {
         let method = METHOD_STORE;
         let payload = raw;
         if (raw.length > 0) {
+            // `deflateRawSync`, never `deflateSync`: method 8 is a **raw**
+            // deflate stream, and a zlib header makes every tool refuse the file.
             const deflated = zlib.deflateRawSync(raw, {level: zlib.constants.Z_BEST_COMPRESSION});
-            // Only if it actually helped: a "compressed" entry that grew is a
-            // lie the reader has to undo for nothing.
+            // Stored unless deflating actually helped: a "compressed" entry
+            // that grew (an empty file becomes 2 bytes) looks broken.
             if (deflated.length < raw.length) {
                 method = METHOD_DEFLATE;
                 payload = deflated;
@@ -171,21 +147,15 @@ function buildZip(entries) {
 }
 
 /**
- * Read an archive this module wrote, from its central directory.
- *
- * Exists so the round-trip test proves the bytes are a real zip rather than
- * proving our writer agrees with itself, and so a build can be checked from a
- * scratch script without installing anything. It is deliberately strict: a
- * field it does not understand is an error, not a guess.
- *
- * @param {Buffer} buffer
- * @returns {Array<{name: string, data: Buffer, method: number, size: number, compressedSize: number}>}
+ * Read an archive from its central directory: the round-trip test then proves
+ * the bytes are a real zip rather than that the writer agrees with itself.
+ * Deliberately strict — an unknown field is an error, not a guess.
  */
 function readZip(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length < 22) throw new Error('not a zip: too short');
     let eocd = -1;
-    // The comment is empty in anything we write, but scan anyway: this reader
-    // is also pointed at files by hand.
+    // Scanned, not read at a fixed offset: a file pointed at by hand may carry
+    // a trailing comment.
     for (let i = buffer.length - 22; i >= 0; i--) {
         if (buffer.readUInt32LE(i) === EOCD_SIG) {
             eocd = i;

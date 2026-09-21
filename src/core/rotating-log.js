@@ -2,32 +2,12 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * The append-only text log both of this app's logs are built on.
+ * The append-only text writer both logs are built on — fs-only tier, no
+ * electron (the directory is injected, which is what lets the tests drive it
+ * against a temp folder). See `docs/agents/diagnostics.md`.
  *
- * Extracted from `map-detector/log.js` in 0.3.2, when the app grew a second
- * log (`app.log`) with the same shape and the same hard rules. The detector's
- * log stays a separate *file* — its volume is an order of magnitude higher and
- * mixing the two would push the interesting lines out of `app.log` within a
- * single match — but the writer is now one implementation.
- *
- * Hard rules, unchanged from the detector's log:
- * - **No frames, no pixels, no paths under the user's profile.** Only
- *   decisions, keys, scores and timings. `src/shared/redact.js` is what turns
- *   a path that slipped into an error message into `~/…`.
- * - **It must never break its caller.** Every write is wrapped; a full disk or
- *   a file a virus scanner is holding open costs a log line, not a tick.
- * - No electron import: the directory is injected, which is also what lets the
- *   tests drive it against a temp folder.
- *
- * Two write modes:
- * - **Unbuffered** (`flushMs: 0`, the detector's): `appendFileSync` per line.
- *   One line per ~700 ms tick, and losing the last line of a session would
- *   lose exactly the line that explains the crash.
- * - **Buffered** (`flushMs: 500`, `app.log`): lines are queued and written in
- *   one batch. A burst (a slider moving writes a `setting` line per pixel)
- *   becomes a single append instead of thirty. Everything that shuts the app
- *   down calls `flush()` first, and the crash handler flushes before it writes
- *   the crash file, so a buffered line is never lost to a crash.
+ * **No frames, no pixels, no paths under the user's profile**, and **it never
+ * breaks its caller**: a full disk costs a log line, not a tick.
  */
 
 /** Rotate once the file would pass this. One backup is kept. */
@@ -35,19 +15,9 @@ const MAX_BYTES = 512 * 1024;
 const BACKUP_SUFFIX = '.1';
 
 /**
- * One log line: ISO timestamp, an optional level, the event name, then
- * `key=value` pairs.
- *
- * Values are stringified defensively — a value with a space or a newline in it
- * (a map key, an error message) would otherwise break the one-event-per-line
- * shape that makes the file readable and greppable.
- *
- * @param {string} event
- * @param {?Object} fields
- * @param {number|Date} [at] epoch ms or Date
- * @param {?string} [level] `info`/`warn`/`error`; omitted entirely when falsy,
- *   which is what keeps `detector.log` lines exactly as they were.
- * @returns {string} the line, newline included
+ * One line: ISO timestamp, optional level, event name, `key=value` pairs.
+ * `at` is epoch ms or a Date; a falsy `level` is omitted entirely, which is
+ * what keeps `detector.log` lines exactly as they were.
  */
 function formatLine(event, fields, at = Date.now(), level = null) {
     const time = (at instanceof Date ? at : new Date(at)).toISOString();
@@ -61,7 +31,7 @@ function formatLine(event, fields, at = Date.now(), level = null) {
     return parts.join(' ') + '\n';
 }
 
-/** Numbers stay bare, anything with whitespace gets quoted. */
+/** Whitespace gets quoted: one event per line is what keeps the file greppable. */
 function formatValue(value) {
     if (typeof value === 'number') {
         return Number.isInteger(value) ? String(value) : value.toFixed(3);
@@ -71,15 +41,8 @@ function formatValue(value) {
 }
 
 /**
- * Would appending `addition` bytes push the file past the limit?
- *
- * An empty file is never rotated, however big the line is: rotating on the
- * first write would throw away the previous run's log for nothing.
- *
- * @param {number} size current file size in bytes
- * @param {number} addition bytes about to be appended
- * @param {number} [limit]
- * @returns {boolean}
+ * Would appending `addition` bytes push a file of `size` bytes past `limit`? An
+ * empty file is never rotated: the first write would throw away the last run.
  */
 function shouldRotate(size, addition, limit = MAX_BYTES) {
     if (!(size > 0)) return false;
@@ -89,10 +52,8 @@ function shouldRotate(size, addition, limit = MAX_BYTES) {
 class RotatingLog {
 
     /**
-     * @param {?string} dir userData (or any writable directory); a falsy dir
-     *   disables the log rather than throwing.
-     * @param {{limit?: number, name?: string, flushMs?: number,
-     *          ringSize?: number, failMessage?: string}} [opts]
+     * A falsy `dir` disables the log rather than throwing. `opts.flushMs: 0`
+     * appends per line (`detector.log`), 500 batches them (`app.log`).
      */
     constructor(dir, opts = {}) {
         this.dir = dir || null;
@@ -100,31 +61,27 @@ class RotatingLog {
         this.name = opts.name || 'app.log';
         this.file = this.dir ? path.join(this.dir, this.name) : null;
         this.backup = this.file ? this.file + BACKUP_SUFFIX : null;
-        /** Cached size, so a 700 ms loop does not stat the file every tick. */
+        /** Cached, so a 700 ms loop does not stat the file every tick. */
         this.size = null;
-        /** One console complaint per process if the log cannot be written. */
         this.failed = false;
         this.failMessage = opts.failMessage || `The log ${this.name} could not be written:`;
-        /** 0 = append synchronously per line. */
         this.flushMs = opts.flushMs || 0;
-        /** Lines waiting for the next flush (buffered mode only). */
         this.queue = [];
         this.timer = null;
         /**
-         * Last N lines, in memory, whatever the write mode. This is what the
-         * crash report carries: by the time the process is going down, reading
-         * the file back is the last thing worth attempting.
+         * Last N lines, in memory whatever the write mode: this is what the
+         * crash report carries, because by then reading the file back is the
+         * last thing worth attempting.
          */
         this.ringSize = opts.ringSize || 0;
         this.ring = [];
     }
 
-    /** @returns {boolean} */
     isEnabled() {
         return !!this.file;
     }
 
-    /** Current size in bytes, 0 when the file does not exist yet. */
+    /** Bytes, 0 when the file does not exist yet. */
     currentSize() {
         if (this.size !== null) return this.size;
         try {
@@ -135,12 +92,7 @@ class RotatingLog {
         return this.size;
     }
 
-    /**
-     * Append one event. Never throws.
-     * @param {string} event
-     * @param {?Object} [fields]
-     * @param {?string} [level]
-     */
+    /** Append one event. Never throws. */
     write(event, fields, level) {
         const line = formatLine(event, fields, Date.now(), level);
         if (this.ringSize > 0) {
@@ -178,11 +130,7 @@ class RotatingLog {
         this.append(text);
     }
 
-    /**
-     * Append raw text, rotating first if it would not fit. Never throws: a
-     * failure costs the line and one console complaint per process.
-     * @param {string} text
-     */
+    /** Rotates first if the text would not fit. Never throws. */
     append(text) {
         if (!this.file || !text) return;
         const bytes = Buffer.byteLength(text);
@@ -198,22 +146,15 @@ class RotatingLog {
         }
     }
 
-    /**
-     * The last `count` lines still in memory, oldest first. Empty unless the
-     * log was built with a `ringSize`.
-     * @param {number} [count]
-     * @returns {string[]}
-     */
+    /** Oldest first; empty unless the log was built with a `ringSize`. */
     recent(count) {
         if (!count || count >= this.ring.length) return this.ring.slice();
         return this.ring.slice(this.ring.length - count);
     }
 
     /**
-     * `<name>` → `<name>.1`, replacing any previous backup, and start a fresh
-     * file. The old backup is removed first: `rename` over an existing file is
-     * fine on both platforms, but an EPERM from a virus scanner holding the
-     * backup open would otherwise lose the rotation *and* the new line.
+     * `<name>` → `<name>.1`. The old backup is removed **first**: an EPERM from
+     * a scanner holding it open would lose the rotation *and* the new line.
      */
     rotate() {
         try {

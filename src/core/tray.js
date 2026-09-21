@@ -6,7 +6,6 @@ const {t} = require('../shared/i18n');
 class TrayController {
     mainWindow = null;
     tray = null;
-    /** `Language` — the tray is drawn by main, so it translates for itself. */
     language = null;
     /** Version of a downloaded update, or null. Drives the extra menu item. */
     pendingUpdateVersion = null;
@@ -16,7 +15,7 @@ class TrayController {
         this.language = language || null;
     }
 
-    /** Translate for the current UI language, falling back to English. */
+    /** The tray is drawn by main, so it translates for itself; en is the fallback. */
     t(key) {
         return this.language ? this.language.t(key) : t('en', key);
     }
@@ -34,9 +33,9 @@ class TrayController {
 
         let mainWindow = this.mainWindow;
 
-        // Since 0.7 the window may not exist at all — it is destroyed while the
-        // app sits in the tray during a match. `show()` rebuilds it; `focus()`
-        // and `isVisible()` both answer for "there is no window" on their own.
+        // The window may not exist: it is destroyed while the app sits in the
+        // tray. `show()` rebuilds it; `focus()`/`isVisible()` answer for "no
+        // window" themselves.
         this.tray.on('double-click', () => {
             mainWindow.show('tray-double-click');
             mainWindow.focus();
@@ -47,19 +46,15 @@ class TrayController {
         });
     }
 
-    /**
-     * Remember that an update is waiting and rebuild the menu so the
-     * "Restart and update" item appears. Called from `MainWindow`'s
-     * `update-downloaded` handler.
-     */
+    /** Called from `MainWindow`'s `update-downloaded`: grow the "Restart and update" item. */
     setUpdatePending(version) {
         this.pendingUpdateVersion = version || '';
         this.refreshMenu();
     }
 
     /**
-     * Rebuild the context menu from scratch — Electron menus are immutable, so
-     * a conditional item means a new template every time the condition changes.
+     * Electron menus are immutable, so a conditional item means rebuilding the
+     * whole template every time its condition changes.
      */
     refreshMenu() {
         if (!this.tray || this.tray.isDestroyed()) return;
@@ -80,11 +75,9 @@ class TrayController {
             template.push({
                 label: this.t('tray.update'),
                 click: function () {
-                    // Same entry point as the banner, so the "updating" view is
-                    // pushed to the window from main rather than from whoever
-                    // clicked. `installUpdate` is async since 0.5.0 and swallows
-                    // its own errors; the catch is only here so a rejection can
-                    // never become an uncaught one in a menu callback.
+                    // Same entry point as the banner, so main pushes the
+                    // "updating" view either way. The catch only stops a
+                    // rejection becoming uncaught inside a menu callback.
                     Promise.resolve(mainWindow.installUpdate()).catch(function (err) {
                         console.error('Install update from the tray failed:', err && err.message);
                     });

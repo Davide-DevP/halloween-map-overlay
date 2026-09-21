@@ -1,4 +1,4 @@
-const debugLogEnabled = true // Set to false to disable debug logging
+const debugLogEnabled = true
 
 module.exports.debugLog = function (...args) {
     if (!debugLogEnabled) {

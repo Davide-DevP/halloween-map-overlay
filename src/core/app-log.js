@@ -6,32 +6,7 @@ const {writeCrashReport} = require('./diagnostics/crash');
 
 /**
  * `app.log` — what the app itself did, as opposed to what the detector decided.
- *
- * The whole 0.3.2 diagnostics batch exists for one sentence: *"it does not
- * work"*. `detector.log` already answers that for auto-detect, and answers
- * nothing else — a hotkey that never registered, an update that failed, a
- * window that died, a setting the user does not remember changing are all
- * invisible. This is that second half: one line per event, in userData, next
- * to the detector's log, collected by the **Create diagnostic report** button.
- *
- * A module-level singleton rather than an injected instance, deliberately.
- * Nearly every module in `src/core` logs something, and threading a logger
- * through eight constructors (several of which are built before the one that
- * would own it) buys nothing: there is exactly one app and exactly one log.
- * `require('./app-log')` and call `event()`.
- *
- * Rules, which are the same rules the detector's log has and are restated here
- * because this log sees far more of the app:
- * - **Never a path under the user's profile.** Every string value is pushed
- *   through `redactHome` on its way in, so an `ENOENT` message or a stack
- *   trace becomes `~/…`. See `src/shared/redact.js`.
- * - **Never a frame, never a map image, never a custom map's file name.** The
- *   custom maps appear as a count and nothing else — the name is something the
- *   user typed.
- * - **Never a reason not to log.** It is not gated on DEBUG (the whole point is
- *   the session that already went wrong) and a write failure costs a line.
- * - Buffered at 500 ms: a slider drag writes a `setting` line per pixel, and
- *   those become one append. Anything that ends the process flushes first.
+ * A **module-level singleton**. See `docs/agents/diagnostics.md`.
  */
 
 /** Rotate at 1 MB, one backup. Higher than the detector's 512 KB per file. */
@@ -39,6 +14,7 @@ const MAX_BYTES = 1024 * 1024;
 const LOG_NAME = 'app.log';
 /** Lines held in memory for the crash report. */
 const RING_LINES = 200;
+/** A slider drag writes a `setting` line per pixel; those become one append. */
 const FLUSH_MS = 500;
 
 class AppLog {
@@ -54,10 +30,9 @@ class AppLog {
     }
 
     /**
-     * Point the log at a directory (userData) and register the renderer's error
-     * channel. Safe to call before `app.whenReady()` — `app.getPath` works
-     * there, which is also why `Settings` can read its file that early.
-     * @param {?string} dir
+     * Point the log at a directory and register the renderer's error channel.
+     * Safe before `app.whenReady()` — `app.getPath` works there, which is also
+     * why `Settings` can read its file that early.
      */
     init(dir) {
         let target = dir || null;
@@ -75,9 +50,8 @@ class AppLog {
             ringSize: RING_LINES,
             failMessage: 'app.log could not be written:'
         });
-        // The renderer runs with nodeIntegration, so it could write the file
-        // itself — but then two processes would append to one file with two
-        // size caches and rotation would lose lines. It reports, main writes.
+        // The renderer reports, main writes: two processes appending to one file
+        // with two size caches would lose lines at the rotation boundary.
         ipcMain.on('renderer-error', (event, info) => {
             const {kind, message, stack, source, line} = info || {};
             this.error('error', {
@@ -92,16 +66,13 @@ class AppLog {
         return this;
     }
 
-    /**
-     * Modules the startup snapshot and the diagnostic report read from.
-     * @param {{settings?: Object, language?: Object, mapLibrary?: Object}} context
-     */
+    /** @param {{settings?, language?, mapLibrary?}} context read by `collect()` */
     setContext(context) {
         this.context = context || {};
         return this;
     }
 
-    /** Redact every string value on its way into the file. One choke point. */
+    /** PRIVACY CHOKE POINT: no path under the user's profile reaches the log. */
     scrub(fields) {
         if (!fields) return fields;
         const out = {};
@@ -143,14 +114,8 @@ class AppLog {
     }
 
     /**
-     * Everything worth knowing about this machine and this install, gathered
-     * once. Used twice: written to the log at startup, and regenerated into
-     * `system.txt` when a diagnostic report is built (the second copy is the
-     * one that reflects settings as they are *now*).
-     *
-     * GPU info is best effort — `getGPUInfo` rejects on some drivers and in
-     * headless sessions, and a report without it is still a report.
-     *
+     * This machine and this install. Used twice: the startup lines, and
+     * `system.txt`, whose copy reflects the settings as they are *now*.
      * @returns {Promise<{app: Object, settings: Object, displays: string[], gpu: Object}>}
      */
     async collect() {
@@ -159,7 +124,7 @@ class AppLog {
         try {
             version = require('../../package.json').version;
         } catch (err) {
-            // Packaged builds always have it; a dev run with a broken tree does not.
+            // Only a dev run with a broken tree gets here.
         }
 
         let displays = [];
@@ -173,6 +138,7 @@ class AppLog {
             displays = [];
         }
 
+        // Custom maps are a count and nothing else: the name is user text.
         let maps = 0;
         let customs = 0;
         try {
@@ -187,6 +153,7 @@ class AppLog {
 
         let gpu = {};
         try {
+            // Best effort: `getGPUInfo` rejects on some drivers and headless.
             const info = await app.getGPUInfo('basic');
             if (info && typeof info === 'object') {
                 gpu = {
@@ -200,13 +167,9 @@ class AppLog {
             gpu = {error: (err && err.message) || 'unavailable'};
         }
 
-        // Does the on-demand V8 collection actually work in **this** runtime?
-        // `core/gc.js` has a `vm`/`setFlagsFromString` trick that has only ever
-        // been exercised under plain node; a silent fall back to the no-op
-        // costs ~110 MB of peak in the main process during a match
-        // (`docs/MEMORY-REPORT-2.md` §4) and left no trace anywhere. Asking is
-        // also what builds the collector, which is why it is done once, here,
-        // rather than at require time.
+        // A silent fall back to the no-op collector costs ~110 MB of peak in
+        // main during a match (`docs/MEMORY-REPORT-2.md` §4). Asking also
+        // *builds* it, hence once, here.
         let gc = 'unknown';
         try {
             gc = require('./gc').isAvailable() ? 'available' : 'noop';
@@ -239,19 +202,13 @@ class AppLog {
                 gc
             },
             displays,
-            // The whole settings object. It holds no paths — see
-            // `shared/settings-defaults.js`; `overlayX`/`overlayY` are numbers.
+            // Safe whole: the settings hold no paths (`settings-defaults.js`).
             settings: settings && typeof settings.get === 'function' ? {...settings.settings} : {},
             gpu
         };
     }
 
-    /**
-     * The `startup` block. Three lines rather than one 900-character line: the
-     * scalars, then the settings snapshot, then the GPU. Each is still exactly
-     * one event on one line, and `grep startup-settings app.log` is a thing a
-     * person can do.
-     */
+    /** Three events rather than one 900-character line, so each is greppable. */
     async logStartup() {
         const info = await this.collect();
         this.event('startup', {...info.app, monitors: info.displays.join(', ')});
@@ -262,20 +219,15 @@ class AppLog {
     }
 
     /**
-     * `uncaughtException` → a crash file, then let the process go.
-     *
-     * Deliberately **not** a swallow. An app that keeps running after an
-     * unhandled throw in main is an app in an unknown state, and the failure
-     * mode people report ("it just froze") is exactly that. `unhandledRejection`
-     * is different: a rejected promise nobody awaited is usually one broken
-     * feature, not a broken process, so it is logged and the app lives.
+     * `uncaughtException` → a crash file, then let the process go: deliberately
+     * **not** a swallow, while `unhandledRejection` deliberately is one.
      */
     installCrashHandlers() {
         if (this.crashHandlersInstalled) return;
         this.crashHandlersInstalled = true;
 
         process.on('uncaughtException', (err) => {
-            // console first: if everything below fails, the terminal still has it.
+            // console first: if all of the below fails, the terminal has it.
             console.error('Uncaught exception:', err);
             this.fatal('uncaughtException', err);
         });
@@ -293,10 +245,8 @@ class AppLog {
 
     /**
      * Log a fatal error, write the crash file with the ring buffer, and exit.
-     * @param {string} kind
-     * @param {Error} err
      * @param {{quit?: boolean}} [opts] `quit: false` records the crash without
-     *   ending the process (the renderer death path does its own quitting).
+     *   ending the process (the renderer death path quits for itself)
      * @returns {?string} the crash file name
      */
     fatal(kind, err, opts = {}) {

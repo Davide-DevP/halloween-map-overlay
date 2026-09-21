@@ -101,6 +101,14 @@ Specs: `docs/SPEC-UPDATER.md`, `docs/BUILD.md`.
   - The **relaunched app does not inherit idle priority**: `StartApp`
     (`templates/nsis/common.nsh`) uses `${StdUtils.ExecShellAsUser}`, so the new
     instance is started by the shell, not as a child of the installer.
+  - **`autoRunAppAfterInstall` is what relaunches the app on the visible path,
+    not `quitAndInstall`'s second argument.** `BaseUpdater.quitAndInstall(isSilent,
+    isForceRunAfter)` calls
+    `install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall)`,
+    so with `isSilent = false` the `true` we pass is ignored and that flag
+    decides. It is already `true` by default and is pinned explicitly in
+    `prepareUpdater()` so a library default cannot strand the user on a closed
+    app; the same flag is why tier 3 relaunches at all.
   - The installer path comes from the `update-downloaded` event's
     `info.downloadedFile` (`electron-updater/out/types.d.ts`
     `UpdateDownloadedEvent`), stored as `pendingInstallerPath`; the fallback is

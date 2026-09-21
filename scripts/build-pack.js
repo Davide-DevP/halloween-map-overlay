@@ -1,36 +1,20 @@
 /**
- * Dev-only: build one **map pack** and add it to `packs/index.json`.
- *
- * A map pack is how a new or corrected map reaches users without a ~93 MB app
- * release — the overlay image, the detector templates for that one map, an
- * optional `markers.json` and a `pack.json` manifest, together a few hundred
- * KB. Format and reasoning: `docs/SPEC-MAP-PACKS.md`.
- *
+ * Dev-only: build one **map pack** (image, that map's detector templates, an
+ * optional `markers.json`, a `pack.json`) and add it to `packs/index.json`.
+ * Format: `docs/SPEC-MAP-PACKS.md`.
  * ```
- * node scripts/build-pack.js \
- *   --key "deftyconchgaming/Silver Shamrock" \
- *   --image maps-src/silver-shamrock-overlay.png \
- *   --fixture detection-fixtures/tab-silver-shamrock.png \
- *   --fixture detection-fixtures/tab-civilian-silver-shamrock.png \
- *   [--markers markers/silver-shamrock.json] \
- *   [--credit "u/deftyconchgaming"] [--version 2] [--min-app 0.7.0] \
- *   [--out packs] [--base silver-shamrock]
+ * node scripts/build-pack.js --key "Creator/Map Name" --image <file.png> \
+ *   --fixture <tab-*.png> [--fixture …] [--markers <file.json>] \
+ *   [--credit "u/somebody"] [--version 2] [--min-app 0.7.0] \
+ *   [--out packs] [--base some-dir]
  * ```
- *
- * Nothing here is new logic:
- *
- * - the **templates** come from `scripts/prepare-detector.js`'s own
- *   `buildVariantsForKey` — the same `locatePanel` + `downsample` that builds
- *   the committed `src/core/map-detector/templates.json`, so a pack's
- *   templates are byte-for-byte what the bundled ones would have been;
- * - every **rule** (what a file name may be, what a manifest must hold, what
- *   the index looks like, what counts as a sane PNG) comes from the runtime's
- *   own `src/shared/map-pack-rules.js`, and the finished pack is validated
- *   with it before anything is written. If the app would refuse the pack, this
- *   refuses to publish it.
- *
- * The output is committed to the repository and served by GitHub raw; nothing
- * here uploads anything.
+ * **Nothing here is new logic**, and it must stay that way: the templates come
+ * from `prepare-detector.js`'s own `buildVariantsForKey`, so a pack's templates
+ * are byte-for-byte what the bundled ones would have been, and every rule comes
+ * from the runtime's `src/shared/map-pack-rules.js`, which validates the
+ * finished pack before anything is written — if the app would refuse the pack,
+ * this refuses to publish it.
+ * The output is committed and served by GitHub raw; nothing here uploads.
  */
 
 const fs = require('fs');
@@ -44,11 +28,7 @@ const {buildVariantsForKey, catalog} = require('./prepare-detector');
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_OUT = path.join(ROOT, 'packs');
 
-/**
- * The keys of the maps that ship inside the app, from the committed `maps/`
- * folder — `prepare-detector.js`'s own catalogue, so there is one answer to
- * "what does this build ship".
- */
+/** The keys this build ships, from `prepare-detector.js`'s own catalogue. */
 function bundledKeys() {
     try {
         return catalog().map(entry => entry.key);
@@ -95,13 +75,8 @@ function readIndex(file) {
     return json;
 }
 
-/**
- * The templates for one map, in exactly the shape the runtime validates:
- * `{format: 2, size, templates: {<key>: [[…size*size numbers…], …]}}`.
- *
- * 3 decimals, like `prepare-detector.js`: 0.001 of a luminance step is far
- * below anything NCC can notice and it keeps a variant at ~24 KB.
- */
+/** One map's templates, in the shape the runtime validates. 3 decimals, like
+ * `prepare-detector.js`: below what NCC notices, ~24 KB per variant. */
 async function buildTemplates(key, fixtures) {
     const {variants, parts} = await buildVariantsForKey(fixtures);
     parts.forEach((part, i) => {
@@ -144,19 +119,11 @@ async function main() {
     const indexFile = path.join(outRoot, 'index.json');
     const index = readIndex(indexFile);
 
-    /*
-     * Two ways a key can be *almost* another key, both of which the runtime has
-     * to defend against and neither of which should ever be published:
-     *
-     * 1. Two keys that slug to one install directory. `packDirName` folds every
-     *    non-alphanumeric character to `-`, so `a/b c`, `a/b-c`, `a/b.c` and
-     *    `a-b/c` all land in `a-b-c`; published together they would reinstall
-     *    over each other on every check forever.
-     * 2. A key that differs from a **bundled** map's only by case. It would
-     *    replace that map (the merges fold case), but the gallery would then
-     *    show the pack's spelling — so a pack meant to fix a map would also
-     *    rename it. Matching the bundled spelling is always what was meant.
-     */
+    // Two ways a key can be *almost* another, neither publishable: two keys
+    // slugging to one install directory (they reinstall over each other on
+    // every check forever), and a key differing from a **bundled** map's only
+    // by case (the merges fold case, so it replaces that map but shows the
+    // pack's spelling — fixing a map *and* renaming it).
     for (const other of index.packs) {
         if (!other || typeof other.key !== 'string' || other.key === key) continue;
         if (rules.packDirName(other.key) === dirName) {
@@ -171,8 +138,8 @@ async function main() {
         }
     }
 
-    // A version is an integer that only ever goes up: the app refuses a
-    // downgrade, so re-publishing the same number would be a silent no-op.
+    // An integer that only ever goes up: the app refuses a downgrade, so
+    // re-publishing the same number would be a silent no-op.
     const previous = index.packs.find(p => p && p.key === key);
     const version = args.version !== undefined
         ? parseInt(args.version, 10)
@@ -183,11 +150,8 @@ async function main() {
             + 'the app refuses a downgrade, so nothing would install');
     }
 
-    // The display name and creator are **the key's two halves**, never
-    // arguments. The app refuses a manifest that spells them differently (a
-    // pack calling itself another map's name hijacks every bare-name lookup),
-    // so accepting an override here would only ever produce a pack that cannot
-    // install. Renaming a map means publishing it under a new key.
+    // Name and creator are **the key's two halves**, never arguments: an
+    // override here could only produce a pack that cannot install.
     for (const flag of ['name', 'creator']) {
         if (args[flag] !== undefined) {
             die(`--${flag} is not accepted: the ${flag} comes from --key ("${key}"). `
@@ -200,8 +164,7 @@ async function main() {
     const minApp = typeof args['min-app'] === 'string' ? args['min-app'] : null;
     if (minApp && !/^\d+(\.\d+)*$/.test(minApp)) die('--min-app must look like 1.2.3');
 
-    // The image keeps the map's own name, so the file on disk reads the same
-    // way a bundled `maps/<Creator>/<Map Name>.png` does.
+    // Named like a bundled `maps/<Creator>/<Map Name>.png`.
     const imageName = `${name}.png`;
     if (!rules.isValidFileName(imageName)) {
         die(`"${imageName}" is not a file name a pack may contain — keep the map name to `
@@ -220,8 +183,8 @@ async function main() {
         die(`${args.image} is ${size && size.width}x${size && size.height}; a map image must be `
             + `${rules.MIN_IMAGE_SIDE}..${rules.MAX_IMAGE_SIDE} px on each side`);
     }
-    // The same floor the installer applies: a truncated PNG, or a header with
-    // no pixels behind it, would install and leave the map blank.
+    // The installer's own floor: a header with no pixels behind it would
+    // install and leave the map blank.
     if (!rules.isPlausiblePngBytes(imageBytes, size)) {
         die(`${args.image} is ${imageBytes.length} bytes for ${size.width}x${size.height} and/or has no `
             + 'IEND chunk — it looks truncated, and the app would refuse it');
@@ -251,7 +214,6 @@ async function main() {
         console.log(`  markers: ${markerCheck.layers} layer(s), ${markerCheck.points} point(s)`);
     }
 
-    // ── assemble ─────────────────────────────────────────────────────────────
     const files = [
         {name: imageName, bytes: imageBytes},
         {name: rules.TEMPLATES_NAME, bytes: templatesBytes}
@@ -276,8 +238,7 @@ async function main() {
         markers: markersBytes ? rules.MARKERS_NAME : null,
         files: listed
     };
-    // Validated with the *runtime's* checker before it is written: if the app
-    // would refuse this pack, it does not get published.
+    // The runtime's own checker, before anything is written.
     const base = typeof args.base === 'string' ? args.base : dirName;
     const entry = {key, version, minAppVersion: minApp, base, files: listed};
     const manifestCheck = rules.validateManifest(manifest, entry, {});
@@ -288,7 +249,6 @@ async function main() {
     for (const file of files) fs.writeFileSync(path.join(packDir, file.name), file.bytes);
     fs.writeFileSync(path.join(packDir, rules.MANIFEST_NAME), JSON.stringify(manifest, null, 2) + '\n');
 
-    // ── index ────────────────────────────────────────────────────────────────
     index.formatVersion = rules.PACK_FORMAT;
     index.packs = index.packs.filter(p => !p || p.key !== key).concat([entry])
         .sort((a, b) => String(a.key).localeCompare(String(b.key), 'en'));

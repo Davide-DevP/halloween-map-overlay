@@ -21,7 +21,12 @@ Opt-in (`mapDetection`, default **false**, switch on the home page). Spec:
   absorbs the few-pixel differences between the hand-made fixture crops *and*
   excludes the near-white 1 px highlight rectangle the game draws 8 px inside
   the frame while the cursor is over the map panel (two of the four fixtures
-  have it, two do not).
+  have it, two do not). The same scan locates the **left (objectives) panel** on
+  the same rows, frame cols 255/256 and 843/844, which is where
+  `LEFT_PANEL_REL` (fs x 257..842, y 250..929, its lower ~2/3) comes from.
+  `matcher.js` also keeps `TAB_PANEL_REL` — the same interior **without** the
+  inset — because Tab-map mode's `tab` transform is a fraction of the *full*
+  786x786 square: two names for one measurement, deliberately.
 - **Two signals, not one.** The score is the mean of the NCC on luminance and
   the NCC on Sobel gradient magnitude. Luminance alone separates the maps
   (margin ~0.22) but leaves the runner-up at ~0.775 — right under the 0.80
@@ -121,11 +126,16 @@ The overlay's map label rides on the detector's `map-change` —
 - **The main menu ends the match** (`hideInMenu`, default **true**, Settings ›
   General). `matcher.js` carries a second template — the menu's navigation
   strip, `MENU_STRIP_REL` = x 45..760, y 20..68 at 1919x1079, measured off
-  `detection-fixtures/menu-main.png` — in its own `menu` section of
-  `templates.json`, keyed by nothing so it can never be a candidate in the map
-  match. It is a **96x12** thumbnail, not 64x64: the strip is ~15:1 and
-  squashing it square throws away the horizontal detail that is the whole
-  signal. Scoring is the same luminance+gradient NCC; threshold `MENU_MIN_SCORE`
+  `detection-fixtures/menu-main.png` by scanning the top-left corner (row means
+  jump from ~0.6/255 above the strip to 9-41/255 across it and back by row 66;
+  the `Q` badge peaks at x 50-60 and the `E` badge at x 730-745, both ~82/255 on
+  near-black) and then rounded outward a couple of pixels — in its own `menu`
+  section of `templates.json`, keyed by nothing so it can never be a candidate
+  in the map match. It is a **96x12** thumbnail, not 64x64: the strip is ~15:1
+  and squashing it square throws away the horizontal detail that is the whole
+  signal, while 96x12 still averages several source pixels per cell at the
+  640 px frame the detector works on (the strip is ~238x16 there).
+  Scoring is the same luminance+gradient NCC; threshold `MENU_MIN_SCORE`
   0.75 against measured positives 0.962–1.000 and a best negative of 0.417.
   `gradientMagnitude(thumb, width, height)` takes a height now — it defaults to
   `width`, so the square map calls are unchanged.
@@ -321,11 +331,19 @@ every window.
 - `core/map-detector/worker-host.js` is main's side: lazy start (only while
   something actually needs frames — a user with auto-detect off never pays for a
   second process), stop when nothing does, restart with backoff (250 / 1000 /
-  4000 ms, then give up), a 500 ms per-request timeout so a child that is alive
-  but not answering cannot wedge the scheduler (with a longer grace period for
-  the first request after a fork — that one is paying for the child's start-up,
-  and charging it to the tick budget killed healthy workers), and stale replies
-  dropped by request id.
+  4000 ms, then give up), a per-request timeout so a child that is alive but not
+  answering cannot wedge the scheduler, and stale replies dropped by request id.
+  The timeout is three numbers (`shared/detector-worker-rules.js`): **2000 ms**
+  for an ordinary tick (`ORDINARY_TIMEOUT_MS`), **500 ms** for the gate-only
+  check (`REQUEST_TIMEOUT_MS`) and a **3000 ms** grace for the first request
+  after a fork (`START_TIMEOUT_MS` — that one is paying for the child's
+  start-up, and charging it to the tick budget killed healthy workers). The
+  ordinary tick used to share the 500 ms: in a 0.7.0 field log both timeouts of
+  the session fell in the five seconds in which the game was *starting* (window
+  enumeration and capture stall while the GPU driver is busy), each one killed a
+  healthy child, and a third would have abandoned the worker for the session. A
+  slow answer there costs nothing — the scheduler chains on the reply — so it
+  gets room.
 - **Requests queue: one in flight, the rest in order, each with its own timer
   and its own promise.** The callers — the tick, Tab mode's confirming grab and
   its safety check — only guard themselves, so at 450 ms and 150 ms they overlap
@@ -346,7 +364,7 @@ every window.
 - **A gate-only request (`match: false`) never gets the start-up grace.** It is
   asked only while Tab-map mode's markers are drawn over the game, and brackets
   over live gameplay are the one thing that must not linger: it would rather be
-  told "no frame" on the ordinary timeout and take them down. (Tab mode also
+  told "no frame" on its own 500 ms timeout and take them down. (Tab mode also
   keeps a deadline of its own — see
   [markers-and-tab-mode.md](markers-and-tab-mode.md).)
 - **A deliberate stop is not a crash.** It arms no restart, counts towards no
@@ -488,6 +506,30 @@ These are what make "adding a map" a data-only change
   folder and the key can never drift. A slug that matches no map is ignored by
   the generator and fails `test/map-detector.test.js`
   ("every map in maps/ has a detection fixture").
+
+## Two neighbours: `core/gc.js` and `core/foreground.js`
+
+Both live next to the detector without being part of the capture path, and both
+have their reasoning elsewhere — this section only says where, plus the one
+thing that is written down nowhere else.
+
+- **`core/gc.js`** — one V8 collection on demand, for the process that holds the
+  captured frame. Every measurement (78.5 / 131.2 / **191.2** MB rss with no
+  collection, 78.1 / 79.4 / 79.9 MB collecting every tick; the collection itself
+  1.06 ms min / 1.31 median / 3.89 p95 / 6.28 max) is in
+  `docs/MEMORY-REPORT-2.md` §4 and summarised in [memory.md](memory.md). The
+  constraint the code carries is the **lazy build** — why is in
+  [the utility-process section above](#2-capture-gate-grayscale-and-match-run-in-a-utility-process)
+  and in [memory.md](memory.md).
+- **`core/foreground.js`** — the `hotkeysGameOnly` poll. Its rules, cadences and
+  fail-open cases are in [hotkeys.md](hotkeys.md); it shares only
+  `classifyWindow` with the detector, and **it captures nothing**, so the budget
+  above does not apply to it. The one thing kept here is what was *rejected*
+  when it was written: `node-screenshots`' `Window.isFocused()` was chosen
+  because the alternatives were all worse — a new native module for
+  `GetForegroundWindow`, a `powershell`/`tasklist` child process per tick
+  (hundreds of milliseconds and a visible process spawn), or Electron's
+  `desktopCapturer`, which is the very thing the detector was moved off.
 
 See also: [markers-and-tab-mode.md](markers-and-tab-mode.md) (the fast Tab
 gate, the 700 → 450 ms cadence and the key trigger that replaces it),

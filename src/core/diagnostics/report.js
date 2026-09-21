@@ -5,39 +5,24 @@ const path = require('path');
 const {buildZip} = require('./zip');
 
 /**
- * The diagnostic report: one zip, built from a list of files and a list of
- * generated text blocks.
+ * The diagnostic report: one zip from a list of files and a list of generated
+ * text blocks. fs-only tier — `src/core/diagnostics.js` decides which and where.
  *
- * No electron import. The caller (`src/core/diagnostics.js`) decides *which*
- * files and *where* — everything that needs `app.getPath` lives there — and
- * this function does the part worth testing: read what exists, skip what does
- * not, cap anything oversized, and write an archive that opens.
- *
- * Rules:
- * - **Never throws.** The button behind this exists for a user whose app is
- *   already misbehaving; an exception here would be the second thing that went
- *   wrong that minute.
- * - **A missing file is not an error.** `detector.log` only exists once
- *   auto-detect has run, `crash-*.txt` only after a crash, and a report from a
- *   healthy install is still worth having.
- * - **Nothing is collected that was not named by the caller.** No directory is
- *   walked, no glob is expanded here — the file list *is* the contract, which
- *   is what makes "no screenshots, no maps" checkable by reading one function.
+ * **Never throws** (the button exists for a user whose app is already
+ * misbehaving), **a missing file is a `skipped` entry**, and **nothing is
+ * collected that the caller did not name** — no directory walk, no glob.
  */
 
 /** Anything bigger than this is included as its tail. */
 const MAX_ENTRY_BYTES = 4 * 1024 * 1024;
 
-/** Two digits, the only formatting a file name needs. */
 function pad(value) {
     return String(value).padStart(2, '0');
 }
 
 /**
- * `HalloweenMapOverlay-report-20260917-1423.zip`, in local time — the user
+ * `HalloweenMapOverlay-report-20260917-1423.zip`, in **local** time — the user
  * reads this name off their own Desktop and says "the 14:23 one".
- * @param {Date|number} [now]
- * @returns {string}
  */
 function reportName(now = Date.now()) {
     const d = now instanceof Date ? now : new Date(now);
@@ -63,15 +48,11 @@ function readCapped(file, maxBytes) {
 }
 
 /**
- * Build the report.
- *
  * @param {{files?: Array<string|{path: string, name?: string}>,
  *          texts?: Array<{name: string, text: string}>,
- *          outDir: string, now?: Date|number, name?: string,
- *          maxEntryBytes?: number}} options
- * @returns {{ok: boolean, path: ?string, name: ?string,
- *            entries: Array<{name: string, bytes: number}>,
- *            skipped: string[], error: ?string}}
+ *          outDir: string, now?, name?, maxEntryBytes?}} options
+ * @returns {{ok, path: ?string, name: ?string,
+ *            entries: Array<{name, bytes}>, skipped: string[], error: ?string}}
  */
 function buildDiagnosticReport(options = {}) {
     const {outDir, files = [], texts = [], now = Date.now(), maxEntryBytes = MAX_ENTRY_BYTES} = options;

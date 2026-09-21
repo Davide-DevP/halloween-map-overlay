@@ -2,40 +2,23 @@
 
 /**
  * The detector's **utility process**: a message adapter around
- * `frame-source.js`, and nothing else.
+ * `frame-source.js`, and nothing else. See `docs/agents/detection.md`.
  *
- * Everything that touches pixels — the window enumeration, the capture, the Tab
- * gate, the luminance reduction, the NCCs and the explicit collection of the
- * 8 MB native buffers — happens here, off the main thread. Main keeps the
- * scheduler, the state machine, the logging and every window. What crosses back
- * is **numbers, keys and booleans**: a window rectangle, a gate verdict, a map
- * key with its scores, a menu score, timings.
+ * **The frame never leaves this process.** What crosses back is numbers, keys
+ * and booleans, and `test/detector-worker.test.js` asserts no reply carries a
+ * Buffer, a TypedArray or an ArrayBuffer. Templates travel the other way as
+ * plain number arrays — build output, not a capture.
  *
- * That makes the project's oldest privacy rule stronger rather than weaker. It
- * used to be "the frame never leaves the tick"; it is now "the frame never
- * leaves this process", and `test/detector-worker.test.js` asserts that no
- * reply carries a Buffer, a TypedArray or an ArrayBuffer. (Templates travel the
- * other way, in, as plain number arrays — they are the app's own data, not a
- * capture.)
- *
- * ## The two transports
- *
- * Electron's `utilityProcess` gives the child a `process.parentPort`
- * (`MessagePort` semantics: `on('message', {data})`, `postMessage`). Plain
- * Node's `child_process.fork` gives it `process.on('message', data)` and
- * `process.send`. The difference is ten lines at the bottom of this file and
- * nothing above it knows which one is in use — which is what lets the same
- * module be tested under plain Node.
+ * Two transports, and the difference is the bottom of this file:
+ * `utilityProcess` gives the child a `process.parentPort`, plain
+ * `child_process.fork` gives it `process.send` — which is what lets the module
+ * be tested under plain node.
  */
 
 const FrameSource = require('./frame-source');
 
-/**
- * The request handler, transport-free.
- *
- * @param {{source?: Object}} [deps]
- * @returns {{handle: (msg: Object) => Promise<?Object>, source: Object}}
- */
+/** The request handler, transport-free.
+ * @returns {{handle: (msg: Object) => Promise<?Object>, source: Object}} */
 function createWorker(deps) {
     const d = deps || {};
     const gc = d.gc || null;
@@ -69,15 +52,10 @@ function createWorker(deps) {
                     const result = await source.grab(message.want || {});
                     return Object.assign({id, type: 'grab'}, result);
                 } catch (err) {
-                    // A worker that throws must answer anyway: main's request
-                    // would otherwise sit out its whole timeout for nothing.
-                    //
-                    // `fatal` is the difference between "this capture failed"
-                    // and "this worker cannot do captures". Only the second
-                    // kind counts towards abandoning the worker: a failed
-                    // capture (reported by the frame source, not thrown) is an
-                    // alt-tab or a display-mode change, and running it in main
-                    // instead would have failed identically.
+                    // Answer anyway, or main sits out its whole timeout for
+                    // nothing. `fatal` means "this worker cannot do captures",
+                    // not "this capture failed" — only the first counts towards
+                    // abandoning the worker.
                     return {
                         id, type: 'grab', fatal: true,
                         error: String((err && err.message) || err).slice(0, 200)
@@ -97,14 +75,9 @@ function createWorker(deps) {
     return {handle, source};
 }
 
-/**
- * Wire the handler to whichever transport this process was started with.
- *
- * `utilityProcess` first, because that is the production one; `process.send` is
- * the plain-Node fork used by the integration test. Neither is set when this
- * module is merely `require`d (a unit test, or main loading it for the
- * in-process fallback), and then nothing is connected at all.
- */
+/** Wire the handler to whichever transport this process was started with.
+ * Neither is set when the module is merely `require`d (a unit test, or main
+ * loading it for the fallback), and then nothing is connected. */
 function connect(worker) {
     const reply = (message) => {
         if (message === null || message === undefined) return;
@@ -130,19 +103,10 @@ function connect(worker) {
     return false;
 }
 
-/**
- * The on-demand collector — **in the child**, which is where the frames are.
- *
- * `node-screenshots` has no dispose API, so an 8 MB native buffer waits for V8
- * to collect a small wrapper object: unprompted, that is the 78 → 191 MB
- * oscillation `docs/MEMORY-REPORT-2.md` §4 measured. Moving the capture into
- * this process moved that oscillation with it, so the collector has to come
- * too, or the move traded a stutter for a leak.
- *
- * Required here rather than at the top of the file because `core/gc.js` flips a
- * V8 flag on first use, and a runtime that refuses is a no-op collector, not a
- * crash. It is only ever loaded in a process that is about to capture frames.
- */
+/** The on-demand collector — **in the child**, which is where the frames are:
+ * moving the capture here moved the 78 → 191 MB oscillation with it. Required
+ * inside the function, never at the top, because `core/gc.js` flips a V8 flag
+ * on first use. */
 function loadGc() {
     try {
         return require('../gc');

@@ -1,30 +1,11 @@
 /**
- * Dev-only: build `src/core/map-detector/templates.json` from the cropped Tab
- * screenshots in `detection-fixtures/`.
- *
- * Run with `npm run prepare-detector`. The output is committed; the app never
- * runs this and `sharp` stays a devDependency.
- *
- * ## How the map panel is located
- *
- * The four `tab-<map>.png` fixtures are the two Tab-screen panels at native
- * scale, but each was cropped by hand, so their offsets differ by up to 10 px
- * (and all four cut a few pixels off the panel's own frame). Hard-coding one
- * offset would mis-register three of the four templates, so the panel is found
- * in every image instead, from two features the game draws at fixed positions:
- *
- *   1. the map panel's left frame line — a 1 px line of luminance 21 then 28
- *      on an otherwise black panel, the last such vertical line in the image;
- *   2. the map-name box's top frame line — luminance 67 then 86, the first
- *      bright row inside the left panel.
- *
- * In the uncropped fixture (`tab-fullscreen-haddonfield-heights.png`, 1919x1078)
- * those sit at x 875/876 and y 160/161, and the map panel interior is
- * x 877..1662, y 147..932. Finding them in a crop therefore gives the crop's
- * offset from full-screen coordinates, and the same 766x766 region the runtime
- * matcher uses (`MAP_PANEL_REL`, the interior inset by 10 px) can be cut out of
- * it. `test/map-detector.test.js` re-uses `locatePanel()` from here, so the
- * tests measure the crops rather than trusting a constant.
+ * Dev-only (`npm run prepare-detector`): build the committed
+ * `src/core/map-detector/templates.json` from the Tab screenshots in
+ * `detection-fixtures/`. The app never runs this, so `sharp` stays a
+ * devDependency. The map panel is **located in every image**, never at a
+ * hard-coded offset, because the fixtures are hand-cropped — see "Locating the
+ * map panel in a fixture" in `docs/agents/maps-authoring.md`. The tests re-use
+ * `locatePanel()` from here, so they measure the crops rather than a constant.
  */
 
 const fs = require('fs');
@@ -42,7 +23,7 @@ const FIXTURES = path.join(ROOT, 'detection-fixtures');
 const MAPS = path.join(ROOT, 'maps');
 const OUT_FILE = path.join(ROOT, 'src', 'core', 'map-detector', 'templates.json');
 
-/** Reference positions in the uncropped 1919x1078 Tab screenshot. */
+/** Measured in the uncropped 1919x1078 Tab screenshot. */
 const REF = {
     panelLeftInterior: 877,   // first column inside the map panel frame
     panelTopInterior: 147,    // first row inside the map panel frame
@@ -54,59 +35,29 @@ const REF = {
 };
 
 /*
- * ─── Fixture naming convention ──────────────────────────────────────────────
- *
- * Adding a map must be a data-only change, so nothing here lists the maps.
- *
- *   detection-fixtures/tab-<slug>.png             template source
- *   detection-fixtures/tab-fullscreen-<slug>.png  extra full-frame test fixture
- *   detection-fixtures/menu-<name>.png            main-menu positive; the first
- *                                                 one is the menu template
- *   detection-fixtures/<anything-else>.png        negative fixture (expects null)
- *
- * `<slug>` is the map name lower-cased with non-alphanumerics turned into
- * hyphens ("Haddonfield Town Center" → `haddonfield-town-center`). Anything
- * between `tab-` and the slug is free text — by convention the **role** whose
- * view of the map panel the screenshot shows, `tab-<role>-<slug>.png`
- * (`tab-civilian-east-haddonfield.png`). Several `tab-*` fixtures may resolve
- * to the same map, and each one becomes a *variant* of that map's template;
- * the matcher scores a map as the best of its variants, because the civilian
- * and Michael views of the same panel are different pictures, not noise around
- * one picture. The slug is
- * un-slugged and resolved against the real catalogue built from `maps/`, using
- * `findClosestMapMatch` — the project's single source of name matching — so the
- * creator folder comes from the map file and the key can never drift from the
- * catalogue. Both a full frame and a panel crop work as a template source;
- * `locatePanel` finds the panel either way.
+ * Adding a map must be a data-only change, so nothing here lists the maps: the
+ * fixture *names* say what each file is, and the slug is resolved against the
+ * real `maps/` catalogue. The rules are "Fixture naming rules" in
+ * `docs/agents/detection.md` — do not break them. `tab-fullscreen-…` is a
+ * full-frame test fixture, not a template source; `menu-…` are menu positives,
+ * the first in sort order being the menu template's source.
  */
-
-/** The `tab-fullscreen-…` prefix marks a full-frame fixture, not a source. */
 const FULLSCREEN_PREFIX = 'tab-fullscreen-';
 const TEMPLATE_PREFIX = 'tab-';
-/**
- * `menu-…` fixtures are full frames of the game's main menu. Every one of them
- * is a positive for the menu matcher; the first in sort order is what the menu
- * template is cut from. They are *negatives* for the map matcher, like any
- * other non-`tab-` fixture.
- */
 const MENU_PREFIX = 'menu-';
 
-/** Every PNG in `detection-fixtures/`, sorted. */
 function listFixtures() {
     return fs.readdirSync(FIXTURES).filter(f => /\.png$/i.test(f)).sort();
 }
 
-/** The catalogue as the app sees it, built from the committed `maps/` folder. */
+/** The catalogue as the app sees it, from the committed `maps/` folder. */
 function catalog() {
     if (!fs.existsSync(MAPS)) return [];
     return buildCatalog(getFilesFromDir(MAPS).map(file => path.relative(MAPS, file)));
 }
 
-/**
- * `tab-haddonfield-town-center.png` → `deftyconchgaming/Haddonfield Town Center`.
- * @returns {string|null} null when the fixture is not a template source or the
- *   slug matches no map in `maps/`.
- */
+/** `tab-<slug>.png` → catalogue key; null when it is not a template source or
+ * its slug matches no map in `maps/`. */
 function keyForFixture(file, entries) {
     if (!file.startsWith(TEMPLATE_PREFIX) || file.startsWith(FULLSCREEN_PREFIX)) return null;
     const slug = file.slice(TEMPLATE_PREFIX.length).replace(/\.png$/i, '');
@@ -114,7 +65,6 @@ function keyForFixture(file, entries) {
     return entry ? entry.key : null;
 }
 
-/** Fixture file → catalogue key, for every template source that resolves. */
 function templateSources() {
     const entries = catalog();
     const sources = {};
@@ -125,16 +75,9 @@ function templateSources() {
     return sources;
 }
 
-/**
- * Catalogue key → every `tab-*` fixture that resolves to it, in sort order.
- *
- * A map may have **more than one** template fixture, and since 0.3.3 that is
- * the documented way to teach the detector a view it does not recognise: a
- * player whose Tab screen is not matched drops `tab-<role>-<map>.png` next to
- * the existing `tab-<map>.png` and re-runs the generator, which appends a
- * template variant. Up to 0.3.2 the second fixture was warned about and
- * thrown away.
- */
+/** Catalogue key → every `tab-*` fixture that resolves to it, in sort order. A
+ * map may have **more than one**: that is how a view the detector does not
+ * recognise is taught to it, by dropping another fixture in and re-running. */
 function templateSourcesByKey() {
     const byKey = {};
     for (const [file, key] of Object.entries(templateSources())) {
@@ -161,25 +104,19 @@ function rowMean(gray, width, y, x0, x1) {
     return s / (x1 - x0);
 }
 
-/**
- * Find the map panel in a Tab screenshot, cropped or not.
- *
- * @returns {{dx:number, dy:number, x:number, y:number, size:number,
- *            frameCol:number, nameBoxRow:number}}
- *   `dx`/`dy` are the crop's offset from full-screen coordinates; `x`, `y` and
- *   `size` are the region to cut (the same one `MAP_PANEL_REL` selects).
- */
+/** Find the map panel in a Tab screenshot, cropped or not. `dx`/`dy` are the
+ * crop's offset from full-screen coordinates; `x`, `y` and `size` are the
+ * region to cut — the same one the runtime's `MAP_PANEL_REL` selects. */
 function locatePanel(gray, width, height) {
-    // 1. vertical frame lines, measured over the middle half of the image so
-    //    map content and the objectives text cannot masquerade as a line.
+    // 1. Vertical frame lines, over the middle half of the image only, so map
+    //    content and the objectives text cannot masquerade as a line.
     const yb0 = Math.round(height * 0.25), yb1 = Math.round(height * 0.75);
     const col = new Float64Array(width);
     for (let x = 0; x < width; x++) col[x] = columnMean(gray, width, height, x, yb0, yb1) * 255;
 
-    // The panel frame is a *dim* line (luminance 21 then 28 out of 255). The
-    // upper bound matters: when the cursor is over the map panel the game also
-    // draws a near-white 1 px highlight rectangle 8 px inside the frame (two of
-    // the four fixtures have it), and without the bound that line wins.
+    // The panel frame is a *dim* line (luminance 21 then 28 of 255); the upper
+    // bound keeps the near-white highlight rectangle the game draws 8 px inside
+    // the frame under the cursor from winning instead.
     const runs = [];
     for (let x = 4; x < width - 4; x++) {
         const neighbour = (col[x - 4] + col[x + 4]) / 2;
@@ -190,11 +127,9 @@ function locatePanel(gray, width, height) {
         }
     }
     if (!runs.length) throw new Error('locatePanel: no panel frame line found');
-    // The last vertical line in the image is the map panel's left frame: the
-    // panel's right frame is cropped away in every fixture, and in the
-    // uncropped screenshot the right frame is a *right* edge, whose interior
-    // lies to its left — handled by taking the last run that still leaves room
-    // for a panel.
+    // The last vertical line that still leaves room for a panel behind it is
+    // the map panel's left frame — the right frame is cropped away in every
+    // fixture, and in an uncropped frame it has no panel behind it.
     let frameRun = null;
     for (let i = runs.length - 1; i >= 0; i--) {
         const inner = runs[i][runs[i].length - 1] + 1;
@@ -204,7 +139,7 @@ function locatePanel(gray, width, height) {
     const panelLeft = frameRun[frameRun.length - 1] + 1;
     const dx = REF.panelLeftInterior - panelLeft;
 
-    // 2. the map-name box top frame, inside the left panel.
+    // 2. The map-name box top frame, inside the left panel.
     const nx0 = REF.nameBoxX0 - dx, nx1 = REF.nameBoxX1 - dx;
     if (nx0 < 0 || nx1 > width) throw new Error('locatePanel: name box outside the image');
     let nameBoxRow = -1;
@@ -224,17 +159,13 @@ function locatePanel(gray, width, height) {
     return {dx, dy, x, y, size, frameCol: panelLeft - 1, nameBoxRow};
 }
 
-/** Every `menu-*.png` fixture, sorted. The first is the template source. */
 function menuFixtures() {
     return listFixtures().filter(f => f.startsWith(MENU_PREFIX));
 }
 
-/**
- * The menu navigation strip, as the wide thumbnail the runtime compares
- * against. The region is relative to the full frame, so this is the same
- * `menuThumbnail` the detector calls — nothing is measured twice.
- * @returns {Promise<{thumb: Float32Array, width: number, height: number, file: string}|null>}
- */
+/** The menu navigation strip, as the wide thumbnail the runtime compares
+ * against — through the detector's own `menuThumbnail`, so the region is never
+ * measured twice. */
 async function buildMenuTemplate() {
     const [file] = menuFixtures();
     if (!file) return null;
@@ -245,7 +176,6 @@ async function buildMenuTemplate() {
     };
 }
 
-/** Cut `size x size` out of a luminance frame at `x,y`. */
 function cutSquare(gray, width, height, x, y, size) {
     const out = new Float32Array(size * size);
     for (let row = 0; row < size; row++) {
@@ -255,7 +185,7 @@ function cutSquare(gray, width, height, x, y, size) {
     return out;
 }
 
-/** Fixture file → the 64x64 template thumbnail, plus where it was cut from. */
+/** One fixture's template thumbnail, plus where it was cut from. */
 async function buildTemplate(file, size) {
     const {gray, width, height} = await loadGray(file);
     const loc = locatePanel(gray, width, height);
@@ -263,21 +193,10 @@ async function buildTemplate(file, size) {
     return {thumb: downsample(panel, loc.size, loc.size, size || DEFAULT_SIZE), loc, width, height, panel};
 }
 
-/**
- * One map's template **variants**: one thumbnail per fixture, in file order.
- *
- * Not an average. The Tab screen's map panel is drawn differently for the
- * civilian role than for Michael — that is what the 0.68-0.72 scores in the
- * owner's field log turned out to be, since all four committed fixtures are
- * Michael's view — and blending two genuinely different pictures produces one
- * that matches neither well. Each view is kept whole and `matchMap` scores the
- * key as the best of them.
- *
- * @param {string[]} files absolute paths to the fixtures
- * @param {number} [size]
- * @returns {Promise<{variants: Array<Float32Array>,
- *                    parts: Array<{file, loc, panel, thumb}>}>}
- */
+/** One map's template **variants**: one thumbnail per fixture (absolute paths),
+ * in file order. **Never an average** — the civilian and Michael views of one
+ * panel are different pictures, and blending them matches neither; `matchMap`
+ * scores the key as the best of its variants (`docs/agents/detection.md`). */
 async function buildVariantsForKey(files, size) {
     const parts = [];
     for (const file of files) {
@@ -299,10 +218,9 @@ async function main() {
 
     const templates = {};
     for (const [key, files] of Object.entries(byKey)) {
-        // Several fixtures for one map become several *variants* of it.
         const {variants, parts} = await buildVariantsForKey(files.map(f => path.join(FIXTURES, f)));
-        // 3 decimals: 0.001 of a luminance step is far below anything NCC can
-        // notice, and it keeps the committed file at ~20 KB per variant.
+        // 3 decimals: 0.001 of a luminance step is below anything NCC notices,
+        // and it keeps the committed file at ~20 KB per variant.
         templates[key] = variants.map(thumb => Array.from(thumb, v => Math.round(v * 1000) / 1000));
         files.forEach((file, i) => {
             const {loc} = parts[i];
@@ -323,9 +241,8 @@ async function main() {
         }
     }
 
-    // The main menu lives in its own section, keyed by nothing: there is one of
-    // it, it is not a map, and it must never appear in the map matcher's
-    // candidate list.
+    // Its own section, not a key in `templates`: the menu must never appear in
+    // the map matcher's candidate list.
     const menu = await buildMenuTemplate();
     if (menu) {
         console.log(`${menu.file.padEnd(34)} ${menu.width}x${menu.height} nav strip`
@@ -345,11 +262,8 @@ async function main() {
     const ordered = {};
     for (const key of Object.keys(templates).sort()) ordered[key] = templates[key];
     const payload = {
-        // 2: `templates[key]` is a *list* of thumbnails (one per view of the
-        //    map panel — Michael, civilian, …) instead of a single one.
-        //    `templateVariants` in the matcher reads both shapes, so a file
-        //    written by 0.3.2 still loads; the version is here so a reader can
-        //    tell which one it is holding without sniffing the arrays.
+        // Format 2: `templates[key]` is a *list* of thumbnails, one per view of
+        // the map panel. `templateVariants` also reads the format-1 shape.
         format: 2,
         size: DEFAULT_SIZE,
         note: 'Generated by scripts/prepare-detector.js from detection-fixtures/. Do not edit by hand.',

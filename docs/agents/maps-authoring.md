@@ -60,6 +60,32 @@ further in for a drawn frame line to sit just inside. An earlier attempt keyed
 on the bright frame instead — two of the four sources have no frame at all, so
 it did not work.
 
+## Locating the map panel in a fixture
+
+`scripts/prepare-detector.js` never uses a hard-coded crop offset: the `tab-*`
+fixtures were each cropped by hand, so their offsets differ by up to 10 px and
+all of them cut a few pixels off the panel's own frame. Hard-coding one offset
+mis-registers the rest, so `locatePanel()` finds the panel in every image from
+two features the game draws at fixed positions:
+
+1. the map panel's **left frame line** — a 1 px line of luminance 21 then 28 on
+   an otherwise black panel. It is taken as the *last* such vertical line that
+   still leaves room for a panel behind it, because the panel's right frame is
+   cropped away in every fixture and in an uncropped frame has no panel behind
+   it. The upper luminance bound matters: with the cursor over the map panel the
+   game also draws a near-white 1 px highlight rectangle 8 px inside the frame
+   (two of the four fixtures have it), and without the bound that line wins.
+2. the **map-name box's top frame line** — luminance 67 then 86, the first
+   bright row inside the left panel.
+
+In the uncropped fixture (`tab-fullscreen-haddonfield-heights.png`, 1919x1078)
+those sit at x 875/876 and y 160/161, and the map panel interior is x 877..1662,
+y 147..932 — the `REF` constants. Finding them in a crop therefore gives the
+crop's offset from full-screen coordinates, and the same 766x766 region the
+runtime matcher uses (`MAP_PANEL_REL`, the interior inset by 10 px) can be cut
+out of it. `test/map-detector.test.js` re-uses `locatePanel()`, so the tests
+measure the crops rather than trusting a constant.
+
 ## Marker data
 
 Marker positions are authored in `maps-src/markers.json` (provenance in its

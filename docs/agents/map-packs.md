@@ -15,6 +15,21 @@ reuses `prepare-detector.js`'s `buildVariantsForKey` and validates the result
 with the runtime's own `shared/map-pack-rules.js` before writing: if the app
 would refuse the pack, the script refuses to publish it.
 
+## The trust root
+
+`PACK_HOST` + `PACK_PATH_PREFIX` pin the requests to one host under one
+repository path, but note what the prefix does **not** do: GitHub raw serves
+every commit of every *fork* under the same `/<owner>/<repo>/` path, so a fork's
+blob is reachable through it. The real trust root is one level up — the index at
+`main/packs/index.json` in this repository, the only document the app ever
+starts from. Everything else is pinned to it by SHA-256, so a reachable fork
+blob can only be fetched if its hash is the one the index published, i.e. if it
+is byte-identical to the intended file. Never loosen the prefix on the grounds
+that "the hash protects us": the prefix is what keeps a socket from opening to
+an unrelated repository at all.
+
+## The rules
+
 - **Everything a pack carries is untrusted, and every rule is an allow-list.**
   One host (`raw.githubusercontent.com`) under one path prefix, https only; a
   pack supplies a *name*, never a URL, and `packFileUrl` derives the URL from
@@ -28,6 +43,18 @@ would refuse the pack, the script refuses to publish it.
   `name`/`creator` are **derived from the key**, never taken from the manifest
   (a pack calling itself another map's name hijacks every bare-name lookup;
   `creator: "constructor"` broke the renderer's map picker for every map).
+  `isValidFileName` carries the file's **one deny-list**,
+  `WINDOWS_RESERVED_STEMS`: `CON.png` is not a file on Windows but the console,
+  so `writeFileSync` succeeds and writes nowhere, the size check afterwards
+  fails, and such a pack installs nothing and is retried forever. The charset
+  allow-list cannot express it — they are ordinary letters.
+  `UNSAFE_TEXT` (controls, zero-width formatters, bidi overrides and isolates,
+  BOM) is spelled with `\u` escapes, **never the literal characters**: written
+  out in raw bytes it put NUL and C1 bytes in the file, git classified the
+  project's one security validator as **binary** (`Bin 0 -> 52314 bytes`, i.e.
+  unreviewable diffs), and any text-normalising tool could have dropped a range
+  out of the middle of the class and silently stopped filtering it. A test
+  asserts `map-pack-rules.js` is pure ASCII.
 - **A pack that fails anything is discarded whole and the previously installed
   good version stays.** That is why `store.commit` parks the live directory
   aside as `.old-<rand>-<dir>` — the directory is **in the name** so a `sweep()`
@@ -58,6 +85,10 @@ would refuse the pack, the script refuses to publish it.
   reinstalled over each other on every check forever. `validateIndex`
   (`duplicate-dir`), `store.commit` (`dir-owned-by-other-key`, since an index is
   not the only way a folder gets there) and `build-pack.js` each refuse it.
+  `build-pack.js` also refuses a key that differs from a **bundled** map's only
+  by case: the merges fold case, so it would replace that map while the gallery
+  showed the pack's spelling — a pack meant to *fix* a map would also rename it.
+  Matching the bundled spelling exactly is always what was meant.
 - **Templates are merged once at load**, `MapDetector.loadTemplates()` /
   `reloadTemplates()`, never on a tick. See "The capture path"
   ([detection.md](detection.md)). Packs past the

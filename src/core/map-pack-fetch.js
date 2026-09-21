@@ -5,47 +5,25 @@ const https = require('https');
 const rules = require('../shared/map-pack-rules');
 
 /**
- * The one network call map packs make: an HTTPS GET of a file under
- * `raw.githubusercontent.com/Davide-DevP/halloween-map-overlay/`.
- *
- * **Main process only.** The renderer's CSP is `connect-src 'none'` and stays
- * that way; nothing about this feature runs in a window. `node:https` and
- * nothing else — no new dependency, no `fetch` polyfill, no redirect library.
- *
- * It returns bytes and never parses them. The installer does the parsing and
- * the validation, which is what lets `test/map-pack-install.test.js` drive the
- * whole install with a fake `fetch` and no network at all.
- *
- * This function itself is tested the same way, one level down: the **transport**
- * is injectable (`opts.request`, defaulting to `https.get`), so
- * `test/map-pack-fetch.test.js` drives the redirect, cap, lying-`content-length`
- * and timeout paths against a fake request object. The allow-list is *not*
- * bypassable that way — the URLs in those tests are real allowed URLs and
- * `isAllowedUrl` runs on every one of them, which is the point: the seam is the
- * socket, not the policy.
- *
- * Every property worth having is a refusal:
- *
- * - **The URL must pass `rules.isAllowedUrl`** — https, one host, one path
- *   prefix, no port, no credentials, no query. The caller derives it with
- *   `rules.packFileUrl`; it is checked again here, because this is the function
- *   that actually opens the socket.
- * - **A redirect is just another URL somebody else chose**, so each `Location`
- *   goes through the same allow-list, and there are at most two. Refusing them
- *   outright was the first draft; two re-validated hops cost nothing and mean a
- *   future `raw.githubusercontent.com` reshuffle does not break the feature,
- *   while a redirect to anywhere else is still a hard failure with a log line.
- * - **The cap is enforced while reading**, not after: both `content-length`
- *   (when present, which lets an oversize file be refused before a byte of body
- *   arrives) and the running total. A response that keeps coming is destroyed.
- * - **Two timeouts.** A socket-inactivity timeout catches a stalled connection;
- *   an overall deadline catches a server that dribbles one byte a second
- *   forever, which no inactivity timeout ever fires on.
- * - **Nothing is sent.** No cookies, no auth header, no query string. The only
- *   header that says anything is a bare `User-Agent` of `halloween-map-overlay`
- *   (GitHub asks every client for one) — the product name and nothing else: no
- *   version, no platform, no identifier. Deliberately less than the update
- *   check's own user agent, because nothing here needs it.
+ * The one network call map packs make: an HTTPS GET of one file on
+ * `raw.githubusercontent.com`. **Main process only** — the renderer's CSP is
+ * `connect-src 'none'`. `node:https` and nothing else: no dependency, no
+ * `fetch` polyfill, no redirect library. It returns bytes and never parses
+ * them; the installer validates.
+ * Every property here is a refusal:
+ * - **The URL must pass `rules.isAllowedUrl`** — checked again here, because
+ *   this is the function that opens the socket.
+ * - **A redirect is another URL somebody else chose**, so each `Location` is
+ *   resolved and re-validated, at most twice; off-host is a hard failure.
+ * - **The cap is enforced while reading**, not after: `content-length` when
+ *   present, and the running total, which destroys an endless response.
+ * - **Two timeouts**: socket inactivity, plus an overall deadline for a server
+ *   that dribbles one byte a second forever and never trips the first.
+ * - **Nothing is sent.** No cookies, no auth, no query; the `User-Agent` is the
+ *   bare product name (GitHub asks for one) with no version or identifier.
+ * The **transport** is injectable (`opts.request`) so the tests drive the
+ * redirect, cap and timeout paths. The seam is the socket, not the policy:
+ * `isAllowedUrl` still runs on every URL.
  */
 
 /** Socket inactivity, and the whole request, in milliseconds. */
@@ -54,22 +32,15 @@ const TOTAL_TIMEOUT_MS = 30000;
 const MAX_REDIRECTS = 2;
 
 /**
- * GET one file.
- *
- * Never throws and never rejects: a failure is a value, because every caller's
- * answer to one is the same — log it and leave the installed packs alone.
- *
- * @param {string} url must pass `rules.isAllowedUrl`
- * @param {{limit: number, timeoutMs?: number, userAgent?: string,
- *          agent?: object, request?: Function}} [opts] `limit` is the hard byte
- *   cap; `request` is the transport seam (`https.get`) the tests replace.
- * @returns {Promise<{ok: boolean, bytes: ?Buffer, status: number, error: ?string}>}
+ * GET one `url` (which must pass `rules.isAllowedUrl`), resolving
+ * `{ok, bytes, status, error}`. **Never throws and never rejects**: a failure
+ * is a value, because every caller's answer to one is the same. `opts.limit` is
+ * the hard byte cap, `opts.request` the transport seam the tests replace.
  */
 function fetchPackFile(url, opts) {
     const options = opts || {};
     const get = typeof options.request === 'function' ? options.request : https.get;
-    // No cap supplied is the index's cap, the smallest one — a caller that
-    // forgot to say how big a file may be gets the strictest answer, not none.
+    // No cap supplied falls back to the smallest one, never to no cap.
     const limit = Number.isFinite(options.limit) && options.limit > 0 ? options.limit : rules.LIMITS.index;
     const deadline = Date.now() + (options.timeoutMs || TOTAL_TIMEOUT_MS);
 
@@ -95,8 +66,7 @@ function fetchPackFile(url, opts) {
             try {
                 request = get(target, {
                     headers: {
-                        // GitHub asks every client to identify itself. The
-                        // product name, nothing else — see the note above.
+                        // The product name only: no version, no identifier.
                         'user-agent': options.userAgent || 'halloween-map-overlay',
                         'accept': '*/*'
                     },
@@ -139,7 +109,7 @@ function fetchPackFile(url, opts) {
                         done({ok: false, bytes: null, status, error: 'redirect-no-location'});
                         return;
                     }
-                    // Resolved against the current URL, then re-validated. A
+                    // Resolved against the current URL, then re-validated: a
                     // relative `Location` is legal HTTP and must not become a
                     // hole in the allow-list.
                     let next;
@@ -164,8 +134,7 @@ function fetchPackFile(url, opts) {
                     return;
                 }
 
-                // Refuse an oversize body before reading it, when the server
-                // says how big it is.
+                // Refuse an oversize body before a byte of it is read.
                 const declared = parseInt((response.headers && response.headers['content-length']) || '', 10);
                 if (Number.isFinite(declared) && declared > limit) {
                     response.destroy();

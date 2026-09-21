@@ -34,7 +34,10 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
 - **Every default hotkey is `Ctrl+Alt+…` (0.7).** Ctrl is crouch in the game
   and Ctrl+R / Ctrl+H / Ctrl+arrows / Ctrl+1..9 / Ctrl+Shift+D are browser,
   Discord and text-field shortcuts — a *global* accelerator takes them away
-  system-wide. The size steps carry Shift as well because they share the arrows
+  system-wide. `Ctrl+Alt+<key>` is the Windows convention for an application's
+  own global shortcuts (Discord, OBS and the GPU overlays default to it) and
+  nothing in the game uses it.
+  The size steps carry Shift as well because they share the arrows
   with opacity. `SYSTEM_HOTKEY_DEFS`, `DEFAULT_SETTINGS` and
   `MAP_HOTKEY_PREFIX` are the three places the values live and a test asserts
   they agree. **Never hard-code a combination in a user-visible string**: the
@@ -157,6 +160,14 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
   `CommandOrControl+1` — JSON allows that) are also skipped, reason
   `duplicate`, rather than being blamed on another application.
 
+- **A re-bind replaces the entry it is *equivalent* to, not the one spelled
+  identically.** `save-hotkeys` finds the old entry with `findMapConflict` and
+  deletes it under its stored spelling before writing the new one; saving
+  `Ctrl+Alt+1` over a file holding `ctrl+alt+1` would otherwise leave two
+  entries for one combination, the second of which can never register and
+  lands in the banner as a `duplicate`. The binding's `id` is carried over, so
+  the row in the Hotkeys tab is edited rather than replaced.
+
 - **A `hotkey*` key missing from an old settings file gets the new default with
   no conflict check** — the back-fill in `core/settings.js` cannot consult
   anything. If a per-map binding already holds it, the system hotkey wins (it
@@ -190,6 +201,14 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
      try/catch before anything is written to settings or `hotkeys.json`.
   3. `Hotkeys.safeRegister` wraps every real `register` call, so even a file
      hand-edited to garbage only loses that one binding.
+
+- **The bind dialog's map picker groups by a `Map`, never an object literal.**
+  `byCreator[creator] || []` inherits from `Object.prototype`, so a creator
+  folder called `constructor`, `toString` or `__proto__` yields a *function*
+  (truthy) and the following `.push` throws a `TypeError` — which does not break
+  that one map, it empties the whole picker for every map. A creator is a folder
+  name under `maps/` or a downloaded pack's key half, so `src/js/hotkeys.js`
+  gets to assume nothing about it.
 
 ## Only while the game is in front
 
@@ -354,6 +373,12 @@ here.)
   `systemShadowsMap` toast too. The renderer both listens for
   `hotkey-conflicts` and asks with `get-hotkey-conflicts`, since registration
   happens before the window finishes loading.
+- **A conflict message's action name is a nested `msg`, not a string.**
+  `Hotkeys.conflictMessage` builds `hotkeys.error.boundTo` with
+  `msg(def.descriptionKey)` as a parameter, because main does not know which
+  language the window is in: the inner noun has to be translated at the same
+  moment as the sentence around it. Same rule for every `{key, params}` main
+  hands back over IPC.
 - **A persisting conflict is logged once, not once per reload.** `loadKeys()`
   runs at least twice per start (`createWindow`, then the renderer's
   `load-hotkeys`) and again after every hotkey edit. `noteConflict` skips the

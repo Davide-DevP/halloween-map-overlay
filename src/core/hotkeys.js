@@ -1,3 +1,8 @@
+/**
+ * Global hotkeys: registration, `hotkeys.json`, the active/suspended switch.
+ * Electron tier; the decisions are pure, in `shared/hotkeys-rules.js`.
+ * See docs/agents/hotkeys.md.
+ */
 const path = require('path');
 const {app, globalShortcut, ipcMain} = require('electron');
 const fs = require("fs");
@@ -33,25 +38,10 @@ const hotkeyFilePath = path.join(app.getPath('userData'), 'hotkeys.json');
 /** The settings key that records which generation of defaults a file has seen. */
 const DEFAULTS_VERSION_KEY = 'hotkeyDefaultsVersion';
 
-/**
- * How long a recording suspension may last before it is lifted anyway.
- *
- * The renderer suspends the global shortcuts while the bind dialog is open and
- * resumes on `hidden.bs.modal`, and there are several ways that second message
- * can go missing: the window is closed with the modal still up, the renderer
- * dies and is reloaded, a `visibilitychange` race. Every one of those would
- * otherwise leave the app holding **no** hotkeys with nothing on screen to
- * explain it, which is the worst failure this feature can have. Two minutes is
- * far longer than anyone spends pressing one key combination, and the
- * `load-hotkeys` a reloaded renderer sends lifts it immediately anyway.
- */
+/** Watchdog for a lost "resume", ms. Why: the doc § Suspended while the bind dialog records. */
 const SUSPEND_MAX_MS = 120000;
 
-/**
- * "…is already bound to <action>." The action's name is a nested message, not a
- * string: main does not know which language the window is in, so the inner noun
- * has to be translated at the same moment as the sentence around it.
- */
+/** "…is already bound to <action>." Why the nested `msg`: the doc § The conflict banner. */
 function conflictMessage(accelerator, actionId) {
     const def = SYSTEM_HOTKEY_DEFS[actionId];
     return msg('hotkeys.error.boundTo', {
@@ -66,68 +56,26 @@ class Hotkeys {
     settings;
     mapLibrary;
     /**
-     * Accelerators the last `loadKeys()` could not register — the §4 health
-     * check. `[{accelerator, action, reason}]`, rebuilt from scratch on every
-     * reload so it can never accumulate stale entries.
+     * `[{accelerator, action, reason}]` the last `loadKeys()` could not
+     * register, rebuilt from scratch each reload; `previousConflicts` is the
+     * same set from the load before. Why: the doc § The conflict banner.
      */
     conflicts = [];
-    /**
-     * The accelerators that were already failing at the end of the previous
-     * `loadKeys()`. Only a conflict that is *new* is worth a log line — see
-     * `noteConflict`. The banner is rebuilt from `conflicts` either way.
-     */
     previousConflicts = new Set();
-    /**
-     * True while `loadKeys()` is running. A failed registration then goes to
-     * the banner instead of the toast: reloading binds a dozen accelerators at
-     * once and one toast per failure, five times a session, is noise the user
-     * learns to dismiss without reading.
-     */
+    /** While `loadKeys()` runs, failures go to the banner, not a toast. */
     bulkLoading = false;
     /**
-     * Whether the global shortcuts are registered *right now* — the composed
-     * verdict, `hotkeysShouldBeRegistered({foregroundAllows, suspended})`.
-     *
-     * Starts `true` so a build without the watcher (or the setting off)
-     * behaves exactly as 0.6.0 did, and so the very first `loadKeys()` from
-     * `createWindow` registers.
+     * Registered right now? The composed verdict of the two fields below, and
+     * `true` initially so a build with no foreground watcher still registers.
      */
     active = true;
-    /**
-     * Does the foreground allow the hotkeys? Set by `core/foreground.js`:
-     * with `hotkeysGameOnly` on it flips as the player alt-tabs, so a
-     * combination belongs to whatever application is in front unless that is
-     * the game or one of our own windows.
-     */
     foregroundAllows = true;
-    /**
-     * True while the renderer's bind dialog is recording a combination.
-     *
-     * Our own windows counting as "in front" is deliberate — a hotkey has to
-     * be triable from Settings — but it is also what made re-recording
-     * impossible: an accelerator the app already holds is taken by the OS
-     * before any window sees the keystroke, so the dialog never received it
-     * and the *bound action* fired instead. While the dialog records, the app
-     * holds nothing.
-     */
+    /** Why the app holds nothing while recording:
+     * the doc § Suspended while the bind dialog records. */
     suspended = false;
-    /** Watchdog handle for `SUSPEND_MAX_MS`. */
     suspendTimer = null;
-    /**
-     * A one-time message the renderer collects when it loads
-     * (`get-hotkey-notice`). The defaults migration runs during startup,
-     * *before* any window can receive a toast, so the notice waits here.
-     */
+    /** Collected on load: the migration runs before any window can be toasted. */
     pendingNotice = null;
-    /**
-     * `core/map-controller.js`, injected from `index.js`.
-     *
-     * Up to 0.7 every hotkey was `win.send(<channel>)` and the **main window's
-     * renderer** did the work, which is what made that renderer load-bearing
-     * for a match (see `docs/MEMORY-REPORT-2.md` §3.3). The accelerators now
-     * dispatch straight into the main process, so they work with no window at
-     * all — which is the whole point of the tray unload.
-     */
     mapController = null;
 
     constructor(mainWindow, settings, mapLibrary) {
@@ -136,37 +84,24 @@ class Hotkeys {
         this.mapLibrary = mapLibrary;
         const classInstance = this;
 
-        // Before anything reads a binding: an install made on the old plain-Ctrl
-        // defaults is moved onto the Ctrl+Alt ones, once.
+        // Before anything reads a binding.
         this.migrateDefaultHotkeys();
 
-        // The banner is raised by a push from `loadKeys()`, which runs before
-        // the window has finished loading on a cold start — so the renderer
-        // asks as well as listens.
+        // `loadKeys()` pushes the banner before the window finishes loading, so
+        // the renderer asks as well as listens.
         ipcMain.handle('get-hotkey-conflicts', async () => classInstance.getConflicts());
 
-        // Collected once by the renderer on load. The defaults migration is the
-        // only thing that puts anything here, and it happens before there is a
-        // window to tell.
         ipcMain.handle('get-hotkey-notice', async () => {
             const notice = classInstance.pendingNotice;
             classInstance.pendingNotice = null;
             return notice;
         });
 
-        // The `hotkeysGameOnly` switch has its own handler rather than going
-        // through the generic `set-setting`, because main has to act on it:
-        // `core/foreground.js` starts or stops polling and the shortcuts are
-        // registered or dropped in the same breath.
+        // Its own handler, not `set-setting`: main has to act on it.
+        // Why: docs/agents/settings-and-onboarding.md § Writing settings.
         ipcMain.handle('set-hotkeys-game-only', async (event, value) => {
             const on = value !== false;
-            // Rolled back on failure: the switch snaps back in the UI, so the
-            // in-memory value has to snap back too or main would poll (or not
-            // poll) for a setting the file does not hold and the diagnostic
-            // report would disagree with what the user is looking at.
-            // No toast of our own either — `Settings.write()` already raises
-            // the throttled "could not be saved" one, and two toasts saying
-            // the same thing is one toast the user does not read.
+            // Rolled back, or main polls for a setting the file does not hold.
             if (!classInstance.settings.set('hotkeysGameOnly', on, {rollback: true})) {
                 return {ok: false, gameOnly: !on, active: classInstance.active};
             }
@@ -174,17 +109,14 @@ class Hotkeys {
             return {ok: true, gameOnly: on, active: classInstance.active};
         });
 
-        // The bind dialog is recording: hold nothing until it closes. `handle`,
-        // not `on`, so the renderer knows the suspension is in force before it
+        // `handle`: the renderer must know the suspension is in force before it
         // starts listening for keystrokes.
         ipcMain.handle('suspend-hotkeys', async (event, on) => {
             classInstance.setSuspended(on !== false);
             return {ok: true, suspended: classInstance.suspended};
         });
 
-        // --- Per-map hotkeys ---
-        // `handle`, not `on`: the renderer keeps the modal open until it knows
-        // the binding was actually accepted.
+        // `handle`: the modal stays open until the binding is accepted.
         ipcMain.handle('save-hotkeys', async (event, payload) => {
             const {hotkey, mapkey, id: incomingId} = payload || {};
             if (!hotkey || !mapkey) {
@@ -202,10 +134,8 @@ class Hotkeys {
             if (invalid) return classInstance.fail(invalid);
 
             const saved = classInstance.readHotkeyFile();
-            // A re-bind has to replace the entry it is *equivalent* to, not the
-            // one spelled identically: saving Ctrl+Alt+1 over a file holding
-            // `ctrl+alt+1` would otherwise leave two entries for one
-            // combination, the second of which can never register.
+            // A re-bind replaces the *equivalent* entry, not the one spelled
+            // identically. Why: the doc § Priority, conflicts and registration.
             const existingKey = findMapConflict(saved, hotkey);
             const id = incomingId || (existingKey && saved[existingKey] && saved[existingKey].id) || randomUUID();
             if (existingKey && existingKey !== hotkey) delete saved[existingKey];
@@ -220,9 +150,8 @@ class Hotkeys {
         });
 
         ipcMain.on('load-hotkeys', () => {
-            // A renderer that has just loaded is not recording anything, so
-            // this is also the safety net for a suspension whose "resume"
-            // never arrived — the window died mid-dialog and came back.
+            // A fresh renderer is not recording: one of the nets for a
+            // suspension whose "resume" never arrived.
             classInstance.setSuspended(false);
             classInstance.loadKeys();
         });
@@ -245,7 +174,6 @@ class Hotkeys {
             }
         });
 
-        // --- System hotkeys ---
         ipcMain.handle('get-system-hotkeys', async () => {
             return classInstance.getSystemHotkeys();
         });
@@ -266,15 +194,10 @@ class Hotkeys {
                 return classInstance.fail(msg('hotkeys.error.noModifier'));
             }
 
-            // Conflicts with the other system hotkeys. `systemConflict` is the
-            // one place that comparison lives now, so the unbound actions are
-            // skipped here exactly as they are for a per-map binding.
             const systemTaken = classInstance.systemConflict(accelerator, actionId);
             if (systemTaken) return classInstance.fail(systemTaken);
 
-            // Conflicts with per-map hotkeys — compared normalised, so a
-            // hand-edited `Ctrl+R` in hotkeys.json is found by a probe for
-            // `CommandOrControl+R`.
+            // Normalised, so a stored `Ctrl+R` is found by `CommandOrControl+R`.
             const usedByMap = findMapConflict(classInstance.readHotkeyFile(), accelerator);
             if (usedByMap) {
                 return classInstance.fail(msg('hotkeys.error.usedByMap',
@@ -284,11 +207,8 @@ class Hotkeys {
             const invalid = classInstance.rejectIfUnregisterable(accelerator);
             if (invalid) return classInstance.fail(invalid);
 
-            // `rollback`, because this handler answers `fail`: without it the
-            // rejected accelerator stays in memory and the next `loadKeys()`
-            // — an alt-tab away and back is enough — registers the binding the
-            // user was just told could not be saved, and the Hotkeys table
-            // shows it until the app is restarted.
+            // `rollback`, or the next `loadKeys()` registers the binding the
+            // user was just told could not be saved.
             if (!classInstance.settings.set(settingKey, accelerator, {rollback: true})) {
                 return classInstance.fail(msg('hotkeys.error.saveFailed'));
             }
@@ -305,14 +225,8 @@ class Hotkeys {
                 return;
             }
 
-            // The default is not guaranteed to be free. This used to write it
-            // blind, which was already wrong after a rebind (move rotate to
-            // Alt+K, give its default to a map, press Reset); unbinding makes
-            // the obvious sequence — unbind "Rotate map", hand its combination
-            // to a map, press Reset — put two things on one accelerator. The
-            // second registration then fails into the conflict banner (or the
-            // map binding is silently shadowed), which is a worse outcome than
-            // refusing the reset and saying why. The rule itself is pure.
+            // The default is not guaranteed free, so Reset can be refused.
+            // Why: the doc § Unbinding, rule 3.
             const verdict = canResetToDefault({
                 effective: classInstance.getSystemHotkeys(),
                 mapHotkeys: classInstance.readHotkeyFile(),
@@ -334,12 +248,8 @@ class Hotkeys {
             classInstance.loadKeys();
         });
 
-        // Unbinding is not "reset to nothing": the empty string is *stored*, so
-        // the settings back-fill cannot hand the default back on the next start
-        // (see `resolveSystemAccelerator`). It is what lets a user leave a
-        // combination to the rest of the system instead of parking an action
-        // they never use on a key that is then swallowed everywhere. The Edit
-        // button still works from here — recording a combination re-binds it.
+        // Unbound is the *stored* empty string, never a deleted key.
+        // Why: the doc § Unbinding.
         ipcMain.on('unbind-system-hotkey', (event, payload) => {
             const {actionId} = payload || {};
             const settingKey = ACTION_TO_SETTING_KEY[actionId];
@@ -349,23 +259,21 @@ class Hotkeys {
                 return;
             }
 
-            // Rolled back too: an unbind that did not reach the disk must not
-            // leave the action silently dead for the rest of the session.
+            // Rolled back: an unbind that missed the disk must not leave the
+            // action dead for the session.
             if (!classInstance.settings.set(settingKey, UNBOUND_ACCELERATOR, {rollback: true})) {
                 classInstance.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
                 return;
             }
-            // Its own line, because `setting key=hotkeyRotateMap value=` reads
-            // like a write that lost its value. "The user turned this off" and
-            // "this hotkey does nothing" are the same support question
-            // otherwise.
+            // Its own line: `setting key=hotkeyRotateMap value=` reads like a
+            // write that lost its value.
             appLog.event('hotkey-unbound', {action: actionId});
             classInstance.mainWindow.sendUpdate(msg('hotkeys.unbound'));
             classInstance.loadKeys();
         });
     }
 
-    /** Result helpers — the message also goes to the main window's status toast. */
+    /** The message also goes to the status toast. */
     ok(message) {
         this.mainWindow.sendUpdate(message);
         return {ok: true, message};
@@ -376,44 +284,13 @@ class Hotkeys {
         return {ok: false, message};
     }
 
-    /*
-     * ─── Active / inactive (hotkeysGameOnly) ────────────────────────────────
-     */
-
-    /**
-     * Called by `core/foreground.js` when the foreground changes sides.
-     *
-     * Registration is all-or-nothing and only ever runs on a **change**: doing
-     * it once a second would churn a dozen `globalShortcut` calls for nothing.
-     *
-     * Deactivating deliberately leaves `conflicts` and `previousConflicts`
-     * exactly as the last *active* load found them, and sends no
-     * `hotkey-conflicts` push. Clearing them would make the home-page banner
-     * flash off and on with every alt-tab, and rebuilding them would report
-     * phantom conflicts for bindings that are not even registered. Keeping the
-     * baseline is also what stops "log only new conflicts" from turning into a
-     * fresh set of log lines on every activation.
-     *
-     * @param {boolean} active whether the **foreground** allows the hotkeys
-     */
+    /** @param {boolean} active whether the **foreground** allows the hotkeys */
     setActive(active) {
         this.foregroundAllows = !!active;
         this.applyRegistration('foreground');
     }
 
-    /**
-     * The bind dialog is (or is no longer) recording a combination.
-     *
-     * Composes with the foreground state rather than replacing it, so closing
-     * the dialog while the game is *not* in front does not register anything —
-     * and alt-tabbing during a recording does not un-suspend.
-     *
-     * Always self-limiting: the watchdog lifts a suspension whose "resume"
-     * never arrived (window closed with the modal up, renderer died), and the
-     * `load-hotkeys` a reloaded renderer sends lifts it at once.
-     *
-     * @param {boolean} suspended
-     */
+    /** Composes with the foreground rather than replacing it. */
     setSuspended(suspended) {
         const next = !!suspended;
         if (this.suspendTimer) {
@@ -439,17 +316,8 @@ class Hotkeys {
 
     /**
      * Register or unregister everything, on a **change** of the composed
-     * verdict only: doing it once a second would churn a dozen
-     * `globalShortcut` calls for nothing.
-     *
-     * Deactivating deliberately leaves `conflicts` and `previousConflicts`
-     * exactly as the last *active* load found them, and sends no
-     * `hotkey-conflicts` push. Clearing them would make the home-page banner
-     * flash off and on with every alt-tab, and rebuilding them would report
-     * phantom conflicts for bindings that are not even registered. Keeping the
-     * baseline is also what stops "log only new conflicts" from turning into a
-     * fresh set of log lines on every activation.
-     *
+     * verdict only, and deactivating never touches the conflict lists.
+     * Why both: the doc § Only while the game is in front.
      * @param {string} reason for the log line — which input changed
      */
     applyRegistration(reason) {
@@ -457,11 +325,8 @@ class Hotkeys {
             foregroundAllows: this.foregroundAllows,
             suspended: this.suspended
         });
-        // Whatever the verdict, the *inputs* moved — and `suspended` is one of
-        // the things that stops the main window being unloaded in the tray. A
-        // bind dialog whose "resume" never arrived (the window was closed with
-        // the modal up) is lifted by the watchdog below, and without this
-        // nothing would ever re-ask whether the window may go now.
+        // Whatever the verdict, the *inputs* moved, and `suspended` is one of
+        // the things that stops the tray unload.
         if (this.mainWindow && typeof this.mainWindow.scheduleUnload === 'function') {
             this.mainWindow.scheduleUnload('hotkeys-' + (reason || 'change'));
         }
@@ -475,35 +340,19 @@ class Hotkeys {
         }
     }
 
-    /**
-     * What to do when the `hotkeysGameOnly` switch is flipped.
-     *
-     * Injected from `index.js`: `ForegroundWatcher` is built after this class
-     * (it needs `setActive` as its callback), so the two are wired in that
-     * direction and this one holds a function rather than the object.
-     * @param {(on: boolean) => void} fn
-     */
+    /** Injected: `ForegroundWatcher` is built after this class. */
     setGameOnlyHandler(fn) {
         this.onGameOnlyChanged = typeof fn === 'function' ? fn : null;
     }
 
-    /**
-     * Where a pressed accelerator goes. Injected because `MapController` is
-     * built after this class.
-     * @param {?Object} controller
-     */
+    /** Injected: `MapController` is built after this class. */
     setMapController(controller) {
         this.mapController = controller || null;
     }
 
     /**
-     * Run a system hotkey.
-     *
-     * The action is performed in **main** (`MapController.action`), and the
-     * window — if there is one — is only *told*, on `hotkey-action`. Nothing in
-     * the renderer acts on that notification; the welcome tour is the one
-     * listener, and it uses it to tick off its "try it" step.
-     *
+     * Run a system hotkey. The action happens in **main**; `hotkey-action` only
+     * *tells* the window, for the welcome tour's "try it" step.
      * @param {string} actionId a `SYSTEM_HOTKEY_DEFS` id
      */
     runAction(actionId) {
@@ -521,51 +370,21 @@ class Hotkeys {
         };
     }
 
-    /*
-     * ─── Conflict rules (all pure, in shared/hotkeys-rules.js) ──────────────
-     */
-
     /**
-     * @param {string} accelerator
-     * @param {?string} [exceptActionId] a system action to ignore — the one
-     *   being re-bound or reset, which must not conflict with itself.
-     * @returns {{key: string, params: Object}|null} a conflict message when this
-     *   accelerator is one of the system hotkeys, null otherwise.
+     * @param {?string} [exceptActionId] the action being re-bound or reset,
+     *   which must not conflict with itself
+     * @returns {{key: string, params: Object}|null} a conflict message, or null
      */
     systemConflict(accelerator, exceptActionId = null) {
-        // Nothing conflicts with "no combination at all", in either direction:
-        // an empty probe matches nothing, and the unbound actions are not in
-        // the bound entries to be matched against. Both rules are in
-        // `findSystemConflict`, which also compares *normalised*, so a
-        // hand-edited `ctrl+r` collides with `CommandOrControl+R` the way
-        // Electron says it does.
         const actionId = findSystemConflict(this.getSystemHotkeys(), accelerator, exceptActionId);
         return actionId ? conflictMessage(accelerator, actionId) : null;
     }
 
     /**
      * Dry-run an accelerator through Electron before it is ever persisted.
-     *
-     * `globalShortcut.register` THROWS on an accelerator it cannot parse, and a
-     * throw inside `loadKeys` aborts every registration after it — so an
-     * unparseable string saved to disk disables all remaining hotkeys on every
-     * subsequent boot. Catching it here is what keeps that out of the file.
-     *
-     * A `false` return (some other application already owns the combination) is
-     * not a parse failure: the binding is allowed and the user is told.
-     *
-     * Accelerators this app *itself* already holds are skipped entirely. The
-     * probe runs while our own bindings are live, so `register` on one of them
-     * returns `false` — re-recording the same combination for the same action
-     * used to produce a bogus "taken by another application" toast. An
-     * accelerator we are already holding has demonstrably parsed and
-     * registered, so there is nothing to find out and nothing to disturb.
-     *
-     * The probe works the same while the hotkeys are **inactive** (the game is
-     * not in front): register + unregister does not depend on our own bindings
-     * being live, and the early return above covers the one case that did.
-     *
-     * @returns {string|null} an error message when invalid, null when usable.
+     * Why, and why a `false` return is not a failure:
+     * the doc § Priority, conflicts and registration.
+     * @returns {string|null} an error message when invalid, null when usable
      */
     rejectIfUnregisterable(accelerator) {
         if (this.ownAccelerators().has(acceleratorKey(accelerator))) return null;
@@ -575,14 +394,10 @@ class Hotkeys {
             registered = globalShortcut.register(accelerator, () => {});
         } catch (err) {
             console.warn(`Rejected accelerator "${accelerator}": ${err.message}`);
-            // A throw mid-register may have left globalShortcut in a state
-            // where one of our bindings is gone; rebuild them.
+            // A throw mid-register may have dropped one of our bindings.
             this.loadKeys();
             return msg('hotkeys.error.unregisterable', {accelerator});
         }
-        // The probe took nothing away from us (we never hold this one), so the
-        // caller's own loadKeys() after a successful save is the only one
-        // needed — this used to run loadKeys three times per save.
         if (registered) globalShortcut.unregister(accelerator);
         else this.mainWindow.sendUpdate(msg('hotkeys.error.takenByOther',
             {accelerator: acceleratorToDisplay(accelerator)}));
@@ -590,25 +405,12 @@ class Hotkeys {
     }
 
     /**
-     * Every combination this app binds, as **comparison keys**: every *bound*
-     * system hotkey plus whatever is in `hotkeys.json`. Normalised, so the set
-     * is what Electron would consider taken rather than what happens to be
-     * spelled the same way.
-     *
-     * An unbound action must not put `''` in here. `rejectIfUnregisterable`
-     * treats a member of this set as "already proven registrable" and returns
-     * early, which for an empty string would skip the one check that keeps an
-     * unparseable accelerator out of the settings file.
-     *
-     * @returns {Set<string>}
+     * @returns {Set<string>} every combination this app binds, as normalised
+     *   comparison keys — never `''`, which the probe would skip
      */
     ownAccelerators() {
         return ownAcceleratorKeys(this.getSystemHotkeys(), this.readHotkeyFile());
     }
-
-    /*
-     * ─── hotkeys.json ───────────────────────────────────────────────────────
-     */
 
     readHotkeyFile() {
         if (!fs.existsSync(hotkeyFilePath)) return {};
@@ -621,17 +423,10 @@ class Hotkeys {
     }
 
     /**
-     * The single `hotkeys.json` writer.
-     *
-     * Wrapped like every other sync write in main since 0.3.2: an
-     * `uncaughtException` now ends the process (with a crash file), so a locked
-     * `hotkeys.json` must cost the one change, not the session. The return
-     * value is what every caller reports to the user with — a write that
-     * failed must never come back as "saved".
-     *
-     * @param {Object} contents
+     * The single `hotkeys.json` writer, wrapped like every sync write in main.
+     * Why: docs/agents/settings-and-onboarding.md § Writing settings.
      * @param {string} action for the log line
-     * @returns {boolean}
+     * @returns {boolean} whether it reached the disk; every caller reports it
      */
     writeHotkeyFile(contents, action) {
         try {
@@ -644,11 +439,7 @@ class Hotkeys {
         }
     }
 
-    /**
-     * First run only: bind Ctrl+Alt+1..Ctrl+Alt+N to the shipped maps. Never
-     * touches an existing file, so a user who cleared every binding keeps it
-     * cleared.
-     */
+    /** Never touches an existing file, so a cleared set stays cleared. */
     ensureDefaultMapHotkeys() {
         if (fs.existsSync(hotkeyFilePath)) return;
         const catalog = this.mapLibrary ? this.mapLibrary.getCatalog() : [];
@@ -660,22 +451,9 @@ class Hotkeys {
     }
 
     /**
-     * Give a map that a **map pack** just added the next free `Ctrl+Alt+N`.
-     *
-     * The decision is the pure `planPackMapHotkey` (see it for the four rules
-     * that keep this from re-arming accelerators a user cleared, from offering
-     * the same map twice, and from ever creating a conflict). This half only
-     * reads the file, writes it through the **single** `hotkeys.json` writer,
-     * reports a failed write the way every other hotkey path does, and
-     * re-registers.
-     *
-     * Called by `core/map-packs.js` for each pack key that was not already in
-     * the catalogue — a pack that merely *replaces* a bundled map is not a new
-     * map and keeps whatever binding that map already had.
-     *
-     * @param {string} mapKey
-     * @param {Array<string>} [offeredKeys] map keys already offered one, from
-     *   the pack store's state file
+     * The next free `Ctrl+Alt+N` for a map a **map pack** just added; the
+     * decision is the pure `planPackMapHotkey`. Why: docs/agents/map-packs.md.
+     * @param {Array<string>} [offeredKeys] from the pack store's state file
      * @returns {{ok: boolean, accelerator: ?string, reason: string, remember: boolean}}
      */
     assignPackMapHotkey(mapKey, offeredKeys) {
@@ -694,8 +472,6 @@ class Hotkeys {
         const saved = this.readHotkeyFile();
         saved[plan.accelerator] = {id: randomUUID(), mapKey};
         if (!this.writeHotkeyFile(saved, 'pack-default')) {
-            // Reported exactly like a hotkey the user saved by hand: the write
-            // is the same write and the failure means the same thing.
             this.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
             return {ok: false, accelerator: null, reason: 'write-failed', remember: false};
         }
@@ -705,18 +481,9 @@ class Hotkeys {
         return {ok: true, accelerator: plan.accelerator, reason: 'assign', remember: true};
     }
 
-    /*
-     * ─── The one-time move onto the Ctrl+Alt defaults ───────────────────────
-     */
-
     /**
-     * Apply `planHotkeyDefaultsMigration` — the impure half of §3.
-     *
-     * The decision (which bindings may move, and what blocks a move) is pure
-     * and unit tested; this only writes, logs, and leaves a notice for the
-     * renderer to collect. It runs from the constructor, before anything has
-     * read a binding, and the version stamp is what makes the second run a
-     * no-op.
+     * The impure half of the one-time move onto the Ctrl+Alt defaults.
+     * Why: the doc § Defaults and the migration onto them.
      */
     migrateDefaultHotkeys() {
         if (!this.settings) return;
@@ -727,17 +494,8 @@ class Hotkeys {
             mapHotkeys: this.readHotkeyFile()
         });
 
-        // Two writes at most, not eleven. `hotkeys.json` first, then **one**
-        // `merge()` for up to nine accelerators plus the version stamp — the
-        // migration used to call `set()` per key, i.e. ten full rewrites of
-        // `settings-app.json` during startup, each one a synchronous write.
-        //
-        // The stamp rides in that same merge, and only if the file write it
-        // also covers actually landed: a run that could not write is retried
-        // on the next start rather than being recorded as done. Retrying is
-        // safe, because the plan is computed from the state on disk — whichever
-        // half did land is simply not a candidate any more. `rollback` keeps
-        // memory and file together if the merge itself fails.
+        // Two writes at most, and the stamp only rides along if the file write
+        // it also covers landed. Why: the doc, same section.
         const fileOk = plan.mapChanged ? this.writeHotkeyFile(plan.mapHotkeys, 'migrate') : true;
         const changes = Object.assign({}, plan.settingChanges);
         if (plan.stamp && fileOk) changes[DEFAULTS_VERSION_KEY] = plan.version;
@@ -760,21 +518,8 @@ class Hotkeys {
     }
 
     /**
-     * The one-time "your hotkeys moved" notice.
-     *
-     * Two wordings, because the version that names a combination can only be
-     * used when that combination is the thing that actually changed. Saying
-     * *"the defaults have moved off plain Ctrl — Ctrl + H now shows the map"*
-     * is a sentence that contradicts itself, and it is reachable two ways:
-     * toggle-map's own move was **blocked** (something else holds Ctrl+Alt+H,
-     * so it is still on the old combination), or only per-map bindings moved
-     * at all (a reset `settings-app.json` beside an old `hotkeys.json`). An
-     * unbound toggle-map would leave the clause with a hole in it.
-     *
-     * The accelerator is read live rather than taken from the plan, so it is
-     * still right if something rebinds it between here and the renderer asking.
-     *
-     * @param {Object} plan from `planHotkeyDefaultsMigration`
+     * Two wordings, and the accelerator read live rather than from the plan.
+     * Why both: the doc, same section.
      * @returns {{key: string, params?: Object}}
      */
     defaultsMovedNotice(plan) {
@@ -784,19 +529,9 @@ class Hotkeys {
         return msg('hotkeys.defaultsMoved', {accelerator: acceleratorToDisplay(toggle)});
     }
 
-    /*
-     * ─── Registration ───────────────────────────────────────────────────────
-     */
-
     /**
-     * Current system hotkey accelerators: stored overrides merged over
-     * defaults, with `''` for every action the user unbound.
-     *
-     * This used to be `stored || def.defaultAccelerator`, which resurrected the
-     * default for an unbound action on every read. The three-way resolution
-     * lives in the pure `resolveSystemAccelerator` so the renderer's table
-     * cannot come to a different conclusion.
-     *
+     * Stored overrides merged over the defaults, always through
+     * `resolveSystemAccelerator`. Why: the doc § Unbinding, rule 1.
      * @returns {Object<string, string>} actionId → accelerator, `''` = unbound
      */
     getSystemHotkeys() {
@@ -808,26 +543,16 @@ class Hotkeys {
         return result;
     }
 
-    /**
-     * Only the system actions that actually hold a key combination.
-     * The rule is pure (`boundEntries`); this is the call site that has the
-     * settings to hand.
-     * @returns {Array<[string, string]>} [actionId, accelerator] pairs
-     */
+    /** @returns {Array<[string, string]>} only the actions that hold a combination */
     boundSystemHotkeys() {
         return boundEntries(this.getSystemHotkeys());
     }
 
     /**
-     * Register one accelerator, surviving anything Electron throws at us.
-     * A bad entry must never stop the ones after it from being registered.
-     * @param {string} accelerator
-     * @param {Function} handler
-     * @param {string} label for the console line — a system action id, or a
-     *   per-map binding's uuid.
-     * @param {string} [actionLabel] what a failure is *recorded* as, when that
-     *   differs: a uuid means nothing in a diagnostic report.
-     * @returns {boolean}
+     * A bad entry must never stop the ones after it from registering.
+     * @param {string} label for the console line — an action id, or a uuid
+     * @param {string} [actionLabel] what a failure is *recorded* as: a uuid
+     *   means nothing in a diagnostic report
      */
     safeRegister(accelerator, handler, label, actionLabel) {
         const win = this.mainWindow;
@@ -844,27 +569,13 @@ class Hotkeys {
         return false;
     }
 
-    /**
-     * Record a registration failure for the home-page banner and the log.
-     *
-     * A hotkey that silently does nothing is the single hardest thing to
-     * diagnose remotely: the user presses the combination, nothing happens, and
-     * the app looks broken when in fact Discord or the NVIDIA overlay took it
-     * first. Both halves of 0.3.2 exist for this case — the log line for the
-     * report, the banner so the user does not have to send one.
-     */
+    /** Record a registration failure. Why: the doc § The conflict banner. */
     noteConflict(accelerator, action, reason) {
         const entry = {accelerator, action: action || '', reason: reason || 'taken'};
         if (this.conflicts.some(c => c.accelerator === accelerator)) return;
         this.conflicts.push(entry);
-        // Logged once per *change*, not once per reload. `loadKeys()` runs at
-        // least twice on every start (once from `createWindow`, once from the
-        // renderer's `load-hotkeys`) and again after every hotkey edit — and,
-        // since 0.7, again every time the game comes back to the foreground. A
-        // user who runs Discord would otherwise put thirteen identical warnings
-        // in app.log several times a session and reach the 1 MB cap for
-        // nothing. A conflict that *appears* is news and is logged; one that
-        // persists is already in the file.
+        // Logged once per *change*, not per reload — a Discord user would
+        // otherwise reach app.log's 1 MB cap for nothing.
         if (this.previousConflicts.has(accelerator)) return;
         appLog.warn('hotkey-register-failed', {accelerator, action: entry.action, reason: entry.reason});
     }
@@ -875,15 +586,9 @@ class Hotkeys {
     }
 
     registerSystemHotkeys() {
-        // No window check any more: the actions run in main, so a hotkey works
-        // whether or not the main window exists. Registering them only when
-        // there was a window to send them to was the 0.6 shape and is exactly
-        // what the tray unload had to stop depending on.
-        //
-        // `boundSystemHotkeys()`, not every definition: an unbound action has
-        // nothing to register, and `globalShortcut.register('')` throws — which
-        // `safeRegister` would turn into a phantom "invalid accelerator" entry
-        // in the conflict banner for an action the user switched off on purpose.
+        // Deliberately no window check: the actions run in main, which is what
+        // the tray unload depends on. And `boundSystemHotkeys()`, not every
+        // definition, because `globalShortcut.register('')` throws.
         for (const [actionId, accelerator] of this.boundSystemHotkeys()) {
             const def = SYSTEM_HOTKEY_DEFS[actionId];
             if (!def) continue;
@@ -892,34 +597,24 @@ class Hotkeys {
     }
 
     /**
-     * Register per-map hotkeys. System hotkeys take priority — conflicts are
-     * skipped and reported, so a stale colliding entry is not silently inert.
-     * Both "which of these does a system hotkey shadow?" and "which of these
-     * are two spellings of one combination?" are pure decisions.
+     * System hotkeys take priority; a colliding or duplicate entry is skipped
+     * and reported, never silently inert.
+     * Why: the doc § Priority, conflicts and registration.
      * @param {Object} hotkeys — { accelerator: { id, mapKey } }
      */
     registerCustomHotkeys(hotkeys) {
-        // `win` is only used for the two toasts below; the bindings themselves
-        // no longer need a window (see `registerSystemHotkeys`). `sendUpdate`
-        // drops a toast with no window, so the guard is not needed there either.
         const win = this.mainWindow;
 
         const effective = this.getSystemHotkeys();
         const shadowed = new Set(shadowedMapBindings(effective, hotkeys).map(e => e.accelerator));
-        // JSON cannot hold one key twice, but it can hold `Ctrl+1` *and*
-        // `CommandOrControl+1`, which Electron treats as one accelerator: the
-        // second `register` returned `false` and was reported as "taken by
-        // another application", blaming a third party for our own file.
         const duplicates = new Set(duplicateMapBindings(hotkeys).map(e => e.accelerator));
 
         for (const [hotkey, {mapKey, id}] of Object.entries(hotkeys)) {
             if (shadowed.has(hotkey)) {
                 console.warn(`Skipping map hotkey "${hotkey}" — conflicts with a system hotkey.`);
                 this.noteConflict(hotkey, 'map', 'shadowed');
-                // Same rule as every other registration failure: the banner
-                // carries it, and the toast is only for the reload the user
-                // themselves just caused. This one used to fire on every
-                // `loadKeys()`, which is several times a session.
+                // The banner carries it; the toast is only for a reload the
+                // user themselves caused.
                 if (win && !this.bulkLoading) {
                     win.sendUpdate(msg('hotkeys.error.systemShadowsMap', {accelerator: acceleratorToDisplay(hotkey)}));
                 }
@@ -933,31 +628,19 @@ class Hotkeys {
                 }
                 continue;
             }
-            // The console label stays the binding's id (that is what
-            // hotkeys.json is keyed by when something has to be found in it);
-            // the *recorded* action is just "map", because a per-map hotkey's
-            // real name is a map name and a custom map's name is user text.
+            // Recorded as "map", and the map key is never logged: a custom
+            // map's name is user text.
             this.safeRegister(hotkey, () => {
                 appLog.event('hotkey', {action: 'map'});
-                // Straight into main, so a per-map binding works with the
-                // window torn down in the tray. The map key is *not* logged:
-                // a per-map hotkey's real name is a map name, and a custom
-                // map's name is user text.
                 if (this.mapController) this.mapController.select(mapKey, 'hotkey');
             }, id, 'map');
         }
     }
 
     /**
-     * Unregister everything, then re-register system hotkeys, then map hotkeys.
-     *
-     * While the hotkeys are **inactive** — `hotkeysGameOnly` on and the game
-     * not in front, or the bind dialog recording — this still refreshes the two
-     * tables in the renderer but registers nothing: editing a hotkey from the
-     * Settings window must not quietly re-arm the whole set behind the
-     * setting's back, and a save made from the dialog must not take the
-     * keyboard away from the dialog. Note the conflict list is left untouched
-     * in that case — see `applyRegistration`.
+     * Unregister everything, then system hotkeys, then map hotkeys. While
+     * **inactive** it refreshes the renderer tables but registers nothing.
+     * Why: the doc § Only while the game is in front.
      */
     loadKeys() {
         globalShortcut.unregisterAll();
@@ -971,8 +654,8 @@ class Hotkeys {
             return;
         }
 
-        // Rebuilt from scratch: a combination the user has since freed must
-        // drop off the banner, and a reload is the only moment we can know.
+        // Rebuilt from scratch: a combination since freed must drop off the
+        // banner, and a reload is the only moment we can know.
         this.conflicts = [];
         this.bulkLoading = true;
         try {
@@ -983,12 +666,10 @@ class Hotkeys {
             this.bulkLoading = false;
         }
 
-        // What this load found becomes the baseline for the next one, so a
-        // conflict that simply persists is not logged again.
+        // The baseline for the next load — see `noteConflict`.
         this.previousConflicts = new Set(this.conflicts.map(c => c.accelerator));
 
         this.mainWindow.send('system-hotkeys-updated', this.getSystemHotkeys());
-        // One banner, updated in place — not a toast per failure per reload.
         this.mainWindow.send('hotkey-conflicts', this.getConflicts());
         appLog.event('hotkeys-loaded', {
             maps: Object.keys(parsed).length,

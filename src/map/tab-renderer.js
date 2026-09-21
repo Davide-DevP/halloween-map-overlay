@@ -6,25 +6,12 @@ const {t} = require('../shared/i18n');
 const {TAB_PANEL_REL, TAB_LEGEND_REL} = require('../core/map-detector/matcher');
 
 /**
- * Tab-map mode's renderer: the marker brackets and the legend, drawn directly
- * over the game's own Tab map.
- *
- * The window is laid exactly over the game window's rectangle, so every
- * position here is a fraction of **this window's** viewport — read from
- * `window.innerWidth/innerHeight` rather than from numbers main sent, so a
- * one-pixel difference between the DIP bounds main asked for and the size
- * Windows actually gave the window cannot shift the markers. The two regions
- * come from `map-detector/matcher.js`, which is where every frame-relative
- * region in this project lives; there is no second measurement here.
- *
- * Brackets are hollow on purpose: when the player discovers an exit the game
- * draws its own icon at that spot, and it has to show *through* ours.
- *
- * One payload flag reaches this file: `fade`, which main sets only on an
- * **optimistic** show — markers put up on the key-down edge, before a capture
- * has confirmed the game's map is really there. It fades them in over 300 ms
- * with an ease-in curve, so they arrive with the game's own map and a show that
- * turns out to be wrong is barely seen before its deadline takes it down.
+ * RENDERER tier: Tab-map mode's brackets and legend, drawn over the game's own
+ * Tab map. Every position is a fraction of **this window's** viewport, read
+ * from `window.innerWidth/innerHeight` and not from numbers main sent, so a
+ * one-pixel difference between the DIP bounds asked for and the size Windows
+ * gave cannot shift the markers. The regions come from `matcher.js` — there is
+ * no second measurement here. See docs/agents/markers-and-tab-mode.md.
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -33,17 +20,10 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 let state = null;
 
 /**
- * Should the **next** render fade in rather than appear?
- *
- * Set by a payload flagged `fade` — which main only ever sends for an
- * *optimistic* show, i.e. markers put up on the key-down edge before a capture
- * has confirmed the game's map is really there — and consumed by the first
- * render after it. Consumed, because a window resize and a language change
- * both re-render the same payload, and re-running the fade then would look
- * like a glitch rather than an entrance.
- *
- * A confirmation never re-sends a payload for the same map, so nothing
- * interrupts a fade that is in progress.
+ * Should the **next** render fade in? Set by a payload flagged `fade` (only an
+ * *optimistic* show carries it) and **consumed** by the first render after,
+ * because a resize or a language change re-renders the same payload and the
+ * fade would then look like a glitch rather than an entrance.
  */
 let fadeNext = false;
 
@@ -69,8 +49,7 @@ function clear() {
     const legend = document.getElementById('tabLegend');
     while (legend.firstChild) legend.removeChild(legend.firstChild);
     legend.style.display = 'none';
-    // Nothing is left mid-transition for the next show to inherit: a hide is a
-    // hide, and the next payload decides for itself whether it fades.
+    // Nothing left mid-transition: the next payload decides its own fade.
     for (const element of [svg, legend]) {
         element.classList.remove('is-fading');
         element.style.opacity = '';
@@ -78,18 +57,10 @@ function clear() {
 }
 
 /**
- * Put an element at `target` opacity — instantly, or fading up from nothing.
- *
- * The fade is CSS (`.is-fading` in `tab.html`); all that happens here is
- * setting opacity to 0 with the transition off, forcing the browser to lay
- * that out, and only then switching the transition on and setting the target.
- * Without the forced reflow Chromium coalesces the two assignments into one
- * style recalculation, sees no change to transition *from*, and the element
- * simply appears — which is the bug this three-step dance exists to avoid.
- *
- * @param {Element} element
- * @param {number} target the opacity the payload asked for
- * @param {boolean} fading
+ * Put an element at `target` opacity, instantly or fading up from nothing (the
+ * fade is `.is-fading` in `tab.html`). The `getBoundingClientRect()` is a
+ * **required forced reflow**: without it Chromium coalesces the two opacity
+ * assignments, has nothing to transition *from*, and the element just appears.
  */
 function applyOpacity(element, target, fading) {
     element.classList.remove('is-fading');
@@ -104,8 +75,6 @@ function applyOpacity(element, target, fading) {
 }
 
 function render() {
-    // Consumed here rather than read: a resize or a language change re-renders
-    // the same payload, and only the render that *follows the payload* fades.
     const fading = fadeNext;
     fadeNext = false;
     clear();
@@ -116,9 +85,8 @@ function render() {
     applyOpacity(svg, state.opacity === undefined ? 0.9 : state.opacity, fading);
 
     for (const layer of state.layers) {
-        // The panel's own side is the extent, so the brackets are sized against
-        // the map they sit on rather than against the window — the same rule
-        // the corner minimap uses with its `size` setting.
+        // The panel's own side is the extent, so brackets are sized against the
+        // map they sit on, not the window.
         const geometry = markerGeometry(panel.w, {small: layer.small});
         const paths = bracketPaths(geometry);
         const group = document.createElementNS(SVG_NS, 'g');
@@ -134,9 +102,8 @@ function render() {
             marker.setAttribute('transform', geometry.rotation
                 ? `translate(${cx} ${cy}) rotate(${geometry.rotation})`
                 : `translate(${cx} ${cy})`);
-            // A dark halo under each bracket: the game draws this map light for
-            // civilians and dark blue for Michael, and one colour has to read
-            // on both.
+            // A dark halo: the game draws this map light for civilians and dark
+            // blue for Michael, and one colour has to read on both.
             for (const d of paths) {
                 const shadow = document.createElementNS(SVG_NS, 'path');
                 shadow.setAttribute('d', d);
@@ -161,9 +128,7 @@ function render() {
     legend.style.top = `${TAB_LEGEND_REL.y * window.innerHeight}px`;
     legend.style.width = `${TAB_LEGEND_REL.w * window.innerWidth}px`;
     legend.style.display = '';
-    // The legend fades with the brackets: half of an optimistic show appearing
-    // instantly would draw more attention than the whole of it. **After**
-    // `display` — an element that is still `display: none` has no rendered
+    // After `display`, always: an element still `display: none` has no rendered
     // opacity to transition from, so the fade would simply not run.
     applyOpacity(legend, 1, fading);
     for (const layer of state.layers) {
@@ -174,8 +139,7 @@ function render() {
         swatch.style.borderColor = layer.colour;
         chip.appendChild(swatch);
         const text = document.createElement('span');
-        // `textContent`, never markup — this window runs with node integration
-        // and there is no reason to make that a judgement call per string.
+        // `textContent`, never markup — this window runs with node integration.
         text.textContent = t(state.lang, layer.labelKey);
         chip.appendChild(text);
         legend.appendChild(chip);
@@ -198,8 +162,7 @@ ipcRenderer.on('tab-hide', () => {
     clear();
 });
 
-// The window is re-bounded whenever the game window moves or resizes, and the
-// regions are fractions of the viewport, so a resize is a redraw.
+// The regions are fractions of the viewport, so a resize is a redraw.
 window.addEventListener('resize', () => {
     if (state) render();
 });

@@ -8,68 +8,27 @@ const {
 } = require('../shared/hotkeys-rules');
 
 /**
- * Which window is in the foreground, for the `hotkeysGameOnly` setting.
+ * Which window is in the foreground, for the `hotkeysGameOnly` setting: the app
+ * holds its global shortcuts only while the player is in the game, or in one of
+ * our own windows so a rebound hotkey can be tried from Settings. Measurements,
+ * the `isFocused()` choice and the fail-open rules: `docs/agents/hotkeys.md`.
  *
- * A global shortcut is taken from **every** application on the machine. With
- * this on, the app holds its combinations only while the player is actually in
- * the game — or in one of our own windows, so a hotkey can still be tried from
- * Settings › Hotkeys, which is exactly where somebody who just rebound one is
- * standing. The rest of the time the combinations belong to whatever is in
- * front.
+ * **This is not the capture path** (`docs/agents/detection.md`): nothing here
+ * captures a frame. A tick is `Window.all()` plus one `isFocused()` per window,
+ * 0.06-0.32 ms measured, and with the setting off no timer runs at all.
  *
- * ## Why this poll is not the capture path
- *
- * `docs/agents/detection.md`'s "The capture path — do not make it heavier" is about
- * `captureImage()`/`toRaw()`/`toGrayScaled()`, the ~6-11 ms of blocking JS per
- * detector tick. **Nothing here captures a frame.** The whole tick is
- * `Window.all()` plus one `isFocused()` per window, measured on the
- * development machine with plain node against the installed
- * `node-screenshots` 0.2.8:
- *
- * | | cost |
- * |---|---|
- * | `Window.all()` (5 windows) | 0.27 ms first call, 0.06-0.09 ms after |
- * | `all()` + `isFocused()` over every window | **0.06-0.32 ms** |
- *
- * At one tick a second that is under 0.03 % of one core, and it does not grow
- * when the game is closed — the enumeration is the same size and there is
- * nothing to capture. With the setting off no timer runs at all.
- *
- * `isFocused()` is the one thing that made this possible without a new native
- * dependency: it is in `node_modules/node-screenshots/index.d.ts` and it works
- * on Windows (verified — the scan reported exactly one focused window, the
- * browser that had focus at the time). The alternatives were all worse: a new
- * native module for `GetForegroundWindow`, a `powershell`/`tasklist` child
- * process per tick (hundreds of milliseconds and a visible process spawn),
- * or Electron's `desktopCapturer`, which is the very thing the detector was
- * moved off.
- *
- * ## Shape
- *
- * - `setTimeout` chaining, never `setInterval`: a slow enumeration must not
- *   queue ticks behind itself.
- * - App-window focus is an **event**, not a poll: `browser-window-focus` /
- *   `browser-window-blur` re-evaluate immediately, so alt-tabbing into
- *   Settings takes effect at once rather than up to a second later.
- * - The callback fires only on a **change** of the active/inactive verdict.
- *   `Hotkeys.setActive()` registers or unregisters the whole set, and doing
- *   that once a second would be a pointless amount of churn.
- * - **`destroy()` reports nothing.** It runs from `before-quit`, which is also
- *   the update path, and `stop()` alone would announce "the setting is off, so
- *   register everything" — a full `loadKeys()` inside the quit handler. The
- *   `destroyed` flag is set before `stop()` and gates every other entry point.
- *   Turning the *setting* off still reports, because that one has to put the
- *   hotkeys back; `test/foreground.test.js` holds the two apart.
+ * Shape that must not be "cleaned up": `setTimeout` chaining, never
+ * `setInterval`; our own windows' focus comes from Electron's events, not the
+ * poll; the callback fires only on a **change**, because `Hotkeys.setActive()`
+ * re-registers the whole set; and `destroy()` reports **nothing**.
  */
 
-/** Poll period while the game is running: "about once a second" (spec §4). */
+/** Poll period while the game is running, ms. Why 1 s:
+ * docs/agents/hotkeys.md § Only while the game is in front. */
 const FOREGROUND_INTERVAL = 1000;
 
-/**
- * Poll period while there is no game window. The same enumeration, but there
- * is nothing to wait for: the game has to start before anything can change,
- * and a 2 s reaction to that is invisible.
- */
+/** Poll period with no game window: nothing can change until the game starts,
+ * and a 2 s reaction to that is invisible. */
 const FOREGROUND_IDLE_INTERVAL = 2000;
 
 /** A failing window enumeration is a state, not an event: log sparsely. */
@@ -78,15 +37,10 @@ const ERROR_LOG_INTERVAL = 60000;
 class ForegroundWatcher {
 
     /**
-     * @param {Object} settings `core/settings.js`
-     * @param {(active: boolean) => void} onChange called only when the verdict
-     *   changes, with the new one.
+     * @param {(active: boolean) => void} onChange called only on a change
      * @param {{app?: Object, BrowserWindow?: Object, Window?: Object}} [deps]
-     *   the three things this class touches outside itself. Injectable so the
-     *   lifecycle (above all: `destroy()` must **not** re-register the hotkeys
-     *   on the way out) is unit testable — `require('electron')` outside
-     *   Electron is just a path string, so without this the class could not be
-     *   constructed in a test at all. The real app never passes it.
+     *   everything this class touches outside itself, injectable so the
+     *   lifecycle is unit testable. The real app never passes it.
      */
     constructor(settings, onChange, deps = {}) {
         this.settings = settings;
@@ -97,13 +51,11 @@ class ForegroundWatcher {
         this.timer = null;
         this.started = false;
         /**
-         * True once `destroy()` has run. A destroyed watcher reports nothing
-         * ever again: `destroy()` is called from `before-quit`, which is also
-         * the update path, and `stop()` alone would report "the setting is off,
-         * so register everything" — i.e. `loadKeys()` re-registering a dozen
-         * global shortcuts inside the quit handler, milliseconds before the
-         * process goes away (and, on the update path, while the installer is
-         * being handed control).
+         * True once `destroy()` has run, and then nothing is ever reported
+         * again. `destroy()` comes from `before-quit`, which is also the update
+         * path, and `stop()` alone would report "the setting is off, so register
+         * everything" — a dozen global shortcuts re-registered inside the quit
+         * handler while the installer takes over.
          */
         this.destroyed = false;
         /** 'game' | 'own' | 'other' | 'unknown' */
@@ -114,9 +66,8 @@ class ForegroundWatcher {
         this.active = null;
         this.lastErrorAt = 0;
 
-        // Focus of our *own* windows comes from Electron, not from the poll:
-        // it is free, it is instant, and `BrowserWindow.getFocusedWindow()`
-        // already means exactly "one of this app's windows is in front".
+        // Our own windows' focus comes from Electron, not the poll: free,
+        // instant, and exact.
         this.onAppFocus = () => this.evaluate(FOREGROUND_OWN);
         this.onAppBlur = () => {
             // Losing focus does not say who gained it, so look now instead of
@@ -132,12 +83,8 @@ class ForegroundWatcher {
         return !(this.settings && this.settings.get('hotkeysGameOnly') === false);
     }
 
-    /**
-     * Follow the setting. Called at boot and whenever the switch is flipped.
-     *
-     * With the setting off there is no timer at all — the hotkeys are simply
-     * always registered, which is what every version up to 0.6.0 did.
-     */
+    /** Follow the setting: called at boot and whenever the switch is flipped.
+     * With it off there is no timer and the hotkeys are always registered. */
     syncWithSettings() {
         if (this.destroyed) return;
         if (this.gameOnly()) this.start();
@@ -158,9 +105,8 @@ class ForegroundWatcher {
         this.started = false;
         this.foreground = FOREGROUND_UNKNOWN;
         this.gameRunning = false;
-        // With the watcher off the setting is off, so the hotkeys go back to
-        // being always registered. Announced through the same callback so
-        // there is one path that turns them on.
+        // Watcher off means setting off, so the hotkeys go back to always
+        // registered — through the same callback, so there is one path.
         this.report();
     }
 
@@ -186,14 +132,11 @@ class ForegroundWatcher {
         try {
             const scan = this.scan();
             this.gameRunning = scan.gameRunning;
-            // Electron's answer wins for our *own* windows: it is certain,
-            // whereas the enumeration can miss one (the overlay is
-            // `focusable: false` and never appears as focused at all).
+            // Electron's answer wins for our *own* windows: the enumeration can
+            // miss one (the overlay is `focusable: false`). The scan still runs,
+            // because `gameRunning` comes from it and a report made from the
+            // Settings window would otherwise say the game was not running.
             this.foreground = this.BrowserWindow.getFocusedWindow() ? FOREGROUND_OWN : scan.foreground;
-            // The scan runs even while one of ours is in front — it is ~0.1 ms
-            // and it is where `gameRunning` comes from, which the diagnostic
-            // report would otherwise print as "no" for anybody who made the
-            // report from the Settings window.
             interval = scan.gameRunning ? FOREGROUND_INTERVAL : FOREGROUND_IDLE_INTERVAL;
         } catch (err) {
             // Fail open: a machine whose window list cannot be read must still
@@ -209,14 +152,10 @@ class ForegroundWatcher {
     }
 
     /**
-     * One pass over the window list.
-     *
-     * The focused window decides, and the game's own presence is noted on the
-     * way past so the cadence can drop while the game is closed. Reads are
-     * wrapped per window: a window can vanish between the enumeration and the
-     * read, exactly as in `MapDetector.findGameWindow`.
-     *
-     * @returns {{foreground: string, gameRunning: boolean}}
+     * One pass over the window list: the focused window decides, and the game's
+     * presence is noted on the way past so the cadence can drop while the game
+     * is closed. Reads are wrapped per window — one can vanish between the
+     * enumeration and the read.
      */
     scan() {
         let foreground = FOREGROUND_OTHER;
@@ -253,22 +192,16 @@ class ForegroundWatcher {
 
         if (focusedIsGame) foreground = FOREGROUND_GAME;
         else if (focusedIsOwn) foreground = FOREGROUND_OWN;
-        // Nothing in the list reported focus at all. That is genuinely "we do
-        // not know" rather than "somebody else": on Windows it is the desktop
-        // shell (which is not enumerated), a lock screen — or an exclusive
-        // fullscreen game window the enumeration did not return, which is
-        // precisely the case where declaring "other" would switch the hotkeys
-        // off *while the player is in the game* and leave nothing on screen to
-        // explain it. `unknown` fails open, so it degrades to 0.6.0 behaviour.
+        // Nothing reported focus: genuinely "we do not know", not "somebody
+        // else". Calling that `other` would switch the hotkeys off *while the
+        // player is in the game*, so it fails open.
         else if (!sawFocused) foreground = FOREGROUND_UNKNOWN;
 
         return {foreground, gameRunning};
     }
 
-    /**
-     * Take the verdict from the current foreground without waiting for a tick.
-     * @param {string} foreground one of the FOREGROUND_* values
-     */
+    /** Take the verdict from the current foreground without waiting for a tick.
+     * @param {string} foreground one of the FOREGROUND_* values */
     evaluate(foreground) {
         if (this.destroyed || !this.started) return;
         this.foreground = foreground;

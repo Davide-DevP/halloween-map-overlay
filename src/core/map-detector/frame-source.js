@@ -1,26 +1,15 @@
 'use strict';
 
 /**
- * **All of the detector's pixel work, in one place.**
+ * **All of the detector's pixel work, in one place** (electron-free tier): find
+ * the game window, capture it, gate on the raw bytes, reduce only the region
+ * that is read, match. What comes out is decisions and numbers — **no pixels,
+ * ever**. See `docs/agents/detection.md`.
  *
- * Find the game window, capture it, run the Tab gate on the raw bytes, produce
- * luminance for the one region that is needed and match. What comes out is
- * decisions and numbers: a window rectangle, a gate verdict, a map key with its
- * scores, a menu score, timings. **No pixels, ever.**
- *
- * It is its own module because it runs in two places and must behave the same
- * in both:
- *   - in the main process, when the utility process is unavailable
- *     (`core/map-detector/worker-host.js` falls back to it);
- *   - in the utility process (`worker.js` is a message adapter around it).
- *
- * That is also what makes the worker testable: a test can drive *this* module
- * with the real fixtures, and separately drive the message plumbing, instead of
- * needing Electron to exercise either.
- *
- * `node-screenshots` is required lazily so that loading this file — which
- * `worker-host.js` does at startup to have a fallback ready — does not pull a
- * native module into the main process before anything asks for a frame.
+ * One module because it runs both inside the utility process and in main when
+ * there is no worker, and must behave identically; that is also what makes the
+ * worker testable without Electron. `node-screenshots` is required lazily, so
+ * loading this file for the fallback does not pull a native module into main.
  */
 
 const {
@@ -30,22 +19,16 @@ const {
 } = require('./matcher');
 const {pickGameWindow} = require('../../shared/detector-rules');
 
-/**
- * Width the captured window is reduced to before anything looks at it. The
- * templates are 64x64 thumbnails of a region that is ~40 % of the frame, so
- * 640 px across leaves ~255 px for a 64 px thumbnail — four times more detail
- * than the match needs, and a quarter of the pixels of a 1080p frame.
- */
+/** Width the captured window is reduced to. The templates are 64x64 thumbnails
+ * of a region ~40 % of the frame, so 640 px leaves ~255 px for a 64 px
+ * thumbnail: four times the detail the match needs, a quarter of the pixels. */
 const CAPTURE_WIDTH = 640;
 
 class FrameSource {
 
-    /**
-     * @param {{windows?: Function, gc?: Object, ownPid?: number}} [deps]
+    /** @param {{windows?: Function, gc?: Object, ownPid?: number}} [deps]
      *   `windows` returns the enumerated windows (`Window.all`), injected so a
-     *   test can drive the whole source without a screen. The real one is
-     *   `node-screenshots`, required on first use.
-     */
+     *   test can drive the whole source without a screen */
     constructor(deps) {
         const d = deps || {};
         this.windowsFn = d.windows || null;
@@ -71,13 +54,9 @@ class FrameSource {
         return this.windowsFn();
     }
 
-    /**
-     * Install the template set. Takes the same plain arrays `templates.json`
-     * holds — which is what crosses the process boundary — and does every
-     * frame-independent computation once, here.
-     *
-     * @param {{templates: Object, menu: ?Object, size: ?number}} payload
-     */
+    /** Install the template set: the plain arrays `templates.json` holds, which
+     * is what crosses the process boundary. Every frame-independent computation
+     * happens once, here — never on a tick. */
     setTemplates(payload) {
         const p = payload || {};
         this.size = p.size || DEFAULT_SIZE;
@@ -101,14 +80,10 @@ class FrameSource {
         return {keys: Object.keys(this.templates).length, variants: variantCount};
     }
 
-    /**
-     * The game's window, or null when the game is not running.
-     *
-     * The *decision* is the pure `pickGameWindow`, shared with
-     * `core/foreground.js` so the two cannot disagree about what the game's
-     * window is. The reads stay here because a window can disappear between the
-     * enumeration and the read, which is a try/catch, not a rule.
-     */
+    /** The game's window, or null when the game is not running. The *decision*
+     * is the pure `pickGameWindow`, shared with `core/foreground.js` so the two
+     * cannot disagree; the reads stay here, because a window can vanish between
+     * the enumeration and the read. */
     findGameWindow() {
         const windows = [];
         const infos = [];
@@ -133,12 +108,10 @@ class FrameSource {
     }
 
     /**
-     * One request: capture the game window and answer whatever was asked for.
-     *
-     * @param {{menu?: boolean, match?: boolean}} want `match` false is the cheap
-     *   "is the Tab screen still up?" check Tab-map mode makes while its markers
-     *   are shown — gate only, no luminance, no NCC.
-     * @returns {Promise<Object>} numbers and keys only
+     * One request: capture the game window and answer whatever was asked for,
+     * with numbers and keys only.
+     * @param {{menu?: boolean, match?: boolean}} want `match: false` is the
+     *   cheap "is the Tab screen still up?" check — gate only, no NCC
      */
     async grab(want) {
         const w = want || {};
@@ -166,6 +139,9 @@ class FrameSource {
         const windowInfo = {present: true, pid, rect, minimized: !!found.info.minimized};
         this.lastWindow = windowInfo;
 
+        // The ONE capture per tick, of the game's window — never a second one, and
+        // never `desktopCapturer` (286-518 ms of main-thread time per tick). Budget:
+        // ~30 ms of blocking JS per tick. docs/agents/detection.md § The capture path.
         let image;
         try {
             image = await win.captureImage();
@@ -188,9 +164,8 @@ class FrameSource {
         const outWidth = CAPTURE_WIDTH;
         const outHeight = Math.max(1, Math.round(CAPTURE_WIDTH * height / width));
 
-        // The gate, on the raw bytes: 21.9 % of the pixels, ~1.4 ms, nothing
-        // allocated. Every frame that is not the Tab screen stops here, which
-        // is almost all of them.
+        // The gate first, on the raw bytes: 21.9 % of the pixels, ~1.4 ms,
+        // nothing allocated. Almost every frame stops here.
         const gate = tabGateFromRaw(raw, width, height, 'rgba');
 
         let match = null;
@@ -231,8 +206,8 @@ class FrameSource {
 
         const finishedAt = Date.now();
         // The native RGBA buffer is 8 MB at 1080p and `node-screenshots` has no
-        // dispose API, so a collection is the only lever there is. In the
-        // worker this costs the main process nothing at all.
+        // dispose API, so a collection is the only lever — and it belongs here,
+        // where the frame is. See `docs/agents/memory.md`.
         let gcMs = 0;
         if (this.gc) {
             const gcStarted = Date.now();

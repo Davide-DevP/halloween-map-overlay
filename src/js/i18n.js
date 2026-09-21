@@ -3,28 +3,10 @@ const shared = require('../shared/i18n');
 const {debugLog} = require('./logger');
 
 /**
- * Renderer side of the translation layer.
- *
- * A module-level singleton rather than an instance passed around: every view
- * module needs `t()`, the language is one value for the whole window, and a
- * language change has to reach all of them at once. `require('./i18n')` in a
- * view module therefore gives it `t` directly, and the 1-argument form
- * (`t('nav.settings')`) is the renderer's; main uses the pure 3-argument form.
- *
- * ## Static markup
- *
- * `applyDom()` walks the document and fills in anything carrying
- * `data-i18n` (text), `data-i18n-html` (markup — used for the FAQ and the
- * other paragraphs that contain <strong>/<kbd>/<a>), `data-i18n-title`,
- * `data-i18n-placeholder` and `data-i18n-aria-label`. The markup form only
- * ever inserts strings from our own catalogues, never anything a user typed.
- *
- * ## Dynamic markup
- *
- * Views rebuild themselves through `onChange()`, which fires after the
- * language is switched. Anything built with `t()` at render time has to
- * re-render; a table that is not re-rendered would keep the old language until
- * something else touched it.
+ * Renderer side of the translation layer — a module-level singleton, so a view
+ * module writes the 1-argument `t('nav.settings')` while main uses the pure
+ * 3-argument form. `applyDom()` fills the static markup; views rebuild
+ * themselves through `onChange()`. See `docs/agents/i18n.md`.
  */
 
 let current = 'en';
@@ -64,8 +46,7 @@ function applyDom(root) {
     text.forEach(el => {
         el.textContent = t(el.getAttribute('data-i18n'));
     });
-    // Catalogue strings only — never user input. See escape-html.js for the
-    // rule that covers everything that is not from these two JSON files.
+    // Catalogue strings only — never user input. See escape-html.js.
     scope.querySelectorAll('[data-i18n-html]').forEach(el => {
         el.innerHTML = t(el.getAttribute('data-i18n-html'));
     });
@@ -75,21 +56,16 @@ function applyDom(root) {
         });
     }
     document.documentElement.setAttribute('lang', current);
-    // The one number that says the pass actually ran: a DOM that was not
-    // translated looks exactly like a DOM whose language happens to be English.
+    // An untranslated DOM looks exactly like a DOM that happens to be English,
+    // so the count is the one thing that says the pass ran.
     debugLog('i18n::applyDom', current, 'elements=' + text.length);
 }
 
-/**
- * Adopt a language and re-render. Called once at startup and again whenever
- * the setting changes — main is the single source of the resolved value, so
- * the 'system' option does not have to know about `app.getLocale()` here.
- */
+/** Adopt a language and re-render. Main resolves the value, including `system`. */
 function setLanguage(lang) {
     const next = shared.LANGUAGES.includes(lang) ? lang : 'en';
-    // Switching the language reaches here twice — once from the select's own
-    // handler and once from main's `language-changed` push, which also rebuilds
-    // the tray. Re-rendering every view a second time is pure waste.
+    // A switch reaches here twice — the select's own handler and main's
+    // `language-changed` push — and re-rendering every view twice is waste.
     if (applied && next === current) return;
     current = next;
     applied = true;
@@ -114,8 +90,7 @@ async function init() {
     return current;
 }
 
-// Main pushes this after the `language` setting changes, so the tray and the
-// window never disagree about which language is in force.
+// Pushed after the setting changes, so the tray and the window never disagree.
 ipcRenderer.on('language-changed', (event, lang) => setLanguage(lang));
 
 module.exports = {

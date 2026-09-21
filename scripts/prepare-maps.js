@@ -2,20 +2,12 @@
 'use strict';
 
 /**
- * Build-prep script (dev only — `sharp` is a devDependency).
- *
- *  1. Crops each source image in `maps-src/` down to the map square and writes
- *     it losslessly to `maps/<CREATOR>/<Map Name>.png`.
- *  2. Removes the loose `maps/*.webp` copies once the crop succeeded
- *     (the untouched originals stay in `maps-src/`).
- *  3. Rasterises the app icon SVG to `build/icon.png` (512) and
- *     `src/images/icon.png` (256).
- *
- * The crop edges are DETECTED, not hard-coded, from mean luminance: the
- * letterbox around the map square is flat grey, the square itself near-black.
- * Only some of the sources have a bright frame drawn around the square, so the
- * frame cannot be the primary signal — it is used afterwards, per side, only to
- * nudge the crop just inside a line that is actually there.
+ * Build-prep script (dev only — `sharp` is a devDependency): crops each
+ * `maps-src/` image to the map square into `maps/<CREATOR>/<Map Name>.png`,
+ * drops the loose `maps/*.webp` copies once every crop succeeded, and
+ * rasterises the icon SVG to `build/icon.png` and `src/images/icon.png`.
+ * Crop edges are **detected, never hard-coded** — see "Map crop detection" in
+ * `docs/agents/maps-authoring.md`.
  */
 
 const fs = require('fs');
@@ -36,13 +28,12 @@ const MAP_NAMES = {
     haddonfield_town_center: 'Haddonfield Town Center'
 };
 
-// Mean luminance below which a row/column counts as part of the dark map
-// square rather than the flat grey letterbox around it (measured letterbox
-// ≈ 45–49, map edge columns ≈ 0–5).
+// Mean luminance below which a row/column is the dark map square rather than
+// the letterbox around it (measured: letterbox ≈ 45–49, map edges ≈ 0–5).
 const LETTERBOX_CUTOFF = 30;
-// A drawn frame line is far brighter than everything around it…
+// A drawn frame line is far brighter than its surroundings, across most of the
+// side it runs along.
 const FRAME_BRIGHTNESS = 110;
-// …across most of the side it runs along.
 const FRAME_COVERAGE = 0.7;
 
 function mkdirp(dir) {
@@ -72,16 +63,9 @@ function rowMeans(gray, width, height, from, to) {
     return means;
 }
 
-/**
- * Walk inwards from both ends of a mean-luminance profile while it still looks
- * like flat grey letterbox, and return the first/last index that does not.
- *
- * Scanning from the outside in (rather than looking for the longest dark run)
- * is what makes this robust: bright map content in the middle — a white map
- * title, a lit street — never breaks the result, because the scan has already
- * stopped at the letterbox boundary. When the square bleeds off the image edge
- * the scan stops immediately and the edge itself is the bound.
- */
+/** Walk inwards from both ends of a luminance profile while it still looks like
+ * letterbox. Outside-in, never "longest dark run": that is what keeps bright
+ * content in the middle of the map from breaking the bounds. */
 function darkSquareBounds(means) {
     let start = 0;
     while (start < means.length && means[start] > LETTERBOX_CUTOFF) start++;
@@ -90,11 +74,8 @@ function darkSquareBounds(means) {
     return {start, end};
 }
 
-/**
- * If a drawn frame line hugs a side of the square, return how far in the crop
- * has to move to sit just inside it. Sides without a frame return 0, so maps
- * drawn with and without a frame both end up cropped to their map area.
- */
+/** How far in the crop must move to sit just inside a drawn frame line on this
+ * side; 0 where there is no frame — two of the four sources have none. */
 function frameInset(gray, width, from, to, across, isRow) {
     const span = across.to - across.from + 1;
     const step = to >= from ? 1 : -1;
@@ -106,7 +87,7 @@ function frameInset(gray, width, from, to, across, isRow) {
             if (value >= FRAME_BRIGHTNESS) bright++;
         }
         if (bright >= span * FRAME_COVERAGE) {
-            // Found the line: skip it and any further pixels of the same stroke.
+            // Skip the line and any further pixels of the same stroke.
             inset = Math.abs(i - from) + 1;
             continue;
         }
@@ -128,8 +109,7 @@ async function cropMap(srcFile, outFile) {
 
     const square = {left: cols.start, right: cols.end, top: rows.start, bottom: rows.end};
 
-    // Only look a short way in for a frame line — deep scans would latch onto
-    // bright map content.
+    // A short probe only: a deep scan latches onto bright map content.
     const probe = 24;
     const acrossRows = {from: square.top, to: square.bottom};
     const acrossCols = {from: square.left, to: square.right};
@@ -223,7 +203,7 @@ async function main() {
         throw new Error(`converted ${converted}/${sources.length} sources — leaving maps/ untouched`);
     }
 
-    // Only once every source converted: drop the loose webp copies in maps/.
+    // Only once every source converted.
     for (const file of fs.readdirSync(MAPS_DIR)) {
         const full = path.join(MAPS_DIR, file);
         if (fs.statSync(full).isFile() && /\.(webp|png|jpe?g)$/i.test(file)) {

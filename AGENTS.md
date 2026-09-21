@@ -220,13 +220,13 @@ npm run build:win      # build-updater, then NSIS installer + portable into dist
 | [architecture.md](docs/agents/architecture.md) | The annotated module map, the stack table, CommonJS/no-context-isolation/CSP, IPC, **the main window's renderer is a disposable view**, map key format, maps root, the pure-vs-impure tiers, name folding, the `map-change` payload, catalogue caching, escaping, single-instance, Wayland | any new module, moving logic between main and the renderer, `map-library.js`/`map-catalog.js`, the `map-change` payload |
 | [overlay-windows.md](docs/agents/overlay-windows.md) | Overlay quirks that must not be "cleaned up", focus rules, the overlay label, DPI, the OBS window | `overlay-window.js`, `obs-window.js`, `tab-overlay-window.js`, `overlay-position.js`, window size/focus/DPI |
 | [hotkeys.md](docs/agents/hotkeys.md) | Ctrl+Alt defaults and the migration, accelerator normalisation against Electron's own parser, priority and conflicts, `hotkeysGameOnly`, suspension while recording, unbinding, the conflict banner | `core/hotkeys.js`, `hotkeys-constants.js`, `hotkeys-rules.js`, `hotkey-migration.js`, `foreground.js`, `js/hotkeys.js`, `hotkeys.json` |
-| [settings-and-onboarding.md](docs/agents/settings-and-onboarding.md) | Failed-write reporting, `{rollback: true}`, `get()` vs `raw()`, one key at a time, the whole first-run welcome tour | `core/settings.js`, `settings-defaults.js`, `js/options.js`, `js/settings.js`, `js/onboarding.js`, `onboarding-rules.js` |
-| [detection.md](docs/agents/detection.md) | Regions, the two signals, the acceptance thresholds, the Tab gate, cadence, the menu clear, `detector.log`, **the capture path budget and the utility process**, finding the game window, fixture naming | `map-detector.js`, `matcher.js`, `frame-source.js`, `worker.js`, `worker-host.js`, `detector-rules.js`, `templates.json`, `detection-fixtures/`, any capture code |
-| [markers-and-tab-mode.md](docs/agents/markers-and-tab-mode.md) | `baked`, one validator, SVG sizing, Tab-map mode, the key-state trigger and its privacy ordering, cadences, staleness epochs | `map-markers.js`, `marker-rules.js`, `marker-geometry.js`, `map/markers.js`, `tab-mode.js`, `key-trigger.js`, `key-codes.js`, `tab-mode-rules.js` |
-| [map-packs.md](docs/agents/map-packs.md) | Allow-list validation, atomic install and rollback, precedence over bundled maps, directory collisions, the 24 h gate, the offered hotkey | `map-packs.js`, `map-pack-*.js`, `map-pack-rules.js`, `build-pack.js`, `packs/` |
+| [settings-and-onboarding.md](docs/agents/settings-and-onboarding.md) | Failed-write reporting, `{rollback: true}`, `get()` vs `raw()`, one key at a time, **the settings reference** (what each key is, the explicit-`false` rule), the whole first-run welcome tour | `core/settings.js`, `settings-defaults.js`, `js/options.js`, `js/settings.js`, `js/onboarding.js`, `onboarding-rules.js` |
+| [detection.md](docs/agents/detection.md) | Regions, the two signals, the acceptance thresholds, the Tab gate, cadence, the menu clear, `detector.log`, **the capture path budget and the utility process**, finding the game window, fixture naming, the two neighbours `gc.js` and `foreground.js` | `map-detector.js`, `matcher.js`, `frame-source.js`, `worker.js`, `worker-host.js`, `detector-rules.js`, `templates.json`, `detection-fixtures/`, any capture code |
+| [markers-and-tab-mode.md](docs/agents/markers-and-tab-mode.md) | `baked`, one validator, SVG sizing, Tab-map mode, the key-state trigger and its privacy ordering, staleness epochs, **the measured constants** (every cadence and deadline, with the rejected values) and **the reproduced races** | `map-markers.js`, `marker-rules.js`, `marker-geometry.js`, `map/markers.js`, `tab-mode.js`, `key-trigger.js`, `key-codes.js`, `tab-mode-rules.js` |
+| [map-packs.md](docs/agents/map-packs.md) | The trust root, allow-list validation, atomic install and rollback, precedence over bundled maps, directory collisions, the 24 h gate, the offered hotkey | `map-packs.js`, `map-pack-*.js`, `map-pack-rules.js`, `build-pack.js`, `packs/` |
 | [diagnostics.md](docs/agents/diagnostics.md) | Two logs and one writer, redaction, the crash policy (including the `render-process-gone` trap), the report zip | `app-log.js`, `rotating-log.js`, `diagnostics*`, `redact.js`, `js/diagnostics.js`, any crash handler |
 | [i18n.md](docs/agents/i18n.md) | The mechanism, the six languages and how to add one, the locale rule, what is deliberately untranslated, the per-language glossaries, the markup attributes and their tested fallbacks, re-rendering, resolution in main | `shared/i18n.js`, `js/i18n.js`, `core/language.js`, `src/i18n/*.json`, any user-visible string |
-| [maps-authoring.md](docs/agents/maps-authoring.md) | Adding a map with no code change, the image half, crop detection, marker data, shipping as a pack instead | adding a map, `prepare-maps.js`, `prepare-detector.js`, `maps/`, `maps-src/` |
+| [maps-authoring.md](docs/agents/maps-authoring.md) | Adding a map with no code change, the image half, crop detection, locating the map panel in a fixture, marker data, shipping as a pack instead | adding a map, `prepare-maps.js`, `prepare-detector.js`, `maps/`, `maps-src/` |
 | [updater-and-installer.md](docs/agents/updater-and-installer.md) | The check and the download, the idle-priority install, the themed helper and its handshake, the NSIS build shape, the Bitdefender trap, our installer window | `main-window.js`'s update code, `update-helper.js`, `update-message.js`, `updater/`, `build/installer.nsh`, `build.nsis` |
 | [releasing.md](docs/agents/releasing.md) | The workflow, the procedure in order, the tag rule, the `gh` scope gotcha | tagging, `.github/workflows/release.yml`, `version` in `package.json` |
 | [memory.md](docs/agents/memory.md) | The measured memory decisions, how to quote the numbers, the tray unload and the one "win" that is not | `gc.js`, `web-preferences.js`, `hardwareAcceleration`, `unloadWindowInTray`, anything that looks like a spare allocation |
@@ -261,10 +261,16 @@ update them.
    thing, the spec is the source — link to it and keep only what it does not say.
 5. **On discovering stale information**: correct it immediately. Do not work
    around outdated docs.
-6. **Keep the reasoning**: the "why" is the point. Tighten narration of history
+6. **Comments state constraints; documents carry the reasoning.** In code, a
+   comment says *why this line must stay as it is* in one to three lines and
+   points at the area document (`Why: docs/agents/<area>.md § <heading>`).
+   History, measurements, rejected alternatives and how a bug was found go in
+   the document, never in the code (0.7.x cleanup: `src/` went from 46 % to
+   24 % comment lines with the AST unchanged).
+7. **Keep the reasoning**: the "why" is the point. Tighten narration of history
    if you must, but keep the dates, versions and measurements that explain a
    constraint.
-7. **Never remove the self-updating rule**: this clause must survive all edits.
+8. **Never remove the self-updating rule**: this clause must survive all edits.
 
 *Last updated: 2026-09-21, release 0.7.0 (split into `AGENTS.md` + `docs/agents/`; content as
 of 0.7.0: Ctrl+Alt defaults, accelerator normalisation against

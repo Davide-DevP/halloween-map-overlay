@@ -1,7 +1,6 @@
-// Sample image shown on the overlay while the Overlay settings tab is open,
-// so size/position/opacity/rotation changes can be previewed live without
-// picking a real map first. Rendered once on a canvas and cached as base64
-// PNG (the same format map-change already accepts).
+// Sample image for the overlay while the Overlay settings tab is open, so
+// size/position/opacity/rotation can be previewed without picking a real map.
+// Cached as base64 PNG, the format `map-change` already accepts.
 
 const {t, language} = require("./i18n");
 
@@ -14,7 +13,7 @@ let cachedLanguage = null;
 function loadIcon() {
     return new Promise((resolve) => {
         const icon = new Image();
-        // icon missing is cosmetic only -- the preview still works without it
+        // A missing icon is cosmetic only -- the preview still works without it
         icon.onload = () => resolve(icon);
         icon.onerror = () => resolve(null);
         icon.src = "images/icon.png";
@@ -35,7 +34,6 @@ async function buildPreviewImage() {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, SIZE, SIZE);
 
-    // Faint dot grid so the surface reads as textured, not flat
     ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
     for (let y = 30; y < SIZE; y += 30) {
         for (let x = 30; x < SIZE; x += 30) {

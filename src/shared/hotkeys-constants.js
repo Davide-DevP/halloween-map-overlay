@@ -2,39 +2,14 @@
 
 /**
  * Shared hotkey definitions and pure helpers used by both the main and the
- * renderer process. Plain CommonJS, no electron import — safe to unit test.
- */
-
-/*
- * ─── Why every default carries Alt ──────────────────────────────────────────
- *
- * Up to 0.6.0 the defaults were plain Ctrl combinations, and every single one
- * of them was already taken by something the player is running:
- *
- * - **Ctrl is crouch** in most shooters, Halloween: The Game included, so a
- *   default that is Ctrl + anything fires while the player is crouching.
- * - Ctrl+R reloads a browser page, Ctrl+H opens its history, Ctrl+1..9 switch
- *   its tabs, Ctrl+Shift+D is a Discord shortcut, and Ctrl+arrow is word-wise
- *   caret movement in every text field on the machine. A *global* shortcut
- *   swallows the combination system-wide, so the app was taking them away from
- *   applications that were using them.
- *
- * `Ctrl+Alt+<key>` is the Windows convention for an application's own global
- * shortcuts (it is what Discord, OBS and the GPU overlays default to) and
- * nothing in the game uses it. The size steps need a fourth modifier because
- * they share the arrow keys with the opacity steps.
- *
- * Installs made before this change are moved onto the new defaults **once**,
- * and only where the user never touched the binding — see
- * `shared/hotkey-migration.js`.
+ * renderer process. Pure tier — no electron import. Why every default carries
+ * Alt, and the migration onto them: docs/agents/hotkeys.md.
  */
 
 /**
- * `description` is the English name of the action and `descriptionKey` its
- * translation key. Both are kept: the key is what the UI and the conflict
- * messages use, the plain string is the fallback for anything that has no
- * catalogue at hand (a log line, a future headless caller) and it doubles as
- * documentation of what the action does right here in the definition.
+ * `descriptionKey` is what the UI and the conflict messages use; the plain
+ * English `description` is the fallback for anything with no catalogue at hand
+ * (a log line, a headless caller).
  *
  * @type {Object<string, {id: string, defaultAccelerator: string, description: string, descriptionKey: string, action: string}>}
  */
@@ -76,8 +51,6 @@ const SYSTEM_HOTKEY_DEFS = {
         descriptionKey: 'hotkeys.action.clear-map',
         action: 'clear-map'
     },
-    // Opacity and size from the keyboard: the overlay is adjusted mid-match,
-    // when opening the settings modal means alt-tabbing out of the game.
     'opacity-up': {
         id: 'opacity-up',
         defaultAccelerator: 'CommandOrControl+Alt+Up',
@@ -106,10 +79,6 @@ const SYSTEM_HOTKEY_DEFS = {
         descriptionKey: 'hotkeys.action.size-down',
         action: 'size-down'
     },
-    // Markers: the possible storm-cellar / gate / car / gas-can locations, on
-    // the overlay and (in Tab-map mode) on the game's own map. One master
-    // switch on a hotkey, because the decision "is this helping me right now?"
-    // is made mid-match, when opening Settings means alt-tabbing out.
     'toggle-markers': {
         id: 'toggle-markers',
         defaultAccelerator: 'CommandOrControl+Alt+M',
@@ -133,68 +102,36 @@ const ACTION_TO_SETTING_KEY = {
     'toggle-markers': 'hotkeyToggleMarkers'
 };
 
-/*
- * ─── Bound / unbound ────────────────────────────────────────────────────────
- *
- * A system action may hold no key combination at all. Somebody who never wants
- * "Rotate map" would otherwise have to park it on *some* combination, which is
- * then swallowed system-wide — the very thing the feature is meant to avoid.
- */
-
 /**
- * What an unbound system hotkey is stored as under its settings key.
- *
- * It has to be the empty string rather than a missing key: `core/settings.js`
- * back-fills every key that is `undefined` from `DEFAULT_SETTINGS`, so a
- * *deleted* key comes back as the shipped default on the next start. An empty
- * string is a value the back-fill leaves alone, which is what makes "I never
- * want this shortcut" survive a restart.
+ * Unbound is the empty string, never a missing key: the back-fill in
+ * `core/settings.js` would hand the default back on the next start.
  */
 const UNBOUND_ACCELERATOR = '';
 
 /**
- * Does this *effective* accelerator hold no key combination?
- *
- * Whitespace counts as unbound as well: a hand-edited `" "` is not something
- * `globalShortcut.register` can parse, and treating it as a binding would put a
- * phantom entry in the conflict banner instead of simply leaving the action off.
- *
- * @param {*} accelerator
- * @returns {boolean}
+ * Holds no key combination? Whitespace counts as unbound, or a hand-edited
+ * `" "` becomes a phantom entry in the conflict banner.
  */
 function isUnbound(accelerator) {
     return typeof accelerator !== 'string' || accelerator.trim() === '';
 }
 
 /**
- * The accelerator one system action is actually on: what is stored, the shipped
- * default when nothing is stored, and nothing at all when the user unbound it.
- *
- * That three-way distinction is the whole reason this helper exists. The old
- * `stored || def.defaultAccelerator` cannot tell "deliberately unbound" (`''`)
- * from "fresh install" (`undefined`) and turns the first back into the default
- * — in main at registration time *and* in the renderer's table. Both call this
- * instead, so the two can never disagree about what an action is bound to.
- *
+ * What is stored, the shipped default when nothing is, and nothing at all when
+ * the user unbound it — a three-way distinction `stored || default` cannot
+ * make. Main and the renderer's table both call it, so the two cannot disagree.
  * @param {*} stored value held under the action's `ACTION_TO_SETTING_KEY`
- * @param {string} defaultAccelerator the definition's own default
  * @returns {string} an accelerator, or `UNBOUND_ACCELERATOR`
  */
 function resolveSystemAccelerator(stored, defaultAccelerator) {
-    // Only a string can carry the user's intent. Anything else (a missing key,
-    // a null from a hand-edited settings file) is an absence, not a choice.
+    // Only a string carries intent; a missing key or a null is an absence.
     if (typeof stored !== 'string') return defaultAccelerator || UNBOUND_ACCELERATOR;
     const trimmed = stored.trim();
     return trimmed === '' ? UNBOUND_ACCELERATOR : trimmed;
 }
 
-/*
- * ─── Overlay step hotkeys ───────────────────────────────────────────────────
- *
- * The bounds are shared: `src/js/maps.js` applies them when a hotkey fires and
- * `src/index.html` uses the same numbers for the Settings sliders, so the two
- * can never drift apart.
- */
+// The clamps are also the Settings sliders' `min`/`max` in `src/index.html`;
+// keep the two in step.
 const OPACITY_STEP = 0.1;
 const OPACITY_MIN = 0.1;
 const OPACITY_MAX = 1.0;
@@ -203,15 +140,10 @@ const SIZE_MIN = 50;
 const SIZE_MAX = 800;
 
 /**
- * Nudge the overlay opacity by whole tenths.
- *
- * 0.1 is not representable in binary floating point, so repeated addition walks
- * off the grid (0.7 + 0.1 = 0.7999999999999999) and the value stops matching a
- * slider step. Rounding to one decimal after every step keeps it on 0.1..1.0.
- *
+ * Nudge the overlay opacity by whole tenths, rounded to one decimal: 0.1 is not
+ * binary-representable, so repeated addition walks off the slider's own grid.
  * @param {number} current stored opacity (anything unusable falls back to 0.5)
  * @param {number} delta   signed multiple of OPACITY_STEP
- * @returns {number}
  */
 function stepOpacity(current, delta) {
     const base = Number.isFinite(parseFloat(current)) ? parseFloat(current) : 0.5;
@@ -223,7 +155,6 @@ function stepOpacity(current, delta) {
  * Nudge the overlay width in whole pixels, clamped to the slider's own range.
  * @param {number} current stored size (anything unusable falls back to 250)
  * @param {number} delta   signed multiple of SIZE_STEP
- * @returns {number}
  */
 function stepSize(current, delta) {
     const parsed = parseInt(current, 10);
@@ -234,31 +165,15 @@ function stepSize(current, delta) {
 /** Only the number row can be handed out as a default map binding. */
 const MAX_DEFAULT_MAP_HOTKEYS = 9;
 
-/**
- * Modifiers the first-run per-map bindings sit on, the number itself appended.
- *
- * Ctrl+1..Ctrl+9 (up to 0.6.0) are the browser's tab switchers, so the app was
- * taking nine of the most-used shortcuts on the machine away system-wide. One
- * constant because the migration in `shared/hotkey-migration.js` has to know
- * the same prefix.
- */
+/** One constant, because `shared/hotkey-migration.js` needs the same prefix. */
 const MAP_HOTKEY_PREFIX = 'CommandOrControl+Alt+';
 
 /**
- * Build the first-run contents of `hotkeys.json`: Ctrl+Alt+1..Ctrl+Alt+9 bound
- * to the first nine shipped maps **in catalogue order** (`buildCatalog` sorts
- * by creator then map name, and `nextMap`/`prevMap` cycle in that same order,
- * so the numbers follow the gallery). Pure — the id generator is injected so
- * the result is reproducible in tests.
- *
- * There is deliberately no per-map list here: adding a map to `maps/` must not
- * require a code change. Numbers are handed out consecutively to whatever the
- * catalogue holds, so nothing has to be renumbered by hand either. Imported
- * (Custom) maps never get a default binding — they are the user's own and a new
- * import would otherwise silently steal a number.
- *
+ * First-run `hotkeys.json`: Ctrl+Alt+1..9 to the first nine **shipped** maps in
+ * catalogue order, so a new map gets its number without a code change and an
+ * imported one cannot steal it. The id generator is injected for the tests.
+ * Why: docs/agents/hotkeys.md § Defaults and the migration onto them.
  * @param {Array<{key: string, name: string, custom: boolean}>} catalog
- * @param {() => string} makeId
  * @returns {Object<string, {id: string, mapKey: string}>} accelerator → binding
  */
 function buildDefaultMapHotkeys(catalog, makeId) {
@@ -275,10 +190,7 @@ function buildDefaultMapHotkeys(catalog, makeId) {
     return bindings;
 }
 
-/**
- * Electron accelerator → human readable.
- * "CommandOrControl+Shift+P" → "Ctrl + Shift + P"
- */
+/** Electron accelerator → human readable: `Ctrl+Shift+P` → `Ctrl + Shift + P`. */
 function acceleratorToDisplay(accel) {
     if (!accel) return '';
     return accel
@@ -289,38 +201,25 @@ function acceleratorToDisplay(accel) {
 }
 
 /*
- * ─── Key capture ───────────────────────────────────────────────────────────
- *
- * A browser `KeyboardEvent.key` is NOT an Electron accelerator key name, and
- * `globalShortcut.register` *throws* on a name it does not understand — which
- * takes down every registration after it. The browser says `ArrowRight`,
- * `" "`, `Escape`; Electron wants `Right`, `Space`, `Esc`. This translation is
- * the single place that gap is bridged; it is pure so it can be unit tested.
+ * Key capture. A browser `KeyboardEvent.key` is NOT an Electron accelerator
+ * name, and `globalShortcut.register` *throws* on one it cannot parse; this is
+ * the one place that gap is bridged.
+ * Why: docs/agents/hotkeys.md § Priority, conflicts and registration.
  */
 
 /** Keys that only ever act as modifiers — never the "main" key of a binding. */
 const MODIFIER_ONLY_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'OS', 'Hyper', 'Super']);
 
-/**
- * Every modifier token Electron's accelerator parser accepts, lower-cased
- * (the parser is case-insensitive).
- */
+/** Every modifier token Electron's parser accepts; it is case-insensitive. */
 const ACCELERATOR_MODIFIERS = new Set([
     'command', 'cmd', 'control', 'ctrl', 'commandorcontrol', 'cmdorctrl',
     'alt', 'option', 'altgr', 'shift', 'super', 'meta'
 ]);
 
 /**
- * Does this accelerator carry at least one modifier?
- *
- * Electron happily registers a bare `H` globally, which would then be
- * swallowed in the game and in every other application. `keyEventToAccelerator`
- * refuses modifier-less bindings when the user records one, but that guard
- * lives in the renderer, and with `nodeIntegration: true` the renderer is not a
- * trust boundary — the main-process IPC handlers check this too.
- *
- * @param {string} accelerator
- * @returns {boolean}
+ * At least one modifier: Electron registers a bare `H` globally, and with
+ * `nodeIntegration: true` the renderer's own guard is not a trust boundary, so
+ * the main-process IPC handlers check this too.
  */
 function hasModifier(accelerator) {
     if (typeof accelerator !== 'string' || !accelerator) return false;
@@ -337,7 +236,7 @@ const KEY_TO_ACCELERATOR = {
     'ArrowRight': 'Right',
     ' ': 'Space',
     'Spacebar': 'Space',
-    // "+" is the accelerator separator, so it has to be spelled out
+    // "+" is the accelerator separator, so it has to be spelled out.
     '+': 'Plus',
     'Escape': 'Esc',
     'Esc': 'Esc',
@@ -372,10 +271,7 @@ const ACCELERATOR_PUNCTUATION = new Set([
     ';', ':', "'", '"', ',', '<', '.', '>', '/', '?'
 ]);
 
-/**
- * Electron accelerator name for one `KeyboardEvent.key`, or null when that key
- * cannot be part of a global shortcut.
- */
+/** Or null when that key cannot be part of a global shortcut. */
 function acceleratorKeyName(key) {
     if (typeof key !== 'string' || key === '') return null;
     if (MODIFIER_ONLY_KEYS.has(key)) return null;
@@ -390,11 +286,8 @@ function acceleratorKeyName(key) {
 }
 
 /**
- * Turn a keydown into an Electron accelerator.
- *
- * At least one modifier is required: a bare `W` registers globally and would
- * swallow that key in the game as well as everywhere else.
- *
+ * Turn a keydown into an Electron accelerator; at least one modifier is
+ * required — see `hasModifier`.
  * @param {{ctrlKey?: boolean, altKey?: boolean, shiftKey?: boolean, metaKey?: boolean, key?: string}} event
  * @returns {{status: 'ok'|'pending'|'unsupported'|'no-modifier', accelerator: string, display: string, key: string}}
  *   `pending` = only modifiers held so far, keep listening.

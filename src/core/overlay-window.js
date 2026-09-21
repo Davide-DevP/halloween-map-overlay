@@ -2,6 +2,7 @@ const {BrowserWindow, ipcMain} = require('electron');
 const {webPreferences} = require('../shared/web-preferences');
 const appLog = require('./app-log');
 
+/** Every quirk below is load-bearing — see docs/agents/overlay-windows.md. */
 class OverlayWindow {
     window = null;
     settings = null;
@@ -34,6 +35,9 @@ class OverlayWindow {
             y: (isDraggable && savedY !== null && savedY !== undefined) ? savedY : 0,
             maximizable: true,
             minimizable: false,
+            // `focusable: false` + `skipTaskbar` are load-bearing: the overlay
+            // must never take the foreground from the game (`hotkeysGameOnly`
+            // would then unregister the hotkeys).
             focusable: false,
             skipTaskbar: true,
             alwaysOnTop: true,
@@ -42,24 +46,22 @@ class OverlayWindow {
             webPreferences: webPreferences()
         })
         this.window.loadFile('src/map/map.html')
-        // On Windows, 'screen-saver' level is not supported and gets silently ignored.
-        // Use 'pop-up-menu' on Windows which correctly maps to HWND_TOPMOST and stays
-        // above fullscreen game windows. On other platforms keep 'screen-saver'.
+        // win32 silently ignores 'screen-saver'; 'pop-up-menu' is the level that
+        // maps to HWND_TOPMOST and stays above a fullscreen game.
         const alwaysOnTopLevel = process.platform === 'win32' ? 'pop-up-menu' : 'screen-saver';
         this.window.setAlwaysOnTop(true, alwaysOnTopLevel);
         this.window.setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true});
         this.window.setSkipTaskbar(true);
-        // Click-through WITHOUT `forward: true`. On Windows, forwarding installs a
-        // low-level mouse hook (WH_MOUSE_LL) in this process; whenever the main
-        // thread is busy (quit, install, a capture tick) every mouse move waits on
-        // that hook and the cursor stutters system-wide. The overlay never needs
-        // hover events, so the hook is pure cost.
+        // Click-through **without** `forward: true`: forwarding installs a
+        // WH_MOUSE_LL hook in this process, and every mouse move then waits on
+        // our main thread — the cursor stutters system-wide. No hover events are
+        // needed here, so the hook is pure cost.
         this.window.setIgnoreMouseEvents(true);
         // A window created while the Tab map is up starts out suppressed too.
         this.applySuppressed();
 
-        // On Windows, periodically re-assert always-on-top to prevent the game
-        // or other HWND_TOPMOST windows from pushing the overlay behind them.
+        // Re-assert always-on-top every second, or a fullscreen game (or another
+        // HWND_TOPMOST window) pushes the overlay behind it.
         if (process.platform === 'win32') {
             this._alwaysOnTopInterval = setInterval(() => {
                 if (this.window && !this.window.isDestroyed()) {
@@ -68,16 +70,11 @@ class OverlayWindow {
             }, 1000);
         }
 
-        // The overlay's own renderer can die too, and when it does the window
-        // stays up showing nothing — which looks exactly like "the overlay
-        // stopped working" and left no trace at all before 0.3.2.
-        //
-        // The reload is deferred for the same hard reason as the main window's
-        // (see `MainWindow.scheduleRendererReload`): navigating from inside
-        // `render-process-gone` takes the whole app down on Electron 40. It
-        // comes back blank — main does not keep the last image — so the map
-        // returns on the next map change or a toggle-map press. That is still far
-        // better than a window that will never draw again.
+        // **Never reload from inside this handler**: navigating while Chromium
+        // tears the dead frame down takes the whole app with it on Electron 40
+        // (see `MainWindow.scheduleRendererReload`). Hence the `setTimeout`.
+        // The window comes back blank — main keeps no image — so the map returns
+        // on the next map change or toggle-map.
         this.window.webContents.on('render-process-gone', (event, details) => {
             const reason = (details && details.reason) || 'unknown';
             console.error('Overlay renderer gone:', details);
@@ -106,21 +103,17 @@ class OverlayWindow {
                 const bounds = this.window.getBounds();
                 this.settings.set('overlayX', bounds.x);
                 this.settings.set('overlayY', bounds.y);
-                // Coordinates, never a path: where the user actually dragged
-                // the overlay is half of every "it is off screen" report.
+                // Coordinates, never a path — see the redaction rule.
                 appLog.event('overlay', {action: 'move', x: bounds.x, y: bounds.y});
             }
         });
     }
 
     /**
-     * Take the corner minimap off screen while the markers are drawn on the
-     * game's own Tab map (`tabHidesMinimap`), and bring it back afterwards.
-     *
-     * Opacity, not `hide()`/`showInactive()`: the window keeps its size, its
-     * place in the topmost band and whatever it has drawn, nothing can take
-     * focus from the game, and none of the code that shows, resizes or closes
-     * this window has to know about it.
+     * Off screen while the markers are on the game's own Tab map
+     * (`tabHidesMinimap`). Opacity, not `hide()`/`showInactive()`: the window
+     * keeps its size, its place in the topmost band and what it has drawn, and
+     * nothing that shows, resizes or closes it has to know about this.
      */
     setSuppressed(on) {
         this.suppressed = on === true;
