@@ -33,6 +33,11 @@ class Settings {
         return this.settings[key];
     }
 
+    /** The whole cached object, for the pure rules that read several keys. */
+    all() {
+        return this.settings;
+    }
+
     async set(key, value) {
         this.settings[key] = value;
         const updated = await ipcRenderer.invoke('set-setting', key, value);

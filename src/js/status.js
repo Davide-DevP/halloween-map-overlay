@@ -6,6 +6,9 @@
 
 const HIDE_MS = 5000;
 
+/** ms one outcome is left alone: this element replaces rather than queues. */
+const TOAST_READ_MS = 2600;
+
 let hideTimer = null;
 
 /** Already translated. `.text()`: some of these carry user-typed map names. */
@@ -20,4 +23,4 @@ function showStatus(message) {
     }, HIDE_MS);
 }
 
-module.exports = {showStatus, HIDE_MS};
+module.exports = {showStatus, HIDE_MS, TOAST_READ_MS};

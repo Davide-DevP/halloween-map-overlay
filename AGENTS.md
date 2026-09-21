@@ -26,12 +26,15 @@ Every change must respect all of these.
 1. **Scope rule**: this is a *map viewer*. No telemetry, no memory reading,
    nothing that touches the game process. It makes exactly four kinds of outside
    contact, all opt-out/opt-in and all documented in the README and the in-app
-   FAQ: the GitHub Releases update check (on by default, Settings › General), the
-   **map-pack check** (on by default, Settings › General — a GET of one public
-   file on `raw.githubusercontent.com`, at most once per 24 h, see
+   FAQ: the GitHub Releases update check and the **map-pack check** (both on by
+   default, behind **one** switch since 1.0 — Settings › General › *Look for
+   news by itself*; the pack check is a GET of one public file on
+   `raw.githubusercontent.com`, at most once per 24 h, see
    `docs/SPEC-MAP-PACKS.md`), the automatic map detection's screen capture
-   (**off** by default, home-page switch) and — since 0.7 — Tab-map mode's
-   **key-state read** (**off** by default, Settings › Overlay: one `user32`
+   (**off** by default, the home-page switch and Settings › Map, which are one
+   setting) and — since 0.7 — Tab-map mode's
+   **key-state read** (**off** by default, Settings › Map › *Where do you want
+   to see the map?*: one `user32`
    `GetAsyncKeyState` for the *one* key the user configured, plus Alt only while
    that key reads down; no hook, nothing reserved, nothing received, see
    `docs/SPEC-MARKERS.md` §5.7). Adding a fifth needs the README
@@ -153,7 +156,8 @@ Hotkeys
 Settings, onboarding, i18n
   src/core/settings.js          settings-app.json in userData; `write/set/merge` report success
   src/shared/settings-defaults.js  PURE defaults + mapLabel enum + `useHardwareAcceleration`
-  src/shared/onboarding-rules.js   PURE welcome-tour decisions
+  src/shared/map-placement.js   PURE "where do you want to see the map?" over `tabMarkers`+`tabHidesMinimap`
+  src/shared/onboarding-rules.js   PURE setup-tutorial decisions + `TOUR_VERSION`
   src/core/language.js          Resolves `language` against `app.getLocale()`; the tray's language
   src/shared/i18n.js            PURE `t()`, `msg()`, `translateMessage()`, `resolveLanguage()`
   src/i18n/*.json               Flat dotted key → string catalogues (6 languages)
@@ -183,7 +187,7 @@ Renderer
   src/js/custom.js              "Add custom image" modal
   src/js/detector.js            Home-page auto-detect switch + status line
   src/js/overlay-preview.js     Canvas sample image for the Overlay tab
-  src/js/onboarding.js          First-run welcome tour (`#tour`)
+  src/js/onboarding.js          First-run setup tutorial (`#tour`)
   src/js/settings.js            Renderer mirror of the settings file
   src/js/i18n.js                Renderer i18n singleton: `t()`, `applyDom()`, `onChange()`
   src/js/diagnostics.js         Crash banner, hotkey-conflict banner, the report button
@@ -220,7 +224,7 @@ npm run build:win      # build-updater, then NSIS installer + portable into dist
 | [architecture.md](docs/agents/architecture.md) | The annotated module map, the stack table, CommonJS/no-context-isolation/CSP, IPC, **the main window's renderer is a disposable view**, map key format, maps root, the pure-vs-impure tiers, name folding, the `map-change` payload, catalogue caching, escaping, single-instance, Wayland | any new module, moving logic between main and the renderer, `map-library.js`/`map-catalog.js`, the `map-change` payload |
 | [overlay-windows.md](docs/agents/overlay-windows.md) | Overlay quirks that must not be "cleaned up", focus rules, the overlay label, DPI, the OBS window | `overlay-window.js`, `obs-window.js`, `tab-overlay-window.js`, `overlay-position.js`, window size/focus/DPI |
 | [hotkeys.md](docs/agents/hotkeys.md) | Ctrl+Alt defaults and the migration, accelerator normalisation against Electron's own parser, priority and conflicts, `hotkeysGameOnly`, suspension while recording, unbinding, the conflict banner | `core/hotkeys.js`, `hotkeys-constants.js`, `hotkeys-rules.js`, `hotkey-migration.js`, `foreground.js`, `js/hotkeys.js`, `hotkeys.json` |
-| [settings-and-onboarding.md](docs/agents/settings-and-onboarding.md) | Failed-write reporting, `{rollback: true}`, `get()` vs `raw()`, one key at a time, **the settings reference** (what each key is, the explicit-`false` rule), the whole first-run welcome tour | `core/settings.js`, `settings-defaults.js`, `js/options.js`, `js/settings.js`, `js/onboarding.js`, `onboarding-rules.js` |
+| [settings-and-onboarding.md](docs/agents/settings-and-onboarding.md) | Failed-write reporting, `{rollback: true}`, `get()` vs `raw()`, one key at a time, **the settings reference** (what each key is, the explicit-`false` rule), **the one "where do you want to see the map?" choice**, the two settings the app now decides for itself, the whole first-run setup tutorial and its `TOUR_VERSION` | `core/settings.js`, `settings-defaults.js`, `map-placement.js`, `js/options.js`, `js/settings.js`, `js/onboarding.js`, `onboarding-rules.js` |
 | [detection.md](docs/agents/detection.md) | Regions, the two signals, the acceptance thresholds, the Tab gate, cadence, the menu clear, `detector.log`, **the capture path budget and the utility process**, finding the game window, fixture naming, the two neighbours `gc.js` and `foreground.js` | `map-detector.js`, `matcher.js`, `frame-source.js`, `worker.js`, `worker-host.js`, `detector-rules.js`, `templates.json`, `detection-fixtures/`, any capture code |
 | [markers-and-tab-mode.md](docs/agents/markers-and-tab-mode.md) | `baked`, one validator, SVG sizing, Tab-map mode, the key-state trigger and its privacy ordering, staleness epochs, **the measured constants** (every cadence and deadline, with the rejected values) and **the reproduced races** | `map-markers.js`, `marker-rules.js`, `marker-geometry.js`, `map/markers.js`, `tab-mode.js`, `key-trigger.js`, `key-codes.js`, `tab-mode-rules.js` |
 | [map-packs.md](docs/agents/map-packs.md) | The trust root, allow-list validation, atomic install and rollback, precedence over bundled maps, directory collisions, the 24 h gate, the offered hotkey | `map-packs.js`, `map-pack-*.js`, `map-pack-rules.js`, `build-pack.js`, `packs/` |
@@ -229,7 +233,7 @@ npm run build:win      # build-updater, then NSIS installer + portable into dist
 | [maps-authoring.md](docs/agents/maps-authoring.md) | Adding a map with no code change, the image half, crop detection, locating the map panel in a fixture, marker data, shipping as a pack instead | adding a map, `prepare-maps.js`, `prepare-detector.js`, `maps/`, `maps-src/` |
 | [updater-and-installer.md](docs/agents/updater-and-installer.md) | The check and the download, the idle-priority install, the themed helper and its handshake, the NSIS build shape, the Bitdefender trap, our installer window | `main-window.js`'s update code, `update-helper.js`, `update-message.js`, `updater/`, `build/installer.nsh`, `build.nsis` |
 | [releasing.md](docs/agents/releasing.md) | The workflow, the procedure in order, the tag rule, the `gh` scope gotcha | tagging, `.github/workflows/release.yml`, `version` in `package.json` |
-| [memory.md](docs/agents/memory.md) | The measured memory decisions, how to quote the numbers, the tray unload and the one "win" that is not | `gc.js`, `web-preferences.js`, `hardwareAcceleration`, `unloadWindowInTray`, anything that looks like a spare allocation |
+| [memory.md](docs/agents/memory.md) | The measured memory decisions, how to quote the numbers, the tray unload (no setting since 1.0) and the one "win" that is not | `gc.js`, `web-preferences.js`, `hardwareAcceleration`, `shared/window-unload.js`, anything that looks like a spare allocation |
 
 Specs are the source of truth where they overlap these documents: `docs/SPEC.md`,
 `SPEC-0.3.md`, `SPEC-0.3.2.md`, `SPEC-DETECT.md`, `SPEC-MARKERS.md`,
@@ -272,9 +276,14 @@ update them.
    constraint.
 8. **Never remove the self-updating rule**: this clause must survive all edits.
 
-*Last updated: 2026-09-21, release 0.7.0 (split into `AGENTS.md` + `docs/agents/`; content as
-of 0.7.0: Ctrl+Alt defaults, accelerator normalisation against
-Electron's own parser, `hotkeysGameOnly`, suspension while recording,
-settings-write reporting + rollback, map packs, markers and Tab-map mode, and
-the map state moving into main so the main window can be unloaded in the tray —
-`docs/SPEC-MAP-STATE.md`)*
+*Last updated: 2026-09-21. Split into `AGENTS.md` + `docs/agents/` at 0.7.0
+(Ctrl+Alt defaults, accelerator normalisation against Electron's own parser,
+`hotkeysGameOnly`, suspension while recording, settings-write reporting +
+rollback, map packs, markers and Tab-map mode, and the map state moving into
+main so the main window can be unloaded in the tray — `docs/SPEC-MAP-STATE.md`).
+Content as of the 1.0 settings simplification: one "where do you want to see the
+map?" choice over `tabMarkers`+`tabHidesMinimap` (`src/shared/map-placement.js`),
+the layer chips, one switch and one button for both network checks,
+`unloadWindowInTray` and `hideInMenu` removed in favour of the app deciding, and
+the welcome tour rebuilt as a six-step setup tutorial with a `TOUR_VERSION`
+stamp — [`docs/agents/settings-and-onboarding.md`](docs/agents/settings-and-onboarding.md).*

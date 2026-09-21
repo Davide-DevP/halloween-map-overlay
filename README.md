@@ -20,9 +20,13 @@ is switched on — see [Auto-detect](#auto-detect-map).
 - **New maps arrive on their own**, as a few hundred KB rather than a whole app
   update: the app asks once a day whether new or corrected map images exist, and
   a new map appears in the gallery without a restart. Off with one switch.
-- Optional **auto-detect**: open the in-game map with <kbd>Tab</kbd> and the
-  overlay switches to that map by itself. Off by default. It also clears the
-  overlay when the game goes back to its main menu.
+- **One choice instead of three switches**: *where do you want to see the map?*
+  — in a corner of the screen, on the game's own map, or both. Everything the
+  choice needs is switched on with it.
+- Optional **recognise the map by itself**: open the in-game map with
+  <kbd>Tab</kbd> and the overlay switches to that map. Off by default for the
+  corner map, and part of the two game's-map modes. It also clears the overlay
+  when the game goes back to its main menu.
 - Transparent, frameless, click-through overlay that stays above the game.
 - Pick the monitor, corner, fine-grain position, size, opacity and rotation.
 - Drag the overlay into place with the mouse, or use the position sliders.
@@ -33,9 +37,9 @@ is switched on — see [Auto-detect](#auto-detect-map).
 - Optionally keep the map's name on the overlay all the time.
 - **Markers** for the places a storm cellar, an escape gate, a car or a gas can
   may appear — the gas cans in particular, which the game only ever shows to
-  civilians. Per-layer switches, a legend, and one hotkey to show or hide the
+  civilians. One chip per kind, a legend, and one hotkey to show or hide the
   lot. See [Markers](#markers).
-- **Experimental: markers on the in-game map.** While you hold <kbd>Tab</kbd>
+- **In testing: the points on the game's own map.** While you hold <kbd>Tab</kbd>
   they can be drawn straight onto the game's own big map, next to your own
   arrow, and they disappear the moment you let go. Off by default.
 - **Six languages** — English, Italian, Spanish, German, French and Brazilian
@@ -50,41 +54,73 @@ is switched on — see [Auto-detect](#auto-detect-map).
 
 ## First run
 
-The very first time you start the app, a short **welcome tour** opens over the
-home page: the language; which screen and corner the map appears in (a sample
-map is on the overlay while that step is open, so you can see where it lands);
-what the marks on the map mean — *possible* places, never certainties; the
-hotkeys you have been given; and auto-detect, with *markers on the in-game map*
-inside it. Both of those stay **off** unless you switch them on there. Six
-steps, **Skip** or <kbd>Esc</kbd> at any point, and every control in it is the
-same control as in **Settings**, so nothing you do in the tour has to be done
-again afterwards. The last step says, in two sentences, every request this app
-makes.
+The first time you start the app a **setup guide** opens over the home page,
+and it is meant to be enough on its own: you can set the whole app up in it
+without ever opening Settings. Six steps:
 
-It appears **only on a genuinely new installation**, and it is remembered as
-owed rather than as "first start", so quitting or restarting before you finish
-it does not lose it — you are greeted again next time. Updating never
-interrupts you with it. You can open it again whenever you like from
-**Settings → General → Show the welcome tour**.
+1. **The language.** The guide itself starts in your computer's language, and
+   changing it here re-translates the guide as you watch.
+2. **Where do you want to see the map?** Three cards, and you pick one: in a
+   corner of the screen, on the game's own map (still *in testing*), or both.
+3. **Set it up the way you like.** For the corner: the screen, the corner, the
+   size and how visible it is — with a test map on the overlay while the
+   step is open, so you can see exactly where it lands. For the game's own map:
+   which key opens the map inside the game.
+4. **What do you want to see on the map?** The four kinds of point, the legend,
+   and *recognise the map automatically* — which the two game's-map modes need, so
+   it is locked on for them.
+5. **The hotkeys.** The five the app comes with, each with a *change* link that
+   opens the real bind dialog, so a combination another program already owns can
+   be moved here and now.
+6. **All set.** One switch for looking up new versions and new maps, the single
+   honest sentence about what the app uses the internet for, and a line naming
+   the choice you made on step 2.
+
+**Skip the guide** or <kbd>Esc</kbd> at any point. Every control in it is the
+same control as in **Settings**, and nothing is written unless you actually
+change something — pressing *Next* six times changes nothing at all.
+
+It opens by itself on a new installation, and it is remembered as *owed* rather
+than as "first start", so quitting or restarting before you finish does not lose
+it: you are greeted again next time. It also opens **once** for an install that
+is upgrading from an older version, because the guide was rewritten. You can
+open it again whenever you like from **Settings → General → See the setup guide
+again**.
 
 ## Hotkeys
 
 | Action | Default |
 |---|---|
-| Show / hide the current map | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>H</kbd> |
-| Rotate the map by 90° | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> |
+| Show / hide the map | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>H</kbd> |
 | Next map | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>→</kbd> |
 | Previous map | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> |
-| Clear the map and re-detect | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>D</kbd> |
-| More opaque (+10 %) | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>↑</kbd> |
-| More transparent (−10 %) | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>↓</kbd> |
-| Bigger (+25 px) | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>↑</kbd> |
-| Smaller (−25 px) | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>↓</kbd> |
-| Show / hide the map markers | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>M</kbd> |
+| Wrong map? Recognise it again | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>D</kbd> |
+| Show / hide the points | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>M</kbd> |
+| Turn the map | *no key by default — set one in Settings → Hotkeys* |
+| More opaque (+10 %) | *no key by default — set one in Settings → Hotkeys* |
+| More transparent (−10 %) | *no key by default — set one in Settings → Hotkeys* |
+| Bigger (+25 px) | *no key by default — set one in Settings → Hotkeys* |
+| Smaller (−25 px) | *no key by default — set one in Settings → Hotkeys* |
 | East Haddonfield | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>1</kbd> |
 | Haddonfield Heights | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>2</kbd> |
 | Haddonfield Town Center | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>3</kbd> |
 | Orange Grove Estates | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>4</kbd> |
+
+**Five of them come with no key.** Rotate, the two opacity steps and the two
+size steps are there, they work, and they are yours to bind — they are simply
+not *given* a combination on a new installation, because ten global shortcuts
+is more than anyone needs and every one of them is a combination taken away
+from the rest of your PC. You will find them in **Settings → Hotkeys** under
+**More keys**, the folded line below the table; their rows read *no key*, so
+press **Edit** on one, press the keys you want, and it is bound from that
+moment on — and from then on it sits in the table above with the rest, not in
+the fold. Rotation, opacity and size are all on the sliders and buttons
+in **Settings → Map** as well, so nothing needs a hotkey to be reachable.
+**If you are updating**, nothing is taken away from you: an install that
+already has these five on <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd>,
+<kbd>↑</kbd>, <kbd>↓</kbd> and <kbd>Shift</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd>
+keeps them exactly as they are, and so does anything you rebound or switched
+off yourself.
 
 **Why Ctrl + Alt and not plain Ctrl?** <kbd>Ctrl</kbd> is crouch in most games,
 and <kbd>Ctrl</kbd> + <kbd>R</kbd>, <kbd>Ctrl</kbd> + <kbd>H</kbd>,
@@ -97,7 +133,7 @@ yourself. Anything you rebound or switched off is left exactly as it is, and
 nothing is moved onto a combination that is already in use.
 
 Opacity is clamped to 10–100 % and the size to 50–800 px, the same ranges as
-the sliders in **Settings → Overlay**; the new value appears in the status
+the sliders in **Settings → Map**; the new value appears in the status
 message at the bottom right, and the sliders follow along if the settings
 window happens to be open.
 
@@ -107,13 +143,15 @@ are written once on first run — <kbd>Ctrl</kbd> + <kbd>Alt</kbd> +
 nine maps in gallery order, so maps added in a later version get their own
 number automatically — and are yours to edit or delete afterwards.
 
-Any of the system hotkeys can also be switched off entirely: **Unbind**
-leaves that action with no key combination, so the keys go back to the game and
-to every other program. The row then reads *Not bound*, **Reset** puts the
+Any of the system hotkeys can also be switched off entirely: **Remove key**
+leaves that action with no key, so the keys go back to the game and
+to every other program. The row then reads *no key*, **Reset** puts the
 default back (unless something else has taken it meanwhile) and **Edit** binds
-it again. Unbinding sticks across restarts.
+it again. For the five that have no default, **Reset** is the same thing as
+*Remove key* — back to no key — and the button is greyed out while that is already
+the case. That choice sticks across restarts.
 
-While the *press a key combination* window is open, the app releases all of its
+While the *press the keys you want* window is open, the app releases all of its
 hotkeys, so you can record a combination it is currently using — swapping two
 bindings, or moving one out of the way, works as you would expect. They come
 back as soon as you close that window.
@@ -124,7 +162,7 @@ back as soon as you close that window.
 hotkeys are held only while you are in *Halloween: The Game* — or in one of
 this app's own windows, so you can try a combination straight after rebinding
 it. The rest of the time the combinations belong to whatever program is in
-front, so <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> in your editor is
+front, so <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>H</kbd> in your editor is
 your editor's again.
 
 It costs nothing: about once a second the app asks Windows for the list of open
@@ -174,8 +212,7 @@ you had picked yourself was never cleared unless auto-detect had recognised one
 first in the same match.) A map you pick **while the menu is already up** is
 left alone: the overlay is only cleared once the game has been seen away from
 the menu since that map went up, so choosing the next map between matches is
-never undone. Turn it off under **Settings → General → Clear the map back in
-the menu**.
+never undone.
 
 How it works, in full:
 
@@ -208,7 +245,7 @@ How it works, in full:
   cannot run on your machine, the comparison happens inside the app as it did
   before; either way nothing is stored and nothing is sent.
 - It is **off by default** and captures nothing at all while it is off.
-- **With *markers on the in-game map* on, how often the window is looked at
+- **With *on the game’s own map* on, how often the window is looked at
   depends on which method that mode is using** (see
   [Markers on the in-game map](#markers-on-the-in-game-map-experimental)).
   Reading your map key: the ordinary 0.7 s check, plus **one** look when you
@@ -232,7 +269,8 @@ game has to be in **Borderless Windowed** (see the FAQ) and not minimized.
 detector decided — which map, with what score, how long the check took, and
 whether the overlay actually switched. It contains no images and nothing about
 your system; it is only ever written to your own computer and is never sent
-anywhere. Open **Settings → General → Open log folder** and send
+anywhere. Open **Settings → General → Something not working? → Open the files
+folder** and send
 `detector.log` (and `detector.log.1` if it is there) with your report. The file
 is capped at 512 KB with one backup, so it cannot grow without bound. Easier
 still: use **Create diagnostic report**, which puts that file and everything
@@ -272,18 +310,20 @@ image, which is why it is the one the app adds — and it is the one worth havin
 because the game only ever shows gas cans to civilians. A map that arrives later
 with a clean image gets all four.
 
-Under **Settings → Overlay → Markers** each kind has its own switch, plus one
-for the legend and a slider for how strongly they are drawn.
+Under **Settings → Map → What to show** each kind is a chip you tap on and off,
+with one for the legend and a slider for how strongly they are drawn under
+*Other adjustments*.
 <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>M</kbd> turns the lot on and off
 without leaving the game. The OBS window shows exactly the same markers as the
 overlay.
 
-### Markers on the in-game map (experimental)
+### The points on the game's own map (in testing)
 
 While you hold <kbd>Tab</kbd> the game draws a big map with **your own arrow**
-on it — something the corner overlay cannot do. **Settings → Overlay → Markers
-on the in-game map** draws the markers straight onto that map instead, all four
-kinds, in the game's own scale, and takes them away the moment you let go.
+on it — something the corner overlay cannot do. Choosing *on the game's own
+map*, or *both*, under **Settings → Map → Where do you want to see the map?**
+draws the points straight onto that map instead, all four kinds, in the game's
+own scale, and takes them away the moment you let go.
 
 It is off by default, and:
 
@@ -313,7 +353,7 @@ key held down right now?**
   working in first**, and only carries on if that is the game. So the question
   is not "is this key down on this PC", it is "is this key down *in the
   game*".
-- **Only then does it ask about one key** — the one under *Game's map key*,
+- **Only then does it ask about one key** — the one under *The game's map key*,
   <kbd>Tab</kbd> unless you rebound it in the game. Plus <kbd>Alt</kbd>, and
   only while that key reads as held, so <kbd>Alt</kbd> + <kbd>Tab</kbd> is not
   mistaken for you opening the map. While you are in a browser, a chat window
@@ -338,7 +378,7 @@ key held down right now?**
 If reading the key state does not work on your PC — some security software
 blocks it — the app says so once and falls back to the slower method below, all
 by itself. You can also choose that method yourself with **Do not read the key
-state**. Settings shows which one is in use, and says *"ready — your map key
+state**. Settings says which one is in use, under *Something not working?*, and says *"ready — your map key
 will be used as soon as the game is running"* while the game is closed; that is
 not a problem, it simply means nothing is being read yet.
 
@@ -351,7 +391,7 @@ not a problem, it simply means nothing is being read yet.
 ## The map name on the overlay
 
 By default the overlay names the map for about three seconds after auto-detect
-switches to it, and stays anonymous the rest of the time. **Settings → Overlay
+switches to it, and stays anonymous the rest of the time. **Settings → Map
 → Map name on the overlay** changes that to *Always* or *Never*. The name sits
 at the bottom of the overlay window, is never rotated with the map, and uses the
 same opacity as the map. The OBS window follows the same setting.
@@ -364,8 +404,8 @@ minimized to the tray and auto-detect on, the app settles at about **106 MB of
 RAM** across its five processes — the "Memory" column Task Manager shows, added
 up. It is a little higher for the first minute and then Windows trims it.
 
-One switch is most of the difference. **Settings → General → "Use the graphics
-card to draw the app"** is **off by default**, and that is deliberate: the
+One switch is most of the difference. **Settings → General → Something not working? →
+"Use the graphics card to draw the map"** is **off by default**, and that is deliberate: the
 overlay is a still image with no animation in it, so there is nothing for the
 graphics card to accelerate. Leaving it alone takes about 14 MB off that total
 and about 59 MB off the memory Windows reserves for the app, and it costs no
@@ -377,19 +417,18 @@ Turn it **on** if the app looks or feels wrong on your machine — the window
 redrawing slowly, scrolling that stutters, anything that looks like a graphics
 problem. It takes effect the next time the app starts.
 
-The second switch is **Settings → General → "Free this window's memory in the
-tray"**, and it is **on by default**. While the app sits in the tray this window
-is closed after about three quarters of a minute and its memory — an estimated
-quarter or so of everything the app uses, not yet measured end to end — goes
-back to the system. Nothing you use
-during a match is affected: the overlay stays up, every hotkey still works,
-automatic detection still switches the map and still clears it back in the menu.
-The only difference you will notice is that opening the window from the tray
-takes a moment instead of being instant. Turn it off if you would rather have it
-instant. The window is never closed out from under you: not while you are
-minimized to the taskbar, not with Settings or the welcome tour open, not while
-a diagnostic report or an image import is running, and not while an update is
-waiting for you to say yes.
+The other half is not a setting at all — the app decides. While it sits in the
+tray this window is closed after about three quarters of a minute and its
+memory — an estimated quarter or so of everything the app uses, not yet
+measured end to end — goes back to the system. Nothing you use during a match is
+affected: the overlay stays up, every hotkey still works, and it still switches
+the map and clears it back in the menu. The only difference you will notice is
+that opening the window from the tray takes a moment instead of being instant.
+The window is never closed out from under you: not while you are minimized to
+the taskbar, not with Settings or the setup guide open, not while a diagnostic
+report or an image import is running, and not while an update is waiting for you
+to say yes. (It was a switch up to 0.7; nobody has a reason to want the memory
+back rather than the instant reopen.)
 
 If you want to squeeze out another ~18 MB and you do not mind the overlay
 blanking on the rare occasion a window crashes, start the app with
@@ -449,10 +488,10 @@ downloads it in the background; progress appears in the status message at the
 bottom right. **Nothing is installed until you ask for it.** Once the download
 finishes a green banner appears at the top of the app window:
 
-> Version X.Y.Z is ready. Restart and update — the app closes, a small window
-> shows the progress for a few seconds, and it reopens by itself.
+> Version X.Y.Z is ready. Press Restart and update: the app closes for a few
+> seconds and reopens by itself.
 
-Press **Restart and update** (there, or in the tray menu). The window turns into
+Press **Restart and update** (there, or on the icon near the clock). The window turns into
 an *Updating to X.Y.Z* screen, a small window in the app's own colours takes its
 place — same dark background, same pumpkin mark, the step it is on and a
 progress bar — it works the disk for a few seconds, and then the app starts
@@ -492,7 +531,8 @@ upgrade.
 
 Something not working? Three steps:
 
-1. Open **Settings → General** and press **Create diagnostic report**.
+1. Open **Settings → General → Something not working?** and press **Create a
+   file to send to whoever is helping you**.
 2. A file called `HalloweenMapOverlay-report-<date>-<time>.zip` appears on your
    Desktop, and the folder opens with it selected.
 3. Attach that zip to your message — an
@@ -515,7 +555,7 @@ text:
   not.
 - `crash-*.txt`: any crash the app recorded, with the last 200 log lines.
 - `system.txt`: Windows version, screens, graphics card, app version, plus the
-  marker switches and what *markers on the in-game map* was doing (whether it
+  marker switches and what *on the game’s own map* was doing (whether it
   was on, whether it had anything on screen, and how long its last check took
   — decisions and timings, never an image).
 
@@ -528,12 +568,15 @@ it. The app's network use is still only the two requests described below.
 ## Network use
 
 The app makes exactly two kinds of network request, both of them a plain GET of
-a public file on GitHub. Nothing about you or your PC is sent in either case.
+a public file on GitHub. Nothing about you or your PC is sent in either case,
+and **one** switch — *Settings → General → Check for updates automatically* — turns both
+off together: the difference between "a new version of the app" and "a new map"
+is the app's problem, not the player's.
 
 **1. The update check.** An HTTPS call to `api.github.com` / `github.com` at
 startup, asking whether a newer release of this app exists, and downloading it
-if so. Switch: **Settings → General → Check for updates on startup**, with a
-*Check for updates now* button next to it that makes the same single request
+if so. Switch: **Settings → General → Check for updates automatically**, with a
+*Check now* button next to it that makes the same single request
 when — and only when — you press it, switch on or off.
 
 **2. New maps.** An HTTPS call to
@@ -542,8 +585,9 @@ at startup and then **at most once every 24 hours**, asking whether new or
 corrected map images exist. *Halloween: The Game* gets new maps far more often
 than this app gets a release, so a map is downloaded on its own — a few hundred
 KB of image and detection data instead of a ~90 MB app update. Switch:
-**Settings → General → Check for new maps**, with a *Check for new maps now*
-button next to it. With the switch off **no request is made at all**.
+**Settings → General → Check for updates automatically**, with a *Check now*
+button next to it. With the switch off **nothing is requested by itself**; the
+button still works, because pressing it is asking for that one request.
 
 What is actually requested and what happens to it:
 
@@ -567,7 +611,9 @@ And for both:
 - No accounts, no telemetry, no analytics, no crash reporting. No identifier of
   any kind is sent; the only thing either request says about itself is a
   `User-Agent` naming the app, which GitHub asks every client for.
-- Turn both switches off and the app makes no network requests at all.
+- Turn the switch off and the app makes no network requests **by itself**. The
+  one exception is the *Check now* button: pressing it is asking for that one
+  request, which is why it still works.
 - The main window additionally runs under a Content-Security-Policy with
   `connect-src 'none'`, so the UI itself cannot reach the network even by
   accident — all of the above happens in the app's background process.
@@ -688,15 +734,15 @@ follow a link anywhere but there, every file's checksum is published and checked
 before it is stored, only images and plain data files are accepted, and nothing
 downloaded is ever run — it is shown, exactly like the maps inside the app. A
 download that does not match its checksum is discarded whole and the map you
-already had stays. Turn the whole thing off under **Settings → General → Check
-for new maps**. The format is documented in
+already had stays. Turn the whole thing off under **Settings → General → Look
+for news by itself**. The format is documented in
 [docs/SPEC-MAP-PACKS.md](docs/SPEC-MAP-PACKS.md).
 
 **Does it take screenshots?**
-Only with **Auto-detect map** switched on, and that is off by default. It then
+Only with **Recognise the map automatically** switched on, and that is off by default. It then
 captures the game's window about every 0.7 seconds while the game is running,
 and every 2 seconds while it is not (when there is no window to capture and
-nothing is captured). With **markers on the in-game map** also on there are a
+nothing is captured). With **on the game’s own map** also on there are a
 few more looks while you are holding your map key — how many depends on which
 method that mode uses, and the figures are in
 [Auto-detect](#auto-detect-map). Either way nothing is stored and nothing is
@@ -705,19 +751,19 @@ and the rest of the app is only told which map it was, and if that process
 cannot run the comparison happens inside the app instead.
 
 **Does it read my keyboard?**
-It reads **one key**, and only with **markers on the in-game map** switched on
+It reads **one key**, and only with **on the game’s own map** switched on
 (off by default) and the game running. Switching that mode on makes the app
 check once that Windows lets it ask at all — that check reads no key, and it is
 what lets Settings tell you straight away whether this works on your PC. After
 that, each time, it first asks Windows which program owns the window you are
 working in; if that is not the game it stops there and reads no key at all. If it is the game, it asks "is the map key held
-right now?" — the one key you set under *Game's map key*, plus <kbd>Alt</kbd>
+right now?" — the one key you set under *The game's map key*, plus <kbd>Alt</kbd>
 while that key is held so that <kbd>Alt</kbd> + <kbd>Tab</kbd> is not mistaken
 for opening the map. There is **no keyboard hook**: the app does not receive
 keystrokes, cannot see what you type, and never asks about any other key.
 Nothing is written down except that your map key went down or came up. It does
 not reserve the key either, so the game still sees every press. Switch that
-mode off, or switch on *Do not read the key state*, and no key is read at all.
+mode off, or switch on *Use the other method*, and no key is read at all.
 Everything else the app does with the keyboard is its own hotkeys, which you
 choose and can unbind.
 
@@ -732,11 +778,12 @@ the cellar, gate and car rings painted on by their author, so the app would
 only be drawing them twice. See [Markers](#markers).
 
 **Auto-detect took my map away when I went back to the menu.**
-That is *Clear the map back in the menu* doing its job: when the game returns
+That is the menu clear doing its job: when the game returns
 to the main menu the match is over, so the overlay clears itself after about
 two seconds of menu. It only does that to a map that was on the overlay while
 you were **in** a match — a map you pick while the menu is already on screen
-stays. Turn the whole thing off under **Settings → General**.
+stays. There is no switch for it: a map from the last match still on the
+overlay in the menu is a bug, not a preference.
 
 **Auto-detect does not recognise the map in my matches.**
 It should since 0.3.3, which added the civilian view of the map panel next to
@@ -747,8 +794,8 @@ to act on. If it still does not, send a full-screen screenshot of that
 the next build recognises it. See [Auto-detect](#auto-detect-map).
 
 **The overlay is catching my mouse clicks.**
-You left "Set position" mode on. Open **Settings → Overlay** and press
-*Stop setting position*.
+You left it in "move it with the mouse" mode. Open **Settings → Map** and press
+*Leave it there*.
 
 **How do I capture it in OBS?**
 Press *Open OBS window*, add that window as a source in OBS and apply a
@@ -811,11 +858,11 @@ that too.
 
 ### 0.6.0
 
-- **System hotkeys can be switched off.** Settings › Hotkeys has an *Unbind*
+- **System hotkeys can be switched off.** Settings › Hotkeys has a *Remove key*
   button next to *Edit* and *Reset*: an action you never use (say *Rotate map*,
   Ctrl+R) is no longer registered at all, so the combination goes back to the
   game and every other application instead of having to be parked on some
-  out-of-the-way key. The row reads *Not bound*, the choice survives a restart,
+  out-of-the-way key. The row reads *no key*, the choice survives a restart,
   *Edit* binds it again and *Reset* restores the default.
 - **Reset no longer double-books a combination.** If a map or another action
   has taken a hotkey's default in the meantime, *Reset* says so instead of

@@ -135,10 +135,9 @@ class Diagnostics {
             // neither the foreground nor a conflict.
             if (hotkeyState.suspended) lines.push('hotkeys suspended = yes (recording a key combination)');
         }
-        // The window is destroyed in the tray (`unloadWindowInTray`).
+        // The window is destroyed in the tray, always since 1.0.
         const windowState = this.windowState ? (this.windowState() || {}) : {};
         if (Object.keys(windowState).length) {
-            lines.push(`unloadWindowInTray = ${windowState.setting ? 'on' : 'off'}`);
             lines.push(`main window = ${windowState.loaded ? 'loaded' : 'unloaded'}`);
             if ((windowState.busy || []).length) {
                 lines.push(`main window held by = ${windowState.busy.join(', ')}`);

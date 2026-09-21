@@ -18,7 +18,25 @@ class Detector {
         this.lastStatus = null;
         /** Anything else that draws this switch — see `onStatus`. */
         this.statusListeners = [];
+        /**
+         * A placement that *needs* detection must not be breakable from here:
+         * disabled, with the reason beside it. `Options.syncPlacement` owns it.
+         */
+        this.placementLocked = false;
         onChange(() => this.render(this.lastStatus));
+    }
+
+    /** @param {boolean} locked from `autoDetectSwitchState(...).disabled` */
+    setPlacementLock(locked) {
+        const on = locked === true;
+        if (on === this.placementLocked) return;
+        this.placementLocked = on;
+        this.applyLock();
+    }
+
+    applyLock() {
+        $("#mapDetectionCheck").prop("disabled", this.placementLocked);
+        $("#mapDetectionLocked").toggleClass('d-none', !this.placementLocked);
     }
 
     async init() {
@@ -36,9 +54,8 @@ class Detector {
     }
 
     /**
-     * The single path, so the home-page switch and the tour's cannot do it two
-     * different ways. The setting is written by main's own handlers, not
-     * through `Settings.set`, so value and loop can never disagree.
+     * The single path, so the two views of this switch cannot differ. The
+     * setting is written by main's handlers: value and loop cannot disagree.
      */
     async setEnabled(on) {
         const $check = $("#mapDetectionCheck");
@@ -59,14 +76,14 @@ class Detector {
                 this.render({running: false});
             }
         } finally {
-            $check.prop("disabled", false);
+            // Back to whatever the placement says, not unconditionally on.
+            $check.prop("disabled", this.placementLocked);
         }
     }
 
     /**
-     * A second view of the switch (the tour has one), following every status
-     * push and not only its own click: a start main refuses must not leave a
-     * ticked box.
+     * A second view of the switch, following every status push and not only
+     * its own click: a start main refuses must not leave a ticked box.
      */
     onStatus(callback) {
         if (typeof callback === 'function') this.statusListeners.push(callback);
@@ -96,6 +113,7 @@ class Detector {
         const s = status || this.lastStatus || {};
         this.lastStatus = s;
         $("#mapDetectionCheck").prop("checked", !!s.running);
+        this.applyLock();
         this.notifyStatus(!!s.running);
 
         if (s.lastDetected) {

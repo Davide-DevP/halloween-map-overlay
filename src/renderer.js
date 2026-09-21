@@ -100,7 +100,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     await settings.init();
     // Before anything renders: every view builds its markup with `t()`.
     await i18n.init();
-    const options = new Options(settings, maps);
+    // Injected: the Map tab's placement cards switch detection on through it.
+    const options = new Options(settings, maps, detector);
     maps.setOptions(options);
 
     await maps.loadCatalog();

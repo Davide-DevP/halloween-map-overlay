@@ -94,10 +94,21 @@ an unrelated repository at all.
   ([detection.md](detection.md)). Packs past the
   48-variant budget are dropped with a `templates-dropped` line: every variant
   is scored on every gated-in frame at ~2 ms each.
-- **`checkForMapPacks`** (default true, Settings › General). With it off **no
-  request is made**: the gate is the pure `shouldCheckPacks`, which the startup
-  timer *and* the "Check for new maps now" button both go through, so they
-  cannot disagree. At most once per 24 h — **one hour after a check that
+- **`checkForMapPacks`** (default true). Since 1.0 it has no switch of its own:
+  it is half of *Settings › General › Check for updates automatically*
+  (`settingsForNewsCheck`, which always writes both keys). With it off **no
+  request is made by itself**: the gate is the pure `shouldCheckPacks`, which
+  the startup timer *and* the *Check now* button both go through, so they cannot
+  disagree. The one exception is that button: `force` overrides the setting as
+  well as the interval (reason `manual` rather than `forced`), because the click
+  *is* the consent and there is no map-pack switch left to send the user to —
+  the same rule `planManualUpdateCheck` has always applied to the app's own
+  update check. That is why `mapPacks.disabled` is gone: it could only ever be
+  shown about a switch that no longer exists. The renderer holds the *Check now*
+  button down for **both** halves of the click (`Options.checkingNow`, cleared
+  in a `finally`): it used to come back during the 2.6 s pause that separates
+  the two toasts, and a second click there started a second flow whose pack
+  check answered `busy` with nothing on screen to say so. At most once per 24 h — **one hour after a check that
   failed**, or a launch with no network burns the whole day's slot — remembered
   in `map-packs/state.json`, not in `settings-app.json`, because every settings
   write is an `app.log` line and this is bookkeeping. A **404 on the index** is

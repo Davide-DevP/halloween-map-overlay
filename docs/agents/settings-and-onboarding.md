@@ -1,15 +1,40 @@
-# Settings and the first-run welcome tour
+# Settings and the first-run setup tutorial
 
 [← AGENTS.md](../../AGENTS.md) · **Read before** touching `src/core/settings.js`,
-`src/shared/settings-defaults.js`, `src/js/options.js`,
-`src/js/settings.js`, `src/js/onboarding.js` or
+`src/shared/settings-defaults.js`, `src/shared/map-placement.js`,
+`src/js/options.js`, `src/js/settings.js`, `src/js/onboarding.js` or
 `src/shared/onboarding-rules.js`.
+
+## The standing UX rule (owner, non-negotiable)
+
+The app is for an **average player who knows nothing about PCs, performance or
+internals**. That rule decided the whole 1.0 shape of this window, so every
+change here is measured against it:
+
+- **The label is what the player gets, in their words, never the mechanism.**
+  "Visibility", not "Opacity". "Keep it running near the clock", not
+  "Minimize to tray". No *process*, *polling*, *GPU*, *RAM*, *foreground*,
+  *overlay window*, *accelerator* or *tray* in anything user-visible.
+- **Help is one short sentence, two at most.** A switch that needs a paragraph
+  belongs under *Something not working?* — or should not exist.
+- **Do not ask the user what the app can decide.** Two settings were removed in
+  1.0 for exactly that reason (below).
+- **Technical honesty lives in the FAQ**, reached by a short *What does the app
+  read?* link, not in the control's help text. The long privacy explanation of
+  the map key moved out of Settings into `faq.reads.a` in 1.0 for that reason;
+  the FAQ answer leads with plain words and keeps the technical sentence for
+  last.
+
+1.0 replaced 21 switches on two tabs with **one choice, three switches and five
+chips** in the open, **six** switches behind four closed *Something not working?*
+/ *Other adjustments* folds, and **two removed outright**. Do not add a switch in
+the open without taking one away.
 
 ## The Settings window is not guaranteed to exist
 
 Since 0.7 the main window is **destroyed** while the app sits in the tray
-(`unloadWindowInTray`, default true — `docs/SPEC-MAP-STATE.md` §5). Two
-consequences for anything in this document:
+(`docs/SPEC-MAP-STATE.md` §5; always on since 1.0 — see *Two settings the app
+decides* below). Two consequences for anything in this document:
 
 - **Nothing in Settings, the tour or the mirrors may be the owner of a
   behaviour.** The four settings a hotkey can change (`rotation`, `opacity`,
@@ -18,7 +43,7 @@ consequences for anything in this document:
   push. It is not the writer any more, and it must not become one again.
 - **Work with state in the renderer reports itself busy** so the window is not
   taken away underneath it: `setBusy(reason, on)` from `src/js/busy.js`, called
-  for the Settings modal, the welcome tour, a diagnostic report and a custom-map
+  for the Settings modal, the setup tutorial, a diagnostic report and a custom-map
   import — plus a blanket `modal` reason for **any** open Bootstrap modal
   (`watchModals()`, wired once in `renderer.js`), because a file picked in *Add
   custom image* only exists in this window and the `import` reason covers the
@@ -118,9 +143,9 @@ or user text, which is why `core/settings.js` may log every change.
 - **The "only an explicit `false` is off" rule.** Every default-on switch is read
   as `raw(key) !== false`, in main and in the renderer alike, so a settings file
   written before the setting existed behaves like the shipped default. That
-  covers `checkForUpdates`, `checkForMapPacks`, `hideInMenu`, `markers` and its
-  four `markerLayer*` keys, `markerLegend`, `tabMarkersInstant`,
-  `hotkeysGameOnly` and `unloadWindowInTray`. The pure `isLayerEnabled` applies
+  covers `checkForUpdates`, `checkForMapPacks`, `markers` and its
+  four `markerLayer*` keys, `markerLegend`, `tabMarkersInstant` and
+  `hotkeysGameOnly`. The pure `isLayerEnabled` applies
   the same rule to the marker layers on the other side.
 - **A setting written from two places must be written as the same *type*.**
   `size`, `opacity` and `rotation` are numbers: `shared/map-state.js` writes them
@@ -130,9 +155,12 @@ or user text, which is why `core/settings.js` may log every change.
   diagnostic report and any future comparison depend on which side wrote last.
 - **`onboardingPending`'s shipped default must stay `false`.** The back-fill puts
   the key into an *existing* settings file too, so an upgrade is never
-  interrupted; only `core/settings.js` sets it, once, on the start that creates
-  the file. `onboardingDone` is what stops the tour opening twice — see the tour
-  section below.
+  interrupted by the "this user has never been greeted" marker; only
+  `core/settings.js` sets it, once, on the start that creates the file.
+  **`tourSeenVersion`'s shipped default must stay `0`**, i.e. behind
+  `TOUR_VERSION`, and here the back-fill reaching existing files is exactly the
+  point: it is what shows an upgrading install the rewritten tutorial once. See
+  the tutorial section below.
 - **`hotkeyDefaultsVersion`'s shipped default is deliberately `0`**, i.e. behind
   `HOTKEY_DEFAULTS_VERSION`, so the back-fill cannot make an old file look
   already-migrated. [hotkeys.md](hotkeys.md) owns the migration itself, and the
@@ -144,8 +172,9 @@ or user text, which is why `core/settings.js` may log every change.
   seen one", so any crash file present at startup raises the banner.
   [diagnostics.md](diagnostics.md) owns the crash policy.
 - **`mapDetection` ships off** and is the one setting that turns on a screen
-  capture; `hideInMenu` only ever acts while it is on.
-  [detection.md](detection.md).
+  capture. It is no longer a switch of its own on the Map tab: the *Recognise
+  the map by itself* switch there and the home page's are the same setting, and
+  the two game's-map placements lock it on. [detection.md](detection.md).
 - **`tabMarkers` ships off** and needs `mapDetection`; `tabMarkerKey` is a
   **Windows virtual-key code** (9 = Tab), never an accelerator and never
   registered, and `tabMarkerKeyLabel` stores what the *browser* called that key
@@ -156,123 +185,298 @@ or user text, which is why `core/settings.js` may log every change.
   [markers-and-tab-mode.md](markers-and-tab-mode.md) and
   `docs/SPEC-MARKERS.md` own the rest, including `tabMarkersInstant`'s
   second-press rule and `tabHidesMinimap`.
-- **`hardwareAcceleration` ships off and `unloadWindowInTray` ships on** — both
-  measured decisions, with the numbers in [memory.md](memory.md). A change to
-  the first needs a restart (`app.disableHardwareAcceleration()` is ignored once
-  the app is ready), which is why `useHardwareAcceleration` treats any
-  non-boolean as the shipped default: a hand-edited file must not put the app in
-  a third state. When the second may actually happen is the pure
-  `shared/window-unload.js`.
+- **`hardwareAcceleration` ships off** — a measured decision, with the numbers in
+  [memory.md](memory.md). A change needs a restart
+  (`app.disableHardwareAcceleration()` is ignored once the app is ready), which
+  is why `useHardwareAcceleration` treats any non-boolean as the shipped
+  default: a hand-edited file must not put the app in a third state.
 - **`language` is `'system'` or a catalogue code**, resolved once in main against
   `app.getLocale()` — [i18n.md](i18n.md). `mapLabel` is the `MAP_LABEL_MODES`
   enum (`auto`/`always`/`never`), normalised by `mapLabelMode` so a file
   hand-edited to nonsense cannot make the overlay do something undefined.
 
-## The first-run welcome tour
+## Where do you want to see the map?
 
-- **The first-run welcome tour** (`#tour`, `src/js/onboarding.js`, decisions in
-  the pure `shared/onboarding-rules.js`). Six steps — language, placement,
-  **markers**, hotkeys, auto-detect (**with Tab-map mode inside it**), done — in
-  a panel inside the main window, **not** a second `BrowserWindow`.
-  `ONBOARDING_STEPS` is the list and `src/index.html` carries one
-  `[data-tour-step]` section per id; the step indicator's total is derived, so
-  adding one is a one-line change here plus a section there. Markers are a step
-  of their own because "a marker is a *possible* location" is the app's single
-  most misreadable claim, and they come **before** the hotkeys step so the
-  *Show / hide markers* row lands on something just explained. Tab-map mode is
-  *inside* the auto-detect step rather than after it, because it cannot work
-  with auto-detect off. Rules that hold it together:
-  - It opens by itself only when `shouldShowOnboarding({onboardingPending,
-    onboardingDone})` says so. **Two stored flags, not `Settings.freshInstall`.**
-    `core/settings.js` sets `onboardingPending` once, on the start that creates
-    the settings file ("this user is owed the tour"); `onboardingDone` is
-    written when it is finished or skipped. `freshInstall` on its own was true
-    for exactly one session, so a first run abandoned before Skip or Finish — a
-    quit, a crash, an update restart — looked like an existing install
-    afterwards and was never greeted. An upgrade still never sees it: the
-    back-fill gives an existing file `onboardingPending: false`, which is why
-    that default must stay `false`. Reopened from **Settings › General › Show
-    the welcome tour**, which closes the Settings modal first — one focus trap
-    at a time.
-  - **No parallel state.** Its selects and its slider are *mirrors*: a change
-    writes the value into the real control in Settings and fires its `input`
-    event, so `src/js/options.js` does the saving, the overlay refresh and the
-    glide snap. The auto-detect switch goes through `Detector.setEnabled`, the
-    home-page switch's own path (and `Detector.onStatus` keeps the two boxes in
-    step). The placement step borrows `Options.startPreview()`, so the real
-    overlay shows the same sample map as the Overlay tab. `syncMirror` copies
-    the real control's `disabled` state too — `.trigger()` runs a handler
-    whether or not its element is disabled.
-  - The only settings it owns are those two, and they have **their own IPC
-    handlers** (`set-onboarding-done`, which clears `onboardingPending` in the
-    same breath, beside `get-onboarding-state`) because `set-setting` answers
-    with the settings object and cannot report a failed write. On a failure the
-    tour is still marked done **in memory**: the throttled
-    `settings.error.writeFailed` toast has already said so, and a panel that
-    reopens on top of a user who dismissed it would be worse. It can only come
-    back on a later start if `settings-app.json` could not be written at all —
-    the one state in which the pending marker keeps being re-set anyway, and in
-    which nothing else the user changes survives a restart either.
-  - **Ordering against the rest of the first minute**: it opens last, from the
-    `#loadingOverlay` slide-up callback, after the crash notice, the
-    hotkey-conflict banner, the update banner and `get-hotkey-notice` have been
-    collected, so none of them lands on top of it. Two of those cannot happen
-    on a fresh install at all. `--hmo-z-tour` (1085) puts it above the Bootstrap
-    modals and deliberately **below** `--hmo-z-toast`, so the write-failure
-    warning stays readable.
-  - **Every key it handles is caught on the `#tour` element, never on
-    `document`** — `src/js/hotkeys.js` owns a `document` keydown listener while
-    it is recording a combination, and the two must not swallow each other's
-    keys. The handler also returns early on `hotkeys.recordingHotkey`. Esc and
-    Skip both mark it done, and a backdrop click only pulls focus back in
-    (losing the tour to a stray click would be worse than one more click to
-    skip it).
-  - **A keydown listener on the panel is only reached while focus is inside
-    it**, so being modal takes three more things, and all three are needed.
-    Without them a click on a paragraph, a table or an alert moved focus to
-    `<body>` (no focusable ancestor), after which Esc was dead and Tab walked
-    the page *behind* the backdrop — Enter on an invisible map card changing
-    the overlay. 1. `tabindex="-1"` on `#tour`, so such a click lands focus on
-    the dialog. 2. `inert` on every other top-level region while the tour is
-    open (`backgroundInertTargets`; the exemptions are `#tour`, `#logStatus`
-    and `.grain`, and `setBackgroundInert(false)` — reached by every close path
-    — undoes exactly the elements it set). 3. A `document`
-    `focusin`/`focusout` guard (`shouldRecaptureFocus`) that puts focus back on
-    the panel whenever it leaves; `focusout` with a null `relatedTarget` is the
-    case no keydown listener could see. `focusin`, deliberately **not** a
-    second `document` keydown listener, so there is nothing for the hotkey
-    recorder to collide with. For the same reason the auto-detect switch is
-    **never `disabled` while it waits** (a busy flag instead): disabling the
-    focused element blurs it and took the trap down with it.
-  - **Tab-map mode's switch is disabled with the reason on screen** unless both
-    its prerequisites hold — the pure `tabMarkersSwitchState({autoDetect,
-    markers, tabMarkers})`. Auto-detect off reuses **Settings' own**
-    `settings.tabMarkers.needsDetect`, so the two cannot explain one state two
-    ways; the markers master switch off gets its own string, and the fix is one
-    step back. `checked` always reports the stored setting, disabled or not. The
-    switch follows the auto-detect switch on the same step live (redrawn from
-    `Detector.onStatus`, not only on entry), and it writes through the **real**
-    `#tabMarkersCheck` (`mirrorCheck` → its `input` handler → `set-tab-markers`),
-    so main still starts and stops the window and the loop. The map key is
-    *named* live — read from the `<kbd>` `Options.renderMapKey` already fills,
-    because only the browser knows what the active layout calls a virtual-key
-    code — but the capture control is deliberately **not** duplicated in the
-    tour.
-  - **The hotkeys step lists five of the ten system actions**
-    (`ONBOARDING_HOTKEY_ACTIONS`, in reading order). Clear and the four
-    opacity/size steps are refinements nobody needs in the first minute and the
-    full table is one click away; `toggle-map` is first because it is the one
-    the step invites the user to press, and `toggle-markers` is last because the
-    step above it has just explained what a marker is.
-  - **The hotkeys step carries its own conflict warning** (`#tourHotkeyConflict`,
-    from `onboardingConflictList`, plus the `tryIt.taken` branch of
-    `onboardingTryIt`). The home-page banner is behind the backdrop, so without
-    it the first thing a new user is told to press does nothing and the
-    explanation is hidden under the panel giving the instruction. Same two
-    catalogue strings as the banner; the list comes from `Diagnostics.conflicts`
-    and re-renders on the `hotkey-conflicts` push.
+The first thing on the Map tab, and step 2 of the tutorial, is **one radio group
+of three cards** — corner / on the game's own map (tagged *in testing*) / both —
+where 0.7 had three independent switches (`tabMarkers`, `tabHidesMinimap` and
+*Auto-detect map*) that let a user tick a combination which could not run.
 
-See also: [i18n.md](i18n.md) (the tour's language step),
+- **It is not a setting.** The pure `shared/map-placement.js` reads it out of
+  the pair it replaced and writes it back: `corner` = `tabMarkers: false`,
+  `tab` = `{tabMarkers: true, tabHidesMinimap: true}`, `both` =
+  `{tabMarkers: true, tabHidesMinimap: false}`. Adding a stored `mapPlacement`
+  would need a migration and would let the two disagree; `placementFromSettings`
+  / `settingsForPlacement` round-trip instead, and a test drives all four
+  stored combinations through both directions. `tabMarkers: false` is always
+  `corner`, whatever `tabHidesMinimap` holds — that file belongs to someone who
+  tried the experimental mode and went back, not to someone with no map at all.
+- **`settingsForPlacement` always names both keys**, so switching back cannot
+  leave the other one behind.
+- **The order of the writes is load-bearing** and `Options.applyPlacement` owns
+  it: detection first (`core/tab-mode.js` refuses to start without it, so
+  writing `tabMarkers` while the loop is off does nothing), then
+  `tabHidesMinimap` through the generic setter (`TabMode` picks it up from
+  `settings.onChange`), then `set-tab-markers` — which is the handler that
+  actually starts the second window and the loop. **Nothing is written until the
+  loop is really running**, so a detector that refuses just leaves the stored
+  choice alone and `syncPlacement()` puts the cards back on it, with a toast
+  saying why. It is also called **only from a user action**.
+  Two quick clicks: `applyPlacement` takes a `placementSeq` ticket and queues
+  `writePlacement` on `placementChain`, so the two writes of one card can never
+  interleave with another card's, and a queued call whose ticket has moved on
+  drops out at the top. The staleness checks all sit **before the first write** —
+  once `tabHidesMinimap` has been written the pair is finished to the end,
+  because half of it stored is half a choice, and `tabMarkers` without its
+  partner is a mode the user did not pick.
+- **One source of truth.** `Options.placement()` and `Onboarding.placement()`
+  both derive from the stored settings on every read — nothing caches it — and
+  `syncPlacement()` sets the checked radio from that. A cached copy let Settings
+  show `corner` selected over the tab-mode blocks after a change made in the
+  tutorial, and clicking the already-checked card then fired no `change` at all.
+- **The *Recognise the map automatically* switch is one setting in three places**:
+  the Map tab, the tutorial's layers step and the home page. All three go
+  through `Detector.setEnabled`, and all three draw from the pure
+  `autoDetectSwitchState(placement, running)`, which has **three** states:
+  - `corner` → an ordinary switch.
+  - `tab`/`both` **and the loop running** → on and `disabled`, with the reason
+    on screen. The home page's is the one that could silently break the
+    placement, so it is locked the same way (`Detector.setPlacementLock`, with
+    `#mapDetectionLocked` carrying the one-line reason) — *not* reverted to
+    `corner` behind the user's back from a different page.
+  - `tab`/`both` **and the loop off** → `blocked`: off, still usable, with its
+    own reason and a *Switch it on* button. 0.7 could store
+    `{tabMarkers: true, mapDetection: false}`, and **nothing may start a screen
+    capture without a click** (AGENTS.md rule 1, and the README's "nothing is
+    written unless you change something"). So this state *reflects* reality and
+    invites a press; it never repairs itself by writing. `shouldStartDetection`
+    and `blocked` are asserted to be the same predicate.
+
+  `checked` reports the **loop**, never the setting, so a start main refused
+  cannot leave a ticked box.
+- **`placementSections` decides what is on screen**: `tab` hides the corner
+  block (there is no corner map), `corner` hides the game's-map key and the
+  *Something not working?* fold that only that mode needs. A test asserts every
+  choice leaves at least one map somewhere.
+- **The corner block has one button where 1.0 found two.** *Move it with the
+  mouse…* is the old *Overlay draggable* switch and *Set position* merged: it
+  writes `draggable: true` **and** lets the overlay catch the mouse; *Leave it
+  there* only gives the clicks back, so the hand-placed position stays; and
+  `#glideReset` is the one way back to the preset — it ends the drag, writes
+  `draggable: false` and snaps both glide sliders to the corner.
+  `Options.applyDragState` disables the corner preset, the two glide sliders and
+  the monitor picker while it is on and shows `#movedByHandNote`, because those
+  three cannot mean anything over a window the user placed by hand. The
+  tutorial's step 3 carries the same note (`#tourCornerLocked`, shown from the
+  real picker's `disabled`): a greyed-out control with no explanation is
+  reachable every time the tutorial is reopened later.
+
+## What to show
+
+The four marker layers and the legend are **chips**, not five switches with a
+paragraph each. Two consequences:
+
+- **The master `markers` switch is not a control on this tab any more.**
+  Ctrl+Alt+M (`toggle-markers`) is what flips it, in main, and it must keep
+  working. The one state the chips cannot explain — every chip on, nothing on
+  screen — is called out instead: `markerMasterNotice(markers)` shows a note and
+  a *Show the points* button above the chips whenever `markers === false`.
+  `Options.syncFromSettings()` re-renders it on the `map-state` push, which is
+  how the hotkey's effect reaches an open modal.
+- **"Points", not "markers", in every user-visible string.** A deliberate
+  simplification, one word per language, recorded in
+  [i18n.md](i18n.md) § Per-language glossary. `markers.layer.*` (the full
+  "… — possible location") still belongs to the legend and the overlay;
+  `markers.chip.*` is the one-word form.
+
+## Two settings the app decides
+
+`unloadWindowInTray` and `hideInMenu` were removed in 1.0 — not defaulted, not
+hidden: **removed from `DEFAULT_SETTINGS`, so nothing back-fills them and
+nothing reads them.** A leftover `false` in an existing file is ignored rather
+than migrated.
+
+- **The tray unload is always on.** `shouldUnloadMainWindow` has no `setting`
+  input and `KEEP_REASONS` has no `setting-off`; every other refusal is intact.
+  Nobody has a reason to prefer ~25 MB held for the life of the session over a
+  window that takes a moment to reopen, and the switch needed a paragraph about
+  memory to explain itself. `MainWindow.unloadState()` keeps the **state** lines
+  the diagnostic report prints (`main window = loaded|unloaded`, `main window
+  held by = …`) and no longer carries a `setting`, so nothing can print "off"
+  about something that is always on. [memory.md](memory.md).
+- **The menu clear is always on.** `shouldWatchMenu(shownKey)` takes the key
+  alone. A map from the last match still sitting on the overlay in the main menu
+  is a bug, not a preference. [detection.md](detection.md).
+
+## The first-run setup tutorial
+
+The **setup tutorial** (`#tour`, `src/js/onboarding.js`, decisions in the pure
+`shared/onboarding-rules.js`) was a five-step *tour* in 0.7 and is a **tutorial**
+since 1.0: the owner's rule is that it must let a user configure everything
+without ever opening Settings. Six steps — language, where the map goes, set it
+up, what to show, hotkeys, done — in a panel inside the main window, **not** a
+second `BrowserWindow`. `ONBOARDING_STEPS` is the list and `src/index.html`
+carries one `[data-tour-step]` section per id; the step indicator's total is
+derived, so adding one is a one-line change here plus a section there.
+
+Why that order: step 2's choice decides what step 3 even shows
+(`placementSections`), and step 4 comes before step 5 so the *Show / hide the
+points* row lands on something just explained. There is no step of its own for
+the experimental mode — it is one of the three cards on step 2.
+
+Rules that hold it together:
+
+- **When it opens: `shouldShowOnboarding({onboardingPending, tourSeenVersion})`.**
+  Two reasons, and `onboardingDone` is deliberately **not** one of them any more.
+  - `onboardingPending` is "this user has never been greeted".
+    `core/settings.js` sets it once, on the start that creates the settings
+    file. `freshInstall` on its own was true for exactly one session, so a first
+    run abandoned before Skip or Finish — a quit, a crash, an update restart —
+    looked like an existing install afterwards and was never greeted. The marker
+    survives that.
+  - `tourSeenVersion < TOUR_VERSION` is the once-per-version rule.
+    `TOUR_VERSION` is 2 (the 1.0 rewrite); `tourSeenVersion` ships `0`, and here
+    the back-fill reaching **existing** files is the point — that is how an
+    install which already finished the 0.7 tour is shown the new one once. Bump
+    `TOUR_VERSION` only when the tutorial changes enough that everybody should
+    see it again.
+  - **A missing or hand-edited marker reads as 0** (`seenVersion`), i.e. "show it
+    once". The 0.7 rule defaulted the other way; with a version marker, "I
+    cannot tell" costing one tutorial is better than suppressing it for ever.
+  - Both markers are stamped by the **one** `set-onboarding-done` handler, on
+    Finish **and** on Skip: `onboardingDone: true`, `onboardingPending: false`,
+    `tourSeenVersion: TOUR_VERSION`. It has its own handler (beside
+    `get-onboarding-state`) because `set-setting` answers with the settings
+    object and cannot report a failed write. On a failure the tutorial is still
+    marked done **in memory**: the throttled `settings.error.writeFailed` toast
+    has already said so, and a panel that reopens on top of a user who dismissed
+    it would be worse. It can only come back on a later start if
+    `settings-app.json` could not be written at all — the one state in which
+    nothing else the user changes survives a restart either.
+  - Reopened from **Settings › General › See the setup guide again**, which
+    closes the Settings modal first — one focus trap at a time.
+- **No parallel state, and that is what makes "pressing Next six times changes
+  nothing" true.** Every control is a *mirror*: a change writes into the real
+  control in Settings and fires the event that control's own handler listens for
+  (`mirrorCheck` picks `input` for a `role="switch"` and `change` for a chip —
+  firing both would write twice), so `src/js/options.js` does the saving, the
+  overlay refresh and the glide snap. `syncMirror` copies the real control's
+  `disabled` state too — `.trigger()` runs a handler whether or not its element
+  is disabled. The placement cards call `Options.applyPlacement` (which owns the
+  write order); the auto-recognise switch goes through `Detector.setEnabled`; the
+  map key uses `Options.attachMapKeyRecorder('#tourMapKeyBtn', …)` — **the same
+  recorder**, because two would be two write paths for one virtual-key code. The
+  tutorial holds *no* placement of its own: `Onboarding.placement()` re-reads it
+  from the settings file every time.
+- **Step 4 carries the same markers notice as Settings** (`markerMasterNotice`,
+  through the real `#markersShowBtn`), because `toggle-markers` can be unbound —
+  and then the tutorial would show five ticked chips over an empty overlay with
+  no way back.
+- **Step 3 borrows `Options.startPreview()`**, so the real overlay shows the same
+  sample map as the Map tab — but only while that step is actually showing the
+  corner half (`placementSections(...).corner`). With `tab` chosen there is no
+  corner map to preview.
+- **Step 5 opens the real bind dialog.** Each row's *change* calls
+  `Hotkeys.startSystemHotkeyEdit(actionId)`, so the suspension, the conflict
+  check, the rollback and the toast are all the ones that already exist — there
+  is no second key recorder. Three consequences, all needed: `#addHotkeyModal`
+  and `#hotkeyToast` are in `INERT_EXEMPT_IDS` (and the toast was moved to be a
+  direct child of `<body>` for it, which is also why it now needs a `z-index` of
+  its own); the tutorial records the dialog on **`show.bs.modal`, not `shown`** —
+  Bootstrap moves focus into the dialog *before* `shown`, so a guard armed there
+  still pulled it back to `#tour` and Esc reached neither; and `onKeyDown`
+  returns early while one is open, so Esc belongs to the dialog.
+  `restoreDialogFocus()` then puts the keyboard back on the row that opened it,
+  re-found by action id because `renderHotkeys` rebuilds the rows. `#faqModal` is
+  exempt for the same reason (*What does the app read?*).
+- **What is open is a `Set` (`openDialogs`), not a flag.** Two dialogs must not
+  be able to clear each other's state, and a `show` another listener
+  `preventDefault()`s emits *nothing* afterwards — so the id is dropped again on
+  the next animation frame unless the element really took `.show`, and on
+  `hide` as well as `hidden` (focus leaves during the fade, and the guard has to
+  be allowed to catch it). A flag that sticks would leave the panel unable to
+  take focus back at all.
+- **The dialogs need a layer of their own.** `#tour` sits at `--hmo-z-tour`
+  (1085) and Bootstrap's `.modal` / `.modal-backdrop` at 1055 / 1050, and all of
+  them are children of `<body>` — so without help the bind dialog and the FAQ
+  open **under** the panel: invisible, while the key recorder swallows every key
+  and the global hotkeys are suspended. `body.is-touring` (set in `open()`,
+  removed in `close()`) lifts them to `--hmo-z-tour-backdrop` (1086) and
+  `--hmo-z-tour-modal` (1088), still below `--hmo-z-toast`. Two details that
+  look like tidying and are not:
+  - the rule names `#addHotkeyModal` and `#faqModal` **one by one**, never
+    `.modal`. Reopening the tutorial from Settings otherwise raised the *fading*
+    Settings modal to 1088 — on top of the panel for the length of its 0.3 s
+    transition.
+  - `open()` **awaits** `closeSettingsModal()` (on `hidden.bs.modal`, with a
+    600 ms deadline so a transition that never finishes cannot block the
+    tutorial) before adding `is-touring`, so the two are never up together.
+    That is also what makes the generic backdrop rule safe.
+- **`returnFocus` has to be given back to something visible.**
+  `Onboarding.focusable()` checks `offsetParent`/`getClientRects()` as well as
+  `document.body.contains()`: whatever opened the tutorial from Settings is
+  *inside the modal the tutorial just closed*, and focusing a hidden element
+  puts focus on `<body>`, after which Tab restarts at the top of the page. The
+  fallback is `#settingsLink` in the nav — the menu item that leads back to
+  where the user was.
+- **The hotkeys step lists exactly the actions that ship with a key**
+  (`ONBOARDING_HOTKEY_ACTIONS`, in reading order), and a test derives that set
+  from `SYSTEM_HOTKEY_DEFS` rather than repeating it: the step must not teach a
+  combination the app ships without. `toggle-map` is first because it is the one
+  the step invites the user to press.
+- **The line under that table names the *real* map keys** —
+  `onboardingMapHotkeys(hotkeys.json)` hands back up to three of them (in file
+  order, de-duplicated with `sameAccelerator`, rows with no map skipped) and
+  `#tourHotkeyMaps` is rendered from JS with `acceleratorKbd`, like
+  `#tourTryIt`. "Each map has its own number" was only true of a fresh install.
+  With none bound the step swaps to `onboarding.hotkeys.maps.none`, which takes
+  no parameter, rather than printing an empty chip. The map keys arrive on the
+  `hotkey-updated` push, so the step redraws on it as well as on
+  `hotkey-conflicts`.
+- **The hotkeys step carries its own conflict warning** (`#tourHotkeyConflict`,
+  from `onboardingConflictList`, plus the `tryIt.taken` branch of
+  `onboardingTryIt`). The home-page banner is behind the backdrop, so without it
+  the first thing a new user is told to press does nothing and the explanation is
+  hidden under the panel giving the instruction. Same two catalogue strings as
+  the banner; the list comes from `Diagnostics.conflicts` and re-renders on the
+  `hotkey-conflicts` push.
+- **Step 6 recaps the choice** with the pure `placementRecap(placement)`, which
+  hands back a `labelKey` per placement — one literal key per branch, because
+  `test/i18n.test.js` finds a key held as data by the `…Key: '<dotted>'` shape.
+- **Ordering against the rest of the first minute**: it opens last, from the
+  `#loadingOverlay` slide-up callback, after the crash notice, the
+  hotkey-conflict banner, the update banner and `get-hotkey-notice` have been
+  collected, so none of them lands on top of it. `--hmo-z-tour` (1085) puts it
+  above the Bootstrap modals and deliberately **below** `--hmo-z-toast`, so the
+  write-failure warning stays readable.
+- **Every key it handles is caught on the `#tour` element, never on `document`**
+  — `src/js/hotkeys.js` owns a `document` keydown listener while it is recording
+  a combination, and the two must not swallow each other's keys. The handler
+  returns early on `hotkeys.recordingHotkey`, on `options.recordingMapKey` (the
+  map-key recorder is armed on a button *inside* the panel, and Tab is a
+  perfectly ordinary key to record) and on `dialogOpen`. Esc and Skip both mark
+  it done, and a backdrop click only pulls focus back in (losing the tutorial to
+  a stray click would be worse than one more click to skip it).
+- **A keydown listener on the panel is only reached while focus is inside it**,
+  so being modal takes three more things, and all three are needed. Without them
+  a click on a paragraph, a table or an alert moved focus to `<body>` (no
+  focusable ancestor), after which Esc was dead and Tab walked the page *behind*
+  the backdrop — Enter on an invisible map card changing the overlay.
+  1. `tabindex="-1"` on `#tour`, so such a click lands focus on the dialog.
+  2. `inert` on every other top-level region while it is open
+  (`backgroundInertTargets`; the exemptions are `#tour`, `#logStatus`,
+  `#addHotkeyModal`, `#hotkeyToast`, `#faqModal` and `.grain`, and
+  `setBackgroundInert(false)` — reached by every close path — undoes exactly the
+  elements it set). 3. A `document` `focusin`/`focusout` guard
+  (`shouldRecaptureFocus`) that puts focus back on the panel whenever it leaves;
+  `focusout` with a null `relatedTarget` is the case no keydown listener could
+  see. `focusin`, deliberately **not** a second `document` keydown listener, so
+  there is nothing for the hotkey recorder to collide with. For the same reason
+  the auto-recognise switch is **never `disabled` while it waits** (a busy flag
+  instead): disabling the focused element blurs it and took the trap down with
+  it. `setDisabled` moves focus away first when it does have to disable one.
+
+See also: [i18n.md](i18n.md) (the tutorial's language step),
 [markers-and-tab-mode.md](markers-and-tab-mode.md) (`Settings.onChange(keys)`,
-the markers switches) and [detection.md](detection.md) (the auto-detect switch
-the tour mirrors).
+the marker settings) and [detection.md](detection.md) (the auto-recognise switch
+the tutorial mirrors).

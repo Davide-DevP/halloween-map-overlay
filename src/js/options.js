@@ -1,18 +1,22 @@
 /**
- * Renderer, Settings modal: the General and Overlay tabs. A VIEW — it writes
+ * Renderer, Settings modal: the Map and General tabs. A VIEW — it writes
  * settings and asks main to act, and it never draws the overlay itself.
  * See docs/agents/settings-and-onboarding.md.
  */
 const {ipcRenderer} = require('electron');
 const {buildPreviewImage} = require('./overlay-preview');
 const {presetToGlide} = require('../core/overlay-position');
-const {mapLabelMode} = require('../shared/settings-defaults');
+const {mapLabelMode, newsCheckState, settingsForNewsCheck} = require('../shared/settings-defaults');
 const {keyEventToVk, vkLabel, resolveMapVk, DEFAULT_MAP_VK} = require('../shared/key-codes');
 const {manualCheckView} = require('../shared/update-message');
+const {
+    normalisePlacement, placementFromSettings, settingsForPlacement, placementSections,
+    autoDetectSwitchState, shouldStartDetection, markerMasterNotice
+} = require('../shared/map-placement');
 const i18n = require('./i18n');
 const {t, onChange} = i18n;
 const isWayland = require('../core/is-wayland');
-const {showStatus} = require('./status');
+const {showStatus, TOAST_READ_MS} = require('./status');
 const {setBusy} = require('./busy');
 
 /** An OS-supplied display name is a device name, never translated. */
@@ -29,40 +33,72 @@ function displayLabel(display) {
         : t('settings.monitor.label', params);
 }
 
+/**
+ * Open the FAQ, optionally at a `.faq-item` id. Settings is closed **first**:
+ * one focus trap at a time, the same rule the tutorial follows.
+ */
+function openFaq(anchorId) {
+    const faqEl = document.getElementById('faqModal');
+    if (!faqEl) return;
+    const show = () => {
+        if (anchorId) {
+            // On `shown`: a modal not yet laid out cannot scroll to anything.
+            faqEl.addEventListener('shown.bs.modal', () => {
+                const anchor = document.getElementById(anchorId);
+                if (anchor) anchor.scrollIntoView({block: 'start'});
+            }, {once: true});
+        }
+        bootstrap.Modal.getOrCreateInstance(faqEl).show();
+    };
+    const settingsEl = document.getElementById('settings');
+    if (settingsEl && settingsEl.classList.contains('show')) {
+        settingsEl.addEventListener('hidden.bs.modal', show, {once: true});
+        bootstrap.Modal.getOrCreateInstance(settingsEl).hide();
+        return;
+    }
+    show();
+}
+
+const MARKER_CHIPS = [
+    ['#markerCellarCheck', 'markerLayerCellar'],
+    ['#markerGateCheck', 'markerLayerGate'],
+    ['#markerCarCheck', 'markerLayerCar'],
+    ['#markerGasCheck', 'markerLayerGas'],
+    ['#markerLegendCheck', 'markerLegend']
+];
+
 class Options {
-    constructor(settings, maps) {
+    /** @param {?Object} detector `src/js/detector.js`, the one start/stop path */
+    constructor(settings, maps, detector) {
         this.settings = settings;
         this.maps = maps;
+        this.detector = detector || null;
         this.setting = false;
         this.previewActive = false;
         /** Last `{state, version}` from main, so the line can be re-translated. */
         this.updateCheckInfo = null;
-        /** Between a click on "Check for updates now" and its outcome. */
+        /** Between a click on "Check now" and its outcome. */
         this.manualUpdateCheck = false;
-        /** The "Game's map key" button is waiting for a keystroke. */
-        this.recordingMapKey = false;
+        /** A manual check is running, **both** halves of it. */
+        this.checkingNow = false;
+        /** Which map-key button is armed, or null. */
+        this.recordingMapKey = null;
+        this.mapKeyTargets = [];
+        /** Ticket per `applyPlacement`: a queued write whose ticket moved on drops out. */
+        this.placementSeq = 0;
+        /** Serialises the writes — see `applyPlacement`. */
+        this.placementChain = null;
         const classInstance = this;
 
-        // The sample map while the Overlay tab previews settings, the real map
-        // otherwise.
         const refreshOverlay = () => {
             if (classInstance.previewActive) {
                 classInstance.sendPreview();
             } else {
                 // 'settings', not 'click': app.log collapses repeats of one key
-                // from one source. `refresh` deliberately does not fall back to
-                // `lastKey`, so a hidden map stays hidden.
+                // from one source. No fallback to `lastKey`: a hidden map stays hidden.
                 maps.send({type: 'refresh', source: 'settings'});
             }
         };
-
-        if (settings.raw("draggable") === true) {
-            $("#positionLabel").prop("disabled", true);
-            $("#glideXRange, #glideYRange, #glideReset").prop("disabled", true);
-            $("#dragCheck").prop("checked", true);
-        } else {
-            $("#set-pos").hide();
-        }
 
         // The env vars survive the x11 relaunch (index.js).
         if (isWayland()) {
@@ -75,9 +111,6 @@ class Options {
         // `=== true` here, `!== false` below: the shipped default decides which.
         // Why: the doc § Settings reference.
         $("#hardwareAccelerationCheck").prop("checked", settings.raw("hardwareAcceleration") === true);
-        $("#checkForUpdatesCheck").prop("checked", settings.raw("checkForUpdates") !== false);
-        $("#checkForMapPacksCheck").prop("checked", settings.raw("checkForMapPacks") !== false);
-        $("#hideInMenuCheck").prop("checked", settings.raw("hideInMenu") !== false);
 
         // `.val()`/`.text()`: no OS string is interpolated into markup.
         const populateMonitors = async () => {
@@ -90,8 +123,7 @@ class Options {
         };
         populateMonitors();
 
-        // Its own handler, so main resolves "system" once and pushes the result
-        // to every window and the tray.
+        // Its own handler: main resolves "system" once and pushes it everywhere.
         $("#languageSelect").on("input", async function () {
             const resolved = await ipcRenderer.invoke('set-language', $(this).val());
             await settings.refresh();
@@ -104,91 +136,43 @@ class Options {
             await settings.set("hideOverlay", $(this).prop('checked'));
             refreshOverlay();
         });
-        $("#dragCheck").on("input", async function () {
-            const val = $(this).prop('checked');
-            await settings.set("draggable", val);
-            if (val) {
-                $("#positionLabel").prop("disabled", true);
-                $("#glideXRange, #glideYRange, #glideReset").prop("disabled", true);
-                $("#set-pos").show();
-            } else {
-                $("#positionLabel").prop("disabled", false);
-                $("#glideXRange, #glideYRange, #glideReset").prop("disabled", false);
-                $("#set-pos").hide();
-            }
-            refreshOverlay();
-        });
         $("#minimizeToTrayCheck").on("input", async function () {
             await settings.set("minimizeToTray", $(this).prop('checked'));
         });
         $("#disableFaqPopupCheck").on("input", async function () {
             await settings.set("disableFaqPopup", $(this).prop('checked'));
         });
-        $("#unloadWindowInTrayCheck").prop("checked", settings.raw("unloadWindowInTray") !== false);
-        $("#unloadWindowInTrayCheck").on("input", async function () {
-            await settings.set("unloadWindowInTray", $(this).prop('checked'));
-        });
         $("#hardwareAccelerationCheck").on("input", async function () {
             // Restart-only, so the toast says so out loud.
             await settings.set("hardwareAcceleration", $(this).prop('checked'));
             showStatus(t('settings.hardwareAcceleration.restart'));
         });
-        $("#checkForUpdatesCheck").on("input", async function () {
-            await settings.set("checkForUpdates", $(this).prop('checked'));
+
+        /* ── Where do you want to see the map? ───────────────────────────── */
+
+        $('#placementCards input[name="mapPlacement"]').on('change', async function () {
+            await classInstance.applyPlacement($(this).val());
         });
-        // Works with the switch above off — the click is the consent — and
-        // never touches it. Main decides with the pure `planManualUpdateCheck`.
-        $("#checkUpdatesNowBtn").on("click", async function () {
-            // Disabled on the spot, not on main's answer: it is a network call.
-            const $button = $(this);
-            $button.prop('disabled', true);
-            classInstance.manualUpdateCheck = true;
-            try {
-                classInstance.renderUpdateCheckState(
-                    await ipcRenderer.invoke('check-for-updates-now'), true);
-            } catch (err) {
-                // A rejected `invoke` would leave the button disabled forever:
-                // the push that re-enables it is never coming.
-                console.error('options::check-for-updates-now', err && err.message);
-                classInstance.renderUpdateCheckState({state: 'failed'}, false);
-                $button.prop('disabled', false);
-                showStatus(t('update.manual.failed'));
-            }
+        // One setting in three places — always through `Detector.setEnabled`.
+        $("#autoDetectCheck").on("change", async function () {
+            if (!classInstance.detector) return;
+            await classInstance.detector.setEnabled($(this).prop('checked'));
         });
-        // The startup check moves the same state, so the button is disabled
-        // while *that* one runs too.
-        ipcRenderer.on('update-check-state', (event, info) => {
-            classInstance.renderUpdateCheckState(info, true);
+        if (this.detector && typeof this.detector.onStatus === 'function') {
+            this.detector.onStatus(() => {
+                classInstance.syncPlacement();
+                classInstance.refreshTabMarkerMethod();
+            });
+        }
+        // Only a user click may start a capture (AGENTS.md rule 1).
+        $("#autoDetectStart").on('click', async function () {
+            if (!classInstance.detector) return;
+            await classInstance.detector.setEnabled(true);
         });
-        this.refreshUpdateCheckState();
-        // Rebuilt on a language change, without toasting again.
-        onChange(() => classInstance.renderUpdateCheckState(classInstance.updateCheckInfo, false));
-        $("#hideInMenuCheck").on("input", async function () {
-            await settings.set("hideInMenu", $(this).prop('checked'));
-        });
-        // The switch gates the request itself (main re-reads the setting on
-        // every check); the button asks main to look right now.
-        $("#checkForMapPacksCheck").on("input", async function () {
-            await settings.set("checkForMapPacks", $(this).prop('checked'));
-            classInstance.refreshMapPackStatus();
-        });
-        $("#checkMapPacksBtn").on("click", async function () {
-            const $button = $(this);
-            $button.prop('disabled', true);
-            try {
-                await ipcRenderer.invoke('check-map-packs');
-            } finally {
-                $button.prop('disabled', false);
-            }
-            classInstance.refreshMapPackStatus();
-        });
-        this.refreshMapPackStatus();
-        onChange(() => classInstance.refreshMapPackStatus());
-        // Main opens userData: the renderer never learns the path, it just asks.
-        $("#openLogFolder").on("click", async function () {
-            const result = await ipcRenderer.invoke('open-log-folder');
-            if (!result || !result.ok) showStatus(t('settings.openLogFolder.failed'));
-        });
+        this.syncPlacement();
+
+        /* ── The map in the corner ───────────────────────────────────────── */
+
         // `parseInt`, not the raw `.val()`: a range input hands back a string
         // and main writes a number. Why: the doc § Settings reference.
         $("#sizeRange").on("input", async function () {
@@ -197,8 +181,7 @@ class Options {
             refreshOverlay();
         }).val(settings.raw("size"));
 
-        // The corner preset doubles as a glide shortcut: picking a corner snaps
-        // both sliders to it, then they fine-tune from there.
+        // The corner preset doubles as a glide shortcut: it snaps both sliders.
         const snapGlideToPreset = async () => {
             const corner = presetToGlide(settings.raw("position"));
             $("#glideXRange").val(corner.x);
@@ -213,7 +196,6 @@ class Options {
             await snapGlideToPreset();
             refreshOverlay();
         }).val(settings.raw("position"));
-        // A number, same as `size` above.
         $("#opacityRange").on("input", async function () {
             classInstance.syncReadouts();
             await settings.set("opacity", parseFloat($(this).val()) || 0);
@@ -227,7 +209,6 @@ class Options {
             refreshOverlay();
         }).val(String(savedRotation));
 
-        // The preview carries a sample name, so "always" can be seen here.
         $("#mapLabelSelect").on("input", async function () {
             await settings.set("mapLabel", mapLabelMode($(this).val()));
             refreshOverlay();
@@ -236,117 +217,6 @@ class Options {
         $("#monitorSelect").on("input", async function () {
             await settings.set("monitor", parseInt($(this).val(), 10));
             refreshOverlay();
-        });
-
-        // These only write a setting and re-send the map: main rebuilds the
-        // marker payload in `map-change`, so nothing here draws.
-        const MARKER_SWITCHES = [
-            ['#markersCheck', 'markers'],
-            ['#markerCellarCheck', 'markerLayerCellar'],
-            ['#markerGateCheck', 'markerLayerGate'],
-            ['#markerCarCheck', 'markerLayerCar'],
-            ['#markerGasCheck', 'markerLayerGas'],
-            ['#markerLegendCheck', 'markerLegend']
-        ];
-        for (const [selector, key] of MARKER_SWITCHES) {
-            $(selector).prop('checked', settings.raw(key) !== false);
-            $(selector).on('input', async function () {
-                await settings.set(key, $(this).prop('checked'));
-                refreshOverlay();
-            });
-        }
-        $("#markerOpacityRange").on("input", async function () {
-            classInstance.syncReadouts();
-            await settings.set("markerOpacity", parseFloat($(this).val()));
-            refreshOverlay();
-        }).val(settings.raw("markerOpacity") !== null && settings.raw("markerOpacity") !== undefined
-            ? settings.raw("markerOpacity") : 0.9);
-
-        // Its own handler, because main has to *act* on it: start or stop a
-        // second window and a capture loop in the same breath.
-        $("#tabMarkersCheck").prop('checked', settings.raw("tabMarkers") === true);
-        $("#tabMarkersCheck").on("input", async function () {
-            await ipcRenderer.invoke('set-tab-markers', $(this).prop('checked'));
-            await settings.refresh();
-        });
-        this.syncTabMarkers(null);
-        ipcRenderer.on('map-detector-status', (event, status) => {
-            classInstance.syncTabMarkers(status);
-        });
-
-        // Recorded on the **button**, not on `document`, because
-        // `src/js/hotkeys.js` owns a document keydown listener while it records
-        // — and the handler stops the event dead, or Tab (the default!) would
-        // just move focus away.
-        $("#tabMarkerKeyBtn").on("click", function () {
-            classInstance.recordingMapKey = true;
-            $(this).text(t('settings.tabMarkers.mapKey.press')).addClass('active').focus();
-        });
-        $("#tabMarkerKeyBtn").on("blur", function () {
-            // A click elsewhere cancels rather than leaving it armed.
-            if (!classInstance.recordingMapKey) return;
-            classInstance.recordingMapKey = false;
-            classInstance.renderMapKey();
-        });
-        $("#tabMarkerKeyBtn").on("keydown", async function (event) {
-            if (!classInstance.recordingMapKey) return;
-            event.preventDefault();
-            event.stopPropagation();
-            const original = event.originalEvent || event;
-            if (original.key === 'Escape') {
-                classInstance.recordingMapKey = false;
-                classInstance.renderMapKey();
-                return;
-            }
-            const result = keyEventToVk(original);
-            if (result.status !== 'ok') {
-                // Stay armed: a modifier on the way to the key they meant.
-                if (result.status === 'modifier') return;
-                showStatus(result.status === 'with-modifier'
-                    ? t('settings.tabMarkers.mapKey.error.withModifier')
-                    : t('settings.tabMarkers.mapKey.error.unsupported'));
-                return;
-            }
-            classInstance.recordingMapKey = false;
-            // The label travels with the code — see the doc § Settings reference.
-            await ipcRenderer.invoke('set-tab-marker-key', result.vk, result.label);
-            await settings.refresh();
-            classInstance.renderMapKey();
-            classInstance.refreshTabMarkerMethod();
-        });
-        $("#tabMarkerKeyReset").on("click", async function () {
-            classInstance.recordingMapKey = false;
-            await ipcRenderer.invoke('set-tab-marker-key', DEFAULT_MAP_VK, 'Tab');
-            await settings.refresh();
-            classInstance.renderMapKey();
-            classInstance.refreshTabMarkerMethod();
-        });
-        this.renderMapKey();
-
-        // `TabMode` picks these two up through `settings.onChange`, so the
-        // generic setter is enough.
-        $("#tabHidesMinimapCheck").prop('checked', settings.raw("tabHidesMinimap") === true);
-        $("#tabHidesMinimapCheck").on("input", async function () {
-            await settings.set("tabHidesMinimap", $(this).prop('checked'));
-        });
-
-        $("#tabMarkersInstantCheck").prop('checked', settings.raw("tabMarkersInstant") !== false);
-        $("#tabMarkersInstantCheck").on("input", async function () {
-            await settings.set("tabMarkersInstant", $(this).prop('checked'));
-        });
-
-        // "Do not read the key state" — the escape hatch. Main switches method,
-        // so this needs its own handler too.
-        $("#markerTriggerPollingCheck").prop('checked', settings.raw("markerTrigger") === 'polling');
-        $("#markerTriggerPollingCheck").on("input", async function () {
-            await ipcRenderer.invoke('set-marker-trigger', $(this).prop('checked') ? 'polling' : 'auto');
-            await settings.refresh();
-            classInstance.refreshTabMarkerMethod();
-        });
-        this.refreshTabMarkerMethod();
-        onChange(() => {
-            classInstance.renderMapKey();
-            classInstance.refreshTabMarkerMethod();
         });
 
         // `raw`, not `get`: a saved 0 must mean 0, not "follow the preset".
@@ -364,18 +234,18 @@ class Options {
             refreshOverlay();
         }).val(savedGlideY !== null && savedGlideY !== undefined ? savedGlideY : initialCorner.y);
 
-        this.syncReadouts();
-        onChange(() => classInstance.syncReadouts());
-        $("#glideReset").on("click", async function () {
-            await snapGlideToPreset();
-            refreshOverlay();
-        });
-
-        $("#set-pos").on("click", function () {
+        // *Set position* turns `draggable` on and lets the overlay catch the
+        // mouse; `#glideReset` is the only way back to the corner preset.
+        this.applyDragState(settings.raw("draggable") === true);
+        $("#unset-pos").hide();
+        $("#set-pos").on("click", async function () {
+            await settings.set("draggable", true);
             ipcRenderer.send('set-mouse-drag', true);
+            classInstance.applyDragState(true);
             $("#unset-pos").show();
             $("#set-pos").hide();
             classInstance.setting = true;
+            refreshOverlay();
         });
         $("#unset-pos").on("click", function () {
             ipcRenderer.send('set-mouse-drag', false);
@@ -383,35 +253,330 @@ class Options {
             $("#set-pos").show();
             classInstance.setting = false;
         });
+        $("#glideReset").on("click", async function () {
+            // Also the escape hatch out of "moved by hand", so it ends the drag.
+            ipcRenderer.send('set-mouse-drag', false);
+            classInstance.setting = false;
+            $("#unset-pos").hide();
+            $("#set-pos").show();
+            await settings.set("draggable", false);
+            classInstance.applyDragState(false);
+            await snapGlideToPreset();
+            refreshOverlay();
+        });
+
+        /* ── What to show ────────────────────────────────────────────────── */
+
+        // Only a setting and a re-send: main rebuilds the marker payload.
+        for (const [selector, key] of MARKER_CHIPS) {
+            $(selector).prop('checked', settings.raw(key) !== false);
+            $(selector).on('change', async function () {
+                await settings.set(key, $(this).prop('checked'));
+                refreshOverlay();
+            });
+        }
+        // The master switch is Ctrl+Alt+M only — see `syncMarkerMaster`.
+        $("#markersShowBtn").on('click', async function () {
+            await settings.set('markers', true);
+            classInstance.syncMarkerMaster();
+            refreshOverlay();
+        });
+        this.syncMarkerMaster();
+
+        $("#markerOpacityRange").on("input", async function () {
+            classInstance.syncReadouts();
+            await settings.set("markerOpacity", parseFloat($(this).val()));
+            refreshOverlay();
+        }).val(settings.raw("markerOpacity") !== null && settings.raw("markerOpacity") !== undefined
+            ? settings.raw("markerOpacity") : 0.9);
+
+        /* ── The game's map key ──────────────────────────────────────────── */
+
+        this.attachMapKeyRecorder('#tabMarkerKeyBtn', '#tabMarkerKeyValue');
+        this.attachMapKeyReset('#tabMarkerKeyReset');
+        this.renderMapKey();
+
+        $("#tabMarkersInstantCheck").prop('checked', settings.raw("tabMarkersInstant") !== false);
+        $("#tabMarkersInstantCheck").on("input", async function () {
+            await settings.set("tabMarkersInstant", $(this).prop('checked'));
+        });
+
+        // Main switches method, so this needs its own handler.
+        $("#markerTriggerPollingCheck").prop('checked', settings.raw("markerTrigger") === 'polling');
+        $("#markerTriggerPollingCheck").on("input", async function () {
+            await ipcRenderer.invoke('set-marker-trigger', $(this).prop('checked') ? 'polling' : 'auto');
+            await settings.refresh();
+            classInstance.refreshTabMarkerMethod();
+        });
+        this.refreshTabMarkerMethod();
+        onChange(() => {
+            classInstance.renderMapKey();
+            classInstance.refreshTabMarkerMethod();
+            classInstance.syncPlacement();
+        });
+
+        /* ── Updates: one switch, one button, both checks ────────────────── */
+
+        // One switch, two keys: on while **either** request is still made.
+        $("#checkForUpdatesCheck").prop("checked", newsCheckState(settings.all()).checked);
+        $("#checkForUpdatesCheck").on("input", async function () {
+            const target = settingsForNewsCheck($(this).prop('checked'));
+            for (const [key, value] of Object.entries(target)) await settings.set(key, value);
+            classInstance.refreshMapPackStatus();
+        });
+        // Works with the switch above off — the click is the consent — and
+        // never touches it. Main decides with the pure `planManualUpdateCheck`.
+        $("#checkUpdatesNowBtn").on("click", async function () {
+            // `checkingNow` holds the button down for the **whole** flow: a
+            // second click during the pause starts a flow that answers `busy`.
+            if (classInstance.checkingNow) return;
+            classInstance.checkingNow = true;
+            $(this).prop('disabled', true);
+            classInstance.manualUpdateCheck = true;
+            try {
+                try {
+                    classInstance.renderUpdateCheckState(
+                        await ipcRenderer.invoke('check-for-updates-now'), true);
+                } catch (err) {
+                    // A rejected `invoke` would leave the button disabled
+                    // forever: the push that re-enables it is never coming.
+                    console.error('options::check-for-updates-now', err && err.message);
+                    classInstance.renderUpdateCheckState({state: 'failed'}, false);
+                    showStatus(t('update.manual.failed'));
+                }
+                // Then the maps, after a readable pause: the toast replaces
+                // rather than queues, so only the second outcome would show.
+                await new Promise(resolve => setTimeout(resolve, TOAST_READ_MS));
+                try {
+                    await ipcRenderer.invoke('check-map-packs');
+                } catch (err) {
+                    console.error('options::check-map-packs', err && err.message);
+                }
+                classInstance.refreshMapPackStatus();
+            } finally {
+                // The real state, not this flag, decides if the button comes back.
+                classInstance.checkingNow = false;
+                classInstance.refreshUpdateCheckState();
+            }
+        });
+        // The startup check moves the same state, so it disables the button too.
+        ipcRenderer.on('update-check-state', (event, info) => {
+            classInstance.renderUpdateCheckState(info, true);
+        });
+        this.refreshUpdateCheckState();
+        // Rebuilt on a language change, without toasting again.
+        onChange(() => classInstance.renderUpdateCheckState(classInstance.updateCheckInfo, false));
+        this.refreshMapPackStatus();
+        onChange(() => classInstance.refreshMapPackStatus());
+
+        /* ── Help ────────────────────────────────────────────────────────── */
+
+        // Main opens userData: the renderer never learns the path, it just asks.
+        $("#openLogFolder").on("click", async function () {
+            const result = await ipcRenderer.invoke('open-log-folder');
+            if (!result || !result.ok) showStatus(t('settings.openLogFolder.failed'));
+        });
+        $("#openFaqBtn").on('click', () => openFaq(null));
+        // Delegated: the tutorial has a copy of this link, built before it shows.
+        $(document).on('click', '.faq-link', function () {
+            openFaq($(this).attr('data-faq') || null);
+        });
 
         if (settings.raw("disableFaqPopup") !== true) {
             $("#warning").removeClass("d-none").addClass("show").slideDown();
         }
 
-        // The sample map is up only while the Overlay tab is the active tab of
-        // an open modal. Native listeners, not jQuery's: `.on()` would treat
-        // ".bs.tab" as an event namespace and never fire.
-        const overlayTab = document.getElementById('overlay-tab');
+        this.syncReadouts();
+        onChange(() => classInstance.syncReadouts());
+
+        // Native listeners, not jQuery's: `.on()` would treat ".bs.tab" as an
+        // event namespace and never fire.
+        const mapTab = document.getElementById('map-tab');
         const settingsModal = document.getElementById('settings');
-        overlayTab.addEventListener('shown.bs.tab', () => classInstance.startPreview());
-        overlayTab.addEventListener('hidden.bs.tab', () => classInstance.stopPreview());
+        mapTab.addEventListener('shown.bs.tab', () => classInstance.startPreview());
+        mapTab.addEventListener('hidden.bs.tab', () => classInstance.stopPreview());
         settingsModal.addEventListener('shown.bs.modal', () => {
             // Bootstrap keeps the last active tab across modal open/close.
-            if (overlayTab.classList.contains('active')) classInstance.startPreview();
+            if (mapTab.classList.contains('active')) classInstance.startPreview();
             // State main must not tear down — `shared/window-unload.js`.
             setBusy('settings', true);
         });
         settingsModal.addEventListener('hide.bs.modal', () => classInstance.stopPreview());
         settingsModal.addEventListener('hidden.bs.modal', () => setBusy('settings', false));
-        // Minimize-to-tray leaves the modal "open" in a hidden window, but the
-        // sample map must leave the overlay.
+        // Minimize-to-tray leaves the modal open; the sample must leave the overlay.
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 classInstance.stopPreview();
-            } else if (settingsModal.classList.contains('show') && overlayTab.classList.contains('active')) {
+            } else if (settingsModal.classList.contains('show') && mapTab.classList.contains('active')) {
                 classInstance.startPreview();
             }
         });
+    }
+
+    /* ── Where the map goes ─────────────────────────────────────────────── */
+
+    detectorRunning() {
+        const status = this.detector && this.detector.lastStatus;
+        return !!(status && status.running);
+    }
+
+    /** The single source of truth, re-read rather than cached. */
+    placement() {
+        return placementFromSettings(this.settings.all());
+    }
+
+    /**
+     * Apply one of the three cards — **only ever from a user action**: two of
+     * them switch a screen capture on (AGENTS.md rule 1). Detection first
+     * (`core/tab-mode.js` refuses to start without it) and nothing is written
+     * until the loop really runs, so a refusal leaves the stored choice alone.
+     * @param {*} placement 'corner' | 'tab' | 'both'
+     */
+    async applyPlacement(placement) {
+        const next = normalisePlacement(placement);
+        const seq = ++this.placementSeq;
+        const run = () => this.writePlacement(next, seq);
+        // Serialised, so two cards cannot interleave their two writes; a queued
+        // one that has been superseded drops out at the top of `writePlacement`.
+        this.placementChain = this.placementChain
+            ? this.placementChain.then(run, run)
+            : run();
+        return this.placementChain;
+    }
+
+    /** One card's two writes. @param {number} seq the ticket from `applyPlacement` */
+    async writePlacement(next, seq) {
+        if (seq !== this.placementSeq) return;
+        if (shouldStartDetection(next, this.detectorRunning()) && this.detector) {
+            await this.detector.setEnabled(true);
+            if (seq !== this.placementSeq) return;
+            if (shouldStartDetection(next, this.detectorRunning())) {
+                showStatus(t('settings.where.needsDetect'));
+                this.syncPlacement();
+                return;
+            }
+        }
+        // **The last chance to drop out**: past this line the pair is written
+        // to the end — half of it stored is half a choice the user did not pick.
+        if (seq !== this.placementSeq) return;
+        const target = settingsForPlacement(next);
+        // `TabMode` picks this up through `settings.onChange`, so the generic
+        // setter is enough — but it has to land *before* the mode starts.
+        await this.settings.set('tabHidesMinimap', target.tabHidesMinimap);
+        // Its own handler, because main has to *act*: the window and the loop.
+        await ipcRenderer.invoke('set-tab-markers', target.tabMarkers);
+        await this.settings.refresh();
+        this.syncPlacement();
+        this.refreshTabMarkerMethod();
+    }
+
+    /** Everything the choice shows, hides and locks — the home page's switch too. */
+    syncPlacement() {
+        if (!$('#placementCards').length) return;
+        const placement = this.placement();
+        // From the stored pair, never from the click: the tutorial writes it too.
+        $('#placementCards input[name="mapPlacement"]').each(function () {
+            $(this).prop('checked', $(this).val() === placement);
+        });
+        const sections = placementSections(placement);
+        $('#cornerBlock').toggleClass('d-none', !sections.corner);
+        $('#gameMapKeyBlock').toggleClass('d-none', !sections.gameMap);
+        $('#gameMapTroubleFold').toggleClass('d-none', !sections.troubleshooting);
+        const auto = autoDetectSwitchState(placement, this.detectorRunning());
+        $('#autoDetectCheck').prop('checked', auto.checked).prop('disabled', auto.disabled);
+        $('#autoDetectHelp').text(t(auto.reasonKey));
+        $('#autoDetectStart').toggleClass('d-none', !auto.blocked);
+        if (this.detector && typeof this.detector.setPlacementLock === 'function') {
+            this.detector.setPlacementLock(auto.disabled);
+        }
+    }
+
+    /** The corner controls that a hand-placed overlay makes meaningless. */
+    applyDragState(on) {
+        $("#positionLabel").prop("disabled", on);
+        $("#glideXRange, #glideYRange").prop("disabled", on);
+        $("#monitorSelect").prop("disabled", on);
+        $("#movedByHandNote").toggleClass('d-none', !on);
+    }
+
+    /** "Every chip on, nothing on screen" is the one state to explain. */
+    syncMarkerMaster() {
+        const notice = markerMasterNotice(this.settings.raw('markers'));
+        $('#markersHiddenNotice').toggleClass('d-none', !notice.hidden);
+    }
+
+    /* ── The game's map key ─────────────────────────────────────────────── */
+
+    /**
+     * Arm one button as the map-key recorder — **one** recorder however many
+     * buttons there are, or one code would have two write paths. Keyed on the
+     * **button**, not `document` (`src/js/hotkeys.js` owns one while recording),
+     * and it stops the event dead, or Tab would just move focus.
+     */
+    attachMapKeyRecorder(buttonId, valueId) {
+        const self = this;
+        if (!$(buttonId).length) return;
+        this.mapKeyTargets.push({buttonId, valueId});
+        $(buttonId).on("click", function () {
+            self.recordingMapKey = buttonId;
+            $(this).text(t('settings.tabMarkers.mapKey.press')).addClass('active').focus();
+        });
+        $(buttonId).on("blur", function () {
+            // A click elsewhere cancels rather than leaving it armed.
+            if (self.recordingMapKey !== buttonId) return;
+            self.recordingMapKey = null;
+            self.renderMapKey();
+        });
+        $(buttonId).on("keydown", async function (event) {
+            if (self.recordingMapKey !== buttonId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const original = event.originalEvent || event;
+            if (original.key === 'Escape') {
+                self.recordingMapKey = null;
+                self.renderMapKey();
+                return;
+            }
+            const result = keyEventToVk(original);
+            if (result.status !== 'ok') {
+                // Stay armed: a modifier on the way to the key they meant.
+                if (result.status === 'modifier') return;
+                showStatus(result.status === 'with-modifier'
+                    ? t('settings.tabMarkers.mapKey.error.withModifier')
+                    : t('settings.tabMarkers.mapKey.error.unsupported'));
+                return;
+            }
+            self.recordingMapKey = null;
+            // The label travels with the code — see the doc § Settings reference.
+            await ipcRenderer.invoke('set-tab-marker-key', result.vk, result.label);
+            await self.settings.refresh();
+            self.renderMapKey();
+            self.refreshTabMarkerMethod();
+        });
+    }
+
+    attachMapKeyReset(buttonId) {
+        const self = this;
+        if (!$(buttonId).length) return;
+        $(buttonId).on("click", async function () {
+            self.recordingMapKey = null;
+            await ipcRenderer.invoke('set-tab-marker-key', DEFAULT_MAP_VK, 'Tab');
+            await self.settings.refresh();
+            self.renderMapKey();
+            self.refreshTabMarkerMethod();
+        });
+    }
+
+    /** Never translated: the label names a physical key. */
+    renderMapKey() {
+        const vk = resolveMapVk(this.settings.raw('tabMarkerKey'));
+        // `vkLabel` is the fallback, right only on a US keyboard.
+        const stored = this.settings.raw('tabMarkerKeyLabel');
+        const label = (typeof stored === 'string' && stored.trim()) ? stored.trim() : vkLabel(vk);
+        for (const {buttonId, valueId} of this.mapKeyTargets) {
+            $(valueId).text(label);
+            $(buttonId).text(t('settings.tabMarkers.mapKey.change')).removeClass('active');
+        }
     }
 
     /** Display only — never touches `Settings`, so anything may call it. */
@@ -425,43 +590,12 @@ class Options {
         $("#markerOpacityValue").text(percent(Number($("#markerOpacityRange").val()) * 100));
     }
 
-    /**
-     * Tab-map mode needs auto-detect, so the switch is **disabled with the
-     * reason on screen** rather than enabled and inert.
-     * @param {?{running: boolean}} status from `map-detector-status`, or null to
-     *   ask for it
-     */
-    async syncTabMarkers(status) {
-        const $check = $("#tabMarkersCheck");
-        if (!$check.length) return;
-        const info = status || await ipcRenderer.invoke('map-detector-status');
-        const running = !!(info && info.running);
-        $check.prop('disabled', !running);
-        $("#tabMarkersNeedsDetect").toggleClass('d-none', running);
-        this.refreshTabMarkerMethod();
-    }
-
-    /** Never translated: the label names a physical key. */
-    renderMapKey() {
-        const $value = $("#tabMarkerKeyValue");
-        if (!$value.length) return;
-        const vk = resolveMapVk(this.settings.raw('tabMarkerKey'));
-        // `vkLabel` is the fallback, right only on a US keyboard.
-        const stored = this.settings.raw('tabMarkerKeyLabel');
-        $value.text((typeof stored === 'string' && stored.trim()) ? stored.trim() : vkLabel(vk));
-        $("#tabMarkerKeyBtn").text(t('settings.tabMarkers.mapKey.change')).removeClass('active');
-    }
-
     mapKeyLabel(info) {
         if (info && typeof info.mapKeyLabel === 'string' && info.mapKeyLabel) return info.mapKeyLabel;
         return vkLabel(info ? info.mapVk : null);
     }
 
-    /**
-     * Which of the two methods Tab-map mode is using, and why: they behave
-     * slightly differently, so "it works differently on my PC" would otherwise
-     * be unanswerable.
-     */
+    /** Which of the two methods the game's-map mode is using, and why. */
     async refreshTabMarkerMethod() {
         const $line = $("#tabMarkerMethod");
         if (!$line.length) return;
@@ -471,8 +605,7 @@ class Options {
         let text = '';
         if (!info.setting) text = '';
         else if (info.method === 'key') text = t('settings.tabMarkers.method.key', {key: this.mapKeyLabel(info)});
-        // Ready but the game is not running: "not available on this PC" would
-        // be both false and alarming.
+        // Ready but the game is not running: "unavailable" would be alarming.
         else if (info.method === 'key-waiting') text = t('settings.tabMarkers.method.waiting', {key: this.mapKeyLabel(info)});
         else if (info.methodReason === 'forced') text = t('settings.tabMarkers.method.polling');
         else text = t('settings.tabMarkers.method.unavailable');
@@ -496,19 +629,15 @@ class Options {
         $line.text(t('settings.mapPacks.installed', {count}));
     }
 
-    /**
-     * Fetched as well as pushed: this window can open while the startup check
-     * is still running, or long after it finished.
-     */
+    /** Fetched as well as pushed: this window can open mid-check or long after. */
     async refreshUpdateCheckState() {
         this.renderUpdateCheckState(await ipcRenderer.invoke('get-update-check-state'), false);
     }
 
     /**
-     * The button and the line under it. Every decision is the pure
-     * `manualCheckView()`; `.text()`, never markup, because the version in it
-     * comes off the release feed.
-     * @param {?{state: string, version: ?string}} info from main
+     * The button and the line under it, every decision from the pure
+     * `manualCheckView()`. `.text()`, never markup: the version in it comes off
+     * the release feed.
      * @param {boolean} toast true for a real state change, false for a language
      *   re-render; and only a check the user asked for is toasted at all.
      */
@@ -519,7 +648,8 @@ class Options {
         const version = (info && info.version) || '';
         this.updateCheckInfo = {state, version};
         const view = manualCheckView(state, version);
-        $button.prop('disabled', view.disabled);
+        // `checkingNow` outlives the update half — see the click handler.
+        $button.prop('disabled', view.disabled || this.checkingNow === true);
         const text = view.message ? i18n.translateMessage(view.message) : '';
         $("#updateCheckStatus").text(text);
         if (toast && this.manualUpdateCheck && text) showStatus(text);
@@ -529,8 +659,7 @@ class Options {
 
     /**
      * Re-read the controls main can change behind this window's back: the
-     * opacity, size, rotation and markers hotkeys write in **main**, so an open
-     * Settings modal *follows* rather than leads.
+     * opacity, size, rotation and markers hotkeys write in **main**.
      */
     syncFromSettings() {
         const settings = this.settings;
@@ -539,7 +668,8 @@ class Options {
         if ($("#rotationSelect").length) {
             $("#rotationSelect").val(String(parseInt(settings.raw("rotation"), 10) || 0));
         }
-        if ($("#markersCheck").length) $("#markersCheck").prop('checked', settings.raw("markers") !== false);
+        // The Show / hide points hotkey is the only way the master switch moves.
+        this.syncMarkerMaster();
         this.syncReadouts();
     }
 
@@ -562,9 +692,8 @@ class Options {
     stopPreview() {
         if (!this.previewActive) return;
         this.previewActive = false;
-        // Main re-applies its own `currentKey`, and deliberately **without**
-        // `{preview: true}`: that flag forces the raw-base64 path, and a
-        // catalogue key decoded as base64 is not an image.
+        // Main re-applies its own `currentKey`, deliberately **without**
+        // `{preview: true}`: that flag forces the raw-base64 path.
         this.maps.send({type: 'preview-stop'});
     }
 }

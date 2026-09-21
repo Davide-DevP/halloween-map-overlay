@@ -27,7 +27,9 @@ together but are independently useful:
    renderer becomes a **view**: it asks main for the state on load, renders it,
    sends intents, and receives pushes.
 2. **The main window becomes destroyable while it is hidden in the tray**
-   (`unloadWindowInTray`, default **true**), because nothing depends on it any
+   (`unloadWindowInTray`, default **true**; the setting was **removed in 1.0** and
+   the unload is always on — docs/agents/settings-and-onboarding.md § Two
+   settings the app decides), because nothing depends on it any
    more.
 
 A side effect that is worth as much as the memory: the overlay's independence
@@ -203,6 +205,11 @@ their own renderers.
 "Use the graphics card to draw the app". With it off the window behaves exactly
 as it did in 0.6.
 
+> **Removed in 1.0.** There is no setting and no switch: the unload is always
+> on, a leftover `false` is ignored rather than migrated, and
+> `shouldUnloadMainWindow` has no `setting` input. Why:
+> docs/agents/settings-and-onboarding.md § Two settings the app decides.
+
 ### 5.2 The decision — `shouldUnloadMainWindow()` in `src/shared/window-unload.js`
 
 Pure, and it answers `{unload: boolean, reason: string}` so the reason can be
@@ -210,7 +217,7 @@ logged. It refuses ("not now") when:
 
 | reason | condition |
 |---|---|
-| `setting-off` | `unloadWindowInTray` is not `true` |
+| `setting-off` | `unloadWindowInTray` is not `true` — **gone in 1.0** |
 | `no-window` | there is no window to unload |
 | `visible` | the window is on screen |
 | `minimized` | minimised to the taskbar rather than hidden to the tray |
@@ -282,7 +289,7 @@ main-window state=loaded reason=tray-click
 ```
 
 `system.txt`'s `[health]` section gains `main window = loaded|unloaded` and
-`unloadWindowInTray = on|off`.
+`unloadWindowInTray = on|off` (that line is **gone in 1.0**; the state lines stay).
 
 ## 6. Toasts while the window is gone
 
@@ -310,7 +317,7 @@ rest on `setTimeout`.
 | state | verdict |
 |---|---|
 | "Later" on the update banner | **moved to main** (`update-banner-dismissed`, returned by `get-pending-update`). It came back on every reopen otherwise. |
-| an open modal with unsaved input (a file picked in *Add custom image*) | **prevented**: any open modal is a busy reason (`setBusy('modal')` from `shown.bs.modal`/`hidden.bs.modal`), not just the write that follows it. |
+| an open modal with unsaved input (a file picked in *Add your own map*) | **prevented**: any open modal is a busy reason (`setBusy('modal')` from `shown.bs.modal`/`hidden.bs.modal`), not just the write that follows it. |
 | the creator filter in the gallery | **accepted.** It resets to "all creators" when the window comes back. It is one dropdown, it is visible, and persisting it would mean a setting nobody asked for. |
 | the scroll position, a half-typed custom map name with no file picked | **accepted**, same reasoning. |
 

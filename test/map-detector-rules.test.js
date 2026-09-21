@@ -6,6 +6,7 @@ const {
     tickInterval, throttleAllows, shouldApplyDetected, shouldWatchMenu,
     MenuStreak, SendThrottle, classifyWindow, pickGameWindow
 } = require('../src/shared/detector-rules');
+const {DEFAULT_SETTINGS} = require('../src/shared/settings-defaults');
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Cadence
@@ -133,23 +134,25 @@ test('shouldApplyDetected: no key is never applied', () => {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 test('shouldWatchMenu: a map on the overlay is watched, an empty one is not', () => {
-    assert.strictEqual(shouldWatchMenu('a/One', true), true);
-    assert.strictEqual(shouldWatchMenu('', true), false);
-    assert.strictEqual(shouldWatchMenu(null, true), false);
-    assert.strictEqual(shouldWatchMenu(undefined, true), false);
+    assert.strictEqual(shouldWatchMenu('a/One'), true);
+    assert.strictEqual(shouldWatchMenu(''), false);
+    assert.strictEqual(shouldWatchMenu(null), false);
+    assert.strictEqual(shouldWatchMenu(undefined), false);
 });
 
 test('shouldWatchMenu: a hand-picked map is watched exactly like a detected one', () => {
     // The whole fix: nothing here knows or cares who set the map. Main gets
     // this key from the renderer, which is the only process that knows.
-    assert.strictEqual(shouldWatchMenu('Custom/My Map', undefined), true);
+    assert.strictEqual(shouldWatchMenu('Custom/My Map'), true);
 });
 
-test('shouldWatchMenu: only an explicit false turns the feature off', () => {
-    assert.strictEqual(shouldWatchMenu('a/One', false), false);
-    // A settings file written before `hideInMenu` existed keeps the default.
-    assert.strictEqual(shouldWatchMenu('a/One', undefined), true);
-    assert.strictEqual(shouldWatchMenu('a/One', null), true);
+test('shouldWatchMenu: there is no setting any more — it is always on', () => {
+    // `hideInMenu` was an option until 1.0. A stale map on the overlay between
+    // matches is a bug, not a preference, so a leftover `false` is ignored.
+    assert.ok(!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, 'hideInMenu'));
+    for (const value of [false, true, undefined, null, 0]) {
+        assert.strictEqual(shouldWatchMenu('a/One', value), true, String(value));
+    }
 });
 
 /* ────────────────────────────────────────────────────────────────────────────

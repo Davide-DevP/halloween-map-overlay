@@ -9,6 +9,7 @@ const {
     findSystemConflict,
     findMapConflict,
     canResetToDefault,
+    systemHotkeyRows,
     shadowedMapBindings,
     duplicateMapBindings,
     ownAcceleratorKeys,
@@ -22,7 +23,7 @@ const {
     MODIFIER_ORDER
 } = require('../src/shared/hotkeys-rules');
 const {
-    SYSTEM_HOTKEY_DEFS, UNBOUND_ACCELERATOR, ACCELERATOR_MODIFIERS, keyEventToAccelerator
+    SYSTEM_HOTKEY_DEFS, UNBOUND_ACCELERATOR, ACCELERATOR_MODIFIERS, keyEventToAccelerator, isUnbound
 } = require('../src/shared/hotkeys-constants');
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -243,6 +244,13 @@ test('every shipped default is already in canonical form', () => {
     // migration compares a stored value against them, so a default that was
     // not canonical would be one more spelling to think about.
     for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        // Five actions ship with no key; `''` has no canonical form, and
+        // `acceleratorKey` is what turns it into "matches nothing".
+        if (isUnbound(def.defaultAccelerator)) {
+            assert.strictEqual(normalizeAccelerator(def.defaultAccelerator), null, actionId);
+            assert.strictEqual(acceleratorKey(def.defaultAccelerator), '', actionId);
+            continue;
+        }
         assert.strictEqual(normalizeAccelerator(def.defaultAccelerator), def.defaultAccelerator, actionId);
     }
 });
@@ -291,30 +299,153 @@ test('findMapConflict: returns the key as the file spells it', () => {
 });
 
 test('canResetToDefault: free, taken by another action, taken by a map', () => {
-    const def = SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator;
+    // A default that *is* a combination — `toggle-map`, one of the five that
+    // still ship bound.
+    const def = SYSTEM_HOTKEY_DEFS['toggle-map'].defaultAccelerator;
+    assert.strictEqual(def, 'CommandOrControl+Alt+H');
 
     assert.deepStrictEqual(canResetToDefault({
-        effective: {'rotate-map': 'Alt+K'}, mapHotkeys: {}, actionId: 'rotate-map', defaultAccelerator: def
+        effective: {'toggle-map': 'Alt+K'}, mapHotkeys: {}, actionId: 'toggle-map', defaultAccelerator: def
     }), {ok: true});
 
-    // Unbind rotate, give its default to another action, press Reset.
+    // Unbind show/hide, give its default to another action, press Reset.
     assert.deepStrictEqual(canResetToDefault({
-        effective: {'rotate-map': '', 'clear-map': 'ctrl+alt+r'},
-        mapHotkeys: {}, actionId: 'rotate-map', defaultAccelerator: def
+        effective: {'toggle-map': '', 'clear-map': 'ctrl+alt+h'},
+        mapHotkeys: {}, actionId: 'toggle-map', defaultAccelerator: def
     }), {ok: false, kind: 'system', actionId: 'clear-map'});
 
     // …or to a map, in a spelling string equality would have missed.
     assert.deepStrictEqual(canResetToDefault({
-        effective: {'rotate-map': ''},
-        mapHotkeys: {'Alt+Ctrl+R': {id: 'a', mapKey: 'x/y'}},
-        actionId: 'rotate-map', defaultAccelerator: def
-    }), {ok: false, kind: 'map', accelerator: 'Alt+Ctrl+R'});
+        effective: {'toggle-map': ''},
+        mapHotkeys: {'Alt+Ctrl+H': {id: 'a', mapKey: 'x/y'}},
+        actionId: 'toggle-map', defaultAccelerator: def
+    }), {ok: false, kind: 'map', accelerator: 'Alt+Ctrl+H'});
 
     // Resetting an action that is *already* on its default is not a conflict
     // with itself.
     assert.deepStrictEqual(canResetToDefault({
-        effective: {'rotate-map': def}, mapHotkeys: {}, actionId: 'rotate-map', defaultAccelerator: def
+        effective: {'toggle-map': def}, mapHotkeys: {}, actionId: 'toggle-map', defaultAccelerator: def
     }), {ok: true});
+});
+
+test('canResetToDefault: an action whose default is no key can always reset', () => {
+    // Five actions ship unbound, so Reset means "back to no key". It must not
+    // throw, must not claim a combination, and can never be refused: nothing
+    // conflicts with nothing, so there is nothing to check against.
+    const def = SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator;
+    assert.strictEqual(def, UNBOUND_ACCELERATOR);
+    const cases = [
+        // rebound, and the whole world sitting on other combinations
+        {effective: {'rotate-map': 'Alt+K', 'toggle-map': 'CommandOrControl+Alt+H'},
+            mapHotkeys: {'CommandOrControl+Alt+1': {id: 'a', mapKey: 'x/y'}}},
+        // already unbound: resetting is a no-op, not a self-conflict
+        {effective: {'rotate-map': ''}, mapHotkeys: {}},
+        // …and with every other action unbound too, which `''` in a "taken"
+        // set would have turned into a conflict with each of them.
+        {effective: {'rotate-map': '', 'opacity-up': '', 'size-up': ''}, mapHotkeys: {}}
+    ];
+    for (const {effective, mapHotkeys} of cases) {
+        assert.deepStrictEqual(canResetToDefault({
+            effective, mapHotkeys, actionId: 'rotate-map', defaultAccelerator: def
+        }), {ok: true}, JSON.stringify(effective));
+    }
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The System table and its "More keys" fold
+ *
+ * One rule, and it is the whole point: a row is folded away only when the
+ * action ships with **no** key *and* still has none. Anything the user holds —
+ * a rebind, or a binding the one-time migration pinned back — stays where they
+ * can see it.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+test('systemHotkeyRows: a fresh install folds exactly the five keyless actions', () => {
+    const {main, more} = systemHotkeyRows({});
+    assert.deepStrictEqual(main.map(r => r.actionId),
+        ['toggle-map', 'next-map', 'prev-map', 'clear-map', 'toggle-markers']);
+    assert.deepStrictEqual(more.map(r => r.actionId),
+        ['rotate-map', 'opacity-up', 'opacity-down', 'size-up', 'size-down']);
+    // Every action appears exactly once, in definition order within its group:
+    // a row lost between the two tables is a hotkey the user cannot reach.
+    assert.strictEqual(main.length + more.length, Object.keys(SYSTEM_HOTKEY_DEFS).length);
+    for (const row of main) assert.strictEqual(row.bound, true, row.actionId);
+    for (const row of more) {
+        assert.strictEqual(row.bound, false, row.actionId);
+        // Nothing claimed, and nothing to reset *to*.
+        assert.strictEqual(row.accelerator, '');
+        assert.strictEqual(row.isDefault, true);
+    }
+});
+
+test('systemHotkeyRows: a key the user holds is never hidden in the fold', () => {
+    // The upgraded install: the migration pinned rotate back onto Ctrl+Alt+R,
+    // and a user who bound size-up by hand. Both belong in the main table.
+    const {main, more} = systemHotkeyRows({
+        'rotate-map': 'CommandOrControl+Alt+R',
+        'size-up': 'Alt+F9'
+    });
+    assert.deepStrictEqual(main.map(r => r.actionId),
+        ['toggle-map', 'rotate-map', 'next-map', 'prev-map', 'clear-map', 'size-up', 'toggle-markers']);
+    assert.deepStrictEqual(more.map(r => r.actionId), ['opacity-up', 'opacity-down', 'size-down']);
+    const rotate = main.find(r => r.actionId === 'rotate-map');
+    assert.strictEqual(rotate.accelerator, 'CommandOrControl+Alt+R');
+    assert.strictEqual(rotate.bound, true);
+    // Its *default* is still no key, so it is not on its default and Reset —
+    // which for this action means "unbind" — stays available.
+    assert.strictEqual(rotate.isDefault, false);
+    assert.strictEqual(main.find(r => r.actionId === 'size-up').isDefault, false);
+});
+
+test('systemHotkeyRows: unbinding one of the five puts it back in the fold', () => {
+    // And unbinding one of the other five does **not**: it has a default, so
+    // its row has something to offer and belongs where it can be seen.
+    const {main, more} = systemHotkeyRows({'rotate-map': 'Alt+F9', 'toggle-map': ''});
+    assert.ok(main.some(r => r.actionId === 'rotate-map'));
+    const toggle = main.find(r => r.actionId === 'toggle-map');
+    assert.strictEqual(toggle.bound, false);
+    assert.strictEqual(toggle.isDefault, false, 'unbound is not the default here');
+    assert.ok(!more.some(r => r.actionId === 'toggle-map'));
+
+    const after = systemHotkeyRows({'rotate-map': ''});
+    assert.ok(after.more.some(r => r.actionId === 'rotate-map'));
+});
+
+test('systemHotkeyRows: isDefault is normalised and never claims a phantom key', () => {
+    // A hand-edited spelling is the default…
+    const lower = systemHotkeyRows({'toggle-map': 'ctrl+alt+h'}).main
+        .find(r => r.actionId === 'toggle-map');
+    assert.strictEqual(lower.isDefault, true);
+    // …and for a keyless action `sameAccelerator` would say false for every
+    // state, including the one that *is* the default. That is the bug this
+    // branch exists for: Reset would stay enabled offering nothing.
+    assert.ok(!sameAccelerator('', ''));
+    const rotate = systemHotkeyRows({}).more.find(r => r.actionId === 'rotate-map');
+    assert.strictEqual(rotate.isDefault, true);
+});
+
+test('systemHotkeyRows: a junk store still renders every row', () => {
+    for (const store of [undefined, null, 'nope', 7, {'rotate-map': null}]) {
+        const {main, more} = systemHotkeyRows(store);
+        assert.strictEqual(main.length + more.length,
+            Object.keys(SYSTEM_HOTKEY_DEFS).length, JSON.stringify(store));
+        // A non-string is an absence, not an unbind, so the five defaults fold.
+        assert.strictEqual(more.length, 5, JSON.stringify(store));
+    }
+    // A definition table with a hole in it is skipped, not rendered blank.
+    const {main, more} = systemHotkeyRows({}, {'toggle-map': SYSTEM_HOTKEY_DEFS['toggle-map'], bad: null});
+    assert.deepStrictEqual(main.map(r => r.actionId), ['toggle-map']);
+    assert.deepStrictEqual(more, []);
+});
+
+test('systemHotkeyRows: every row carries what the table needs to draw it', () => {
+    for (const row of [...systemHotkeyRows({}).main, ...systemHotkeyRows({}).more]) {
+        const def = SYSTEM_HOTKEY_DEFS[row.actionId];
+        assert.strictEqual(row.descriptionKey, def.descriptionKey, row.actionId);
+        assert.strictEqual(row.description, def.description, row.actionId);
+        assert.deepStrictEqual(Object.keys(row).sort(),
+            ['accelerator', 'actionId', 'bound', 'description', 'descriptionKey', 'isDefault']);
+    }
 });
 
 test('shadowedMapBindings: system hotkeys win, whatever the spelling', () => {
@@ -358,6 +489,28 @@ test('ownAcceleratorKeys: normalised, and never the empty string', () => {
     // anything in here, and an '' in the set would skip the one check that
     // keeps an unparseable accelerator out of the settings file.
     assert.ok(held.has(acceleratorKey('Alt+Ctrl+1')));
+});
+
+test('the shipped default set holds five combinations and shadows nothing', () => {
+    // A fresh install, as `Hotkeys.getSystemHotkeys()` builds it: five real
+    // combinations and five `''`. Every "is this taken?" answer has to ignore
+    // the five empties, or each one would collide with all the others and with
+    // every number binding at once.
+    const shipped = {};
+    for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        shipped[actionId] = def.defaultAccelerator;
+    }
+    const maps = {};
+    for (let n = 1; n <= 9; n++) maps[`CommandOrControl+Alt+${n}`] = {id: `id-${n}`, mapKey: `c/Map ${n}`};
+
+    assert.strictEqual(boundEntries(shipped).length, 5);
+    assert.strictEqual(ownAcceleratorKeys(shipped, maps).size, 5 + 9);
+    assert.deepStrictEqual(shadowedMapBindings(shipped, maps), []);
+    assert.deepStrictEqual(duplicateMapBindings(maps), []);
+    // …and an unbound action is not "already held", so the very first bind of
+    // one is not refused as a conflict with itself or with its siblings.
+    assert.strictEqual(findSystemConflict(shipped, 'CommandOrControl+Alt+R'), null);
+    assert.strictEqual(findSystemConflict(shipped, 'CommandOrControl+Alt+Up', 'opacity-up'), null);
 });
 
 /* ────────────────────────────────────────────────────────────────────────────

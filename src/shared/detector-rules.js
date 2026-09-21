@@ -62,11 +62,10 @@ function shouldApplyDetected(currentKey, key) {
  * overlay", whoever put it there**, never the detector's own `lastDetected`: a
  * map the player set by hand because the matcher accepted nothing would then
  * never be cleared back in the menu, because this would never run.
- * @param {*} hideInMenu the setting; only an explicit `false` turns it off, so
- *   a settings file written before it existed keeps the default
+ * There is deliberately **no setting** any more (`hideInMenu` until 1.0): a
+ * stale map on the overlay between matches is a bug, not a preference.
  */
-function shouldWatchMenu(shownKey, hideInMenu) {
-    if (hideInMenu === false) return false;
+function shouldWatchMenu(shownKey) {
     return !!shownKey;
 }
 

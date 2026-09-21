@@ -73,7 +73,7 @@ test('t: substitutes {name} placeholders', () => {
     assert.strictEqual(t('en', 'toast.size', {size: 275}), 'Size 275 px');
     assert.ok(t('it', 'toast.size', {size: 275}).includes('275'));
     assert.strictEqual(t('en', 'detector.detectedAt', {map: 'East Haddonfield', time: '21:37'}),
-        'Map detected: East Haddonfield at 21:37');
+        'Map recognised: East Haddonfield at 21:37');
 });
 
 test('t: leaves a placeholder alone when nothing is supplied for it', () => {
@@ -191,7 +191,7 @@ test('the language setting agrees with the catalogues it can choose from', () =>
 });
 
 test('the language picker offers exactly the languages that exist', () => {
-    // Settings › General. The welcome tour's own select is filled by cloning
+    // Settings › General. The setup tutorial's own select is filled by cloning
     // these options (`Onboarding.mirror`), so it cannot drift on its own.
     const html = fs.readFileSync(path.join(ROOT, 'src', 'index.html'), 'utf-8');
     const select = html.match(/<select[^>]*id="languageSelect"[\s\S]*?<\/select>/);
@@ -399,17 +399,10 @@ const MAY_MATCH_ENGLISH = new Set([
     'common.error',           // "Error: {message}" — Spanish spells it the same
     'nav.faq',                // the app's own abbreviation, kept in the nav bar
     'settings.tab.general',   // "General" in Spanish
-    'settings.tab.overlay',   // "Overlay" is this app's term for the window
     'settings.tab.hotkeys',   // "Hotkeys" in German
-    'settings.monitor',       // "Monitor"
     'settings.value.px',      // "{value} px"
     'settings.value.percent', // "{value} %"
-    'settings.glideX',        // "Horizontal (X)"
-    'settings.glideY',        // "Vertical (Y)"
-    'settings.rotation',      // "Rotation" in French
-    'hotkeys.system',         // "System" in German
-    'hotkeys.col.action',     // "Action" in French
-    'hotkeys.col.hotkey'      // "Hotkey" in German
+    'hotkeys.col.action'      // "Action" in French
 ]);
 
 test('nothing is left untranslated', () => {
@@ -463,6 +456,29 @@ test('the catalogue files are UTF-8 without a BOM and indented like en.json', ()
         assert.deepStrictEqual(blankLines(text), blankLines(english),
             `${lang}.json: the blank-line grouping differs from en.json`);
     }
+});
+
+test('no catalogue holds a literal no-break space', () => {
+    // French writes ~125 of them (before `: ; ? ! %`, inside « » and between a
+    // number and its unit) and they have to stay ` ` **escapes**: a
+    // literal U+00A0 is invisible in an editor, `JSON.parse` cannot tell the
+    // two spellings apart, and every earlier re-serialisation of `fr.json`
+    // silently converted the lot. Counting the raw bytes is the only way to
+    // see it — hence this test rather than a review note.
+    // docs/agents/i18n.md § French typography.
+    for (const lang of LANGUAGES) {
+        const raw = fs.readFileSync(path.join(ROOT, 'src', 'i18n', `${lang}.json`), 'utf-8');
+        const at = raw.indexOf(' ');
+        assert.strictEqual(at, -1, `${lang}.json has a literal U+00A0 at offset ${at}: `
+            + `…${raw.slice(Math.max(0, at - 40), at + 40)}…`);
+    }
+    // …and the escape really is what French uses, so the test above cannot pass
+    // by the spaces having been dropped altogether.
+    const french = fs.readFileSync(path.join(ROOT, 'src', 'i18n', 'fr.json'), 'utf-8');
+    const escapes = (french.match(/\\u00a0/gi) || []).length;
+    assert.ok(escapes > 100, `fr.json has only ${escapes} no-break-space escapes`);
+    assert.ok(CATALOGUES.fr['settings.value.px'].includes(' '),
+        'the parsed French string should still contain a no-break space');
 });
 
 test('every system hotkey action has a translated name', () => {

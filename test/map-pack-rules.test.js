@@ -764,11 +764,29 @@ test('mergeTemplateSources: the global variant budget is enforced, bundled first
  * The 24 h gate
  * ──────────────────────────────────────────────────────────────────────────── */
 
-test('shouldCheckPacks: the setting is the outer gate, even for the button', () => {
+test('shouldCheckPacks: the setting is the gate for every check but the button', () => {
     assert.deepStrictEqual(rules.shouldCheckPacks({enabled: false, lastCheckAt: 0, now: 1000}),
         {check: false, reason: 'disabled'});
-    // A user who turned the feature off did not ask for one more request.
-    assert.strictEqual(rules.shouldCheckPacks({enabled: false, now: 1000, force: true}).check, false);
+    // …and the timer is refused however long it has been.
+    assert.strictEqual(
+        rules.shouldCheckPacks({enabled: false, lastCheckAt: 0, now: 1e12}).reason, 'disabled');
+});
+
+test('shouldCheckPacks: the button overrides the setting, because the click is the consent', () => {
+    // 1.0 merged the two network switches into one, so there is no "check for
+    // new maps" switch left to point the user at — and the app's own update
+    // check has always worked this way (`planManualUpdateCheck`). A user who
+    // presses *Check now* over an off switch asked for this one request.
+    const manual = rules.shouldCheckPacks({enabled: false, lastCheckAt: 0, now: 1000, force: true});
+    assert.deepStrictEqual(manual, {check: true, reason: 'manual'});
+    // `manual` rather than `forced`, so the log says which of the two it was.
+    assert.strictEqual(
+        rules.shouldCheckPacks({enabled: true, lastCheckAt: 0, now: 1000, force: true}).reason, 'forced');
+    // Only a real force: a missing or falsy flag is still gated.
+    for (const force of [undefined, null, false, 0, '']) {
+        assert.strictEqual(rules.shouldCheckPacks({enabled: false, now: 1000, force}).check, false,
+            JSON.stringify(force));
+    }
 });
 
 test('shouldCheckPacks: at most once per 24 h, and the button ignores the interval', () => {

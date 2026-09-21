@@ -7,9 +7,19 @@
  */
 
 /**
+ * Unbound is the empty string, never a missing key: the back-fill in
+ * `core/settings.js` would hand the default back on the next start.
+ */
+const UNBOUND_ACCELERATOR = '';
+
+/**
  * `descriptionKey` is what the UI and the conflict messages use; the plain
  * English `description` is the fallback for anything with no catalogue at hand
  * (a log line, a headless caller).
+ *
+ * A `defaultAccelerator` of `UNBOUND_ACCELERATOR` means the action ships with
+ * **no key**: fully available, listed as *no key*, the user's to bind. Which
+ * five and why: docs/agents/hotkeys.md § Defaults and the migration onto them.
  *
  * @type {Object<string, {id: string, defaultAccelerator: string, description: string, descriptionKey: string, action: string}>}
  */
@@ -17,28 +27,28 @@ const SYSTEM_HOTKEY_DEFS = {
     'toggle-map': {
         id: 'toggle-map',
         defaultAccelerator: 'CommandOrControl+Alt+H',
-        description: 'Show / hide the current map',
+        description: 'Show / hide the map',
         descriptionKey: 'hotkeys.action.toggle-map',
         action: 'toggle-map'
     },
     'rotate-map': {
         id: 'rotate-map',
-        defaultAccelerator: 'CommandOrControl+Alt+R',
-        description: 'Rotate the map by 90 degrees',
+        defaultAccelerator: UNBOUND_ACCELERATOR,
+        description: 'Turn the map',
         descriptionKey: 'hotkeys.action.rotate-map',
         action: 'rotate-map'
     },
     'next-map': {
         id: 'next-map',
         defaultAccelerator: 'CommandOrControl+Alt+Right',
-        description: 'Show the next map',
+        description: 'Next map',
         descriptionKey: 'hotkeys.action.next-map',
         action: 'next-map'
     },
     'prev-map': {
         id: 'prev-map',
         defaultAccelerator: 'CommandOrControl+Alt+Left',
-        description: 'Show the previous map',
+        description: 'Previous map',
         descriptionKey: 'hotkeys.action.prev-map',
         action: 'prev-map'
     },
@@ -47,42 +57,42 @@ const SYSTEM_HOTKEY_DEFS = {
     'clear-map': {
         id: 'clear-map',
         defaultAccelerator: 'CommandOrControl+Alt+D',
-        description: 'Clear the map and re-detect',
+        description: 'Wrong map? Recognise it again',
         descriptionKey: 'hotkeys.action.clear-map',
         action: 'clear-map'
     },
     'opacity-up': {
         id: 'opacity-up',
-        defaultAccelerator: 'CommandOrControl+Alt+Up',
-        description: 'Make the overlay more opaque',
+        defaultAccelerator: UNBOUND_ACCELERATOR,
+        description: 'Make the map more visible',
         descriptionKey: 'hotkeys.action.opacity-up',
         action: 'opacity-up'
     },
     'opacity-down': {
         id: 'opacity-down',
-        defaultAccelerator: 'CommandOrControl+Alt+Down',
-        description: 'Make the overlay more transparent',
+        defaultAccelerator: UNBOUND_ACCELERATOR,
+        description: 'Make the map less visible',
         descriptionKey: 'hotkeys.action.opacity-down',
         action: 'opacity-down'
     },
     'size-up': {
         id: 'size-up',
-        defaultAccelerator: 'CommandOrControl+Alt+Shift+Up',
-        description: 'Make the overlay bigger',
+        defaultAccelerator: UNBOUND_ACCELERATOR,
+        description: 'Make the map bigger',
         descriptionKey: 'hotkeys.action.size-up',
         action: 'size-up'
     },
     'size-down': {
         id: 'size-down',
-        defaultAccelerator: 'CommandOrControl+Alt+Shift+Down',
-        description: 'Make the overlay smaller',
+        defaultAccelerator: UNBOUND_ACCELERATOR,
+        description: 'Make the map smaller',
         descriptionKey: 'hotkeys.action.size-down',
         action: 'size-down'
     },
     'toggle-markers': {
         id: 'toggle-markers',
         defaultAccelerator: 'CommandOrControl+Alt+M',
-        description: 'Show / hide the map markers',
+        description: 'Show / hide the points',
         descriptionKey: 'hotkeys.action.toggle-markers',
         action: 'toggle-markers'
     }
@@ -103,12 +113,6 @@ const ACTION_TO_SETTING_KEY = {
 };
 
 /**
- * Unbound is the empty string, never a missing key: the back-fill in
- * `core/settings.js` would hand the default back on the next start.
- */
-const UNBOUND_ACCELERATOR = '';
-
-/**
  * Holds no key combination? Whitespace counts as unbound, or a hand-edited
  * `" "` becomes a phantom entry in the conflict banner.
  */
@@ -120,6 +124,8 @@ function isUnbound(accelerator) {
  * What is stored, the shipped default when nothing is, and nothing at all when
  * the user unbound it — a three-way distinction `stored || default` cannot
  * make. Main and the renderer's table both call it, so the two cannot disagree.
+ * An unbound *default* with nothing stored is simply unbound; only the one-time
+ * migration in `hotkey-migration.js` ever needs to tell the two apart.
  * @param {*} stored value held under the action's `ACTION_TO_SETTING_KEY`
  * @returns {string} an accelerator, or `UNBOUND_ACCELERATOR`
  */

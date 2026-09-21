@@ -20,7 +20,6 @@ const NOW = 1_700_000_000_000;
 /** The ordinary "hidden in the tray for a minute" case. */
 function ok(over) {
     return Object.assign({
-        setting: true,
         hasWindow: true,
         visible: false,
         minimized: false,
@@ -29,24 +28,18 @@ function ok(over) {
     }, over || {});
 }
 
-test('the shipped default is on', () => {
-    assert.strictEqual(DEFAULT_SETTINGS.unloadWindowInTray, true);
-});
-
 test('hidden in the tray past the grace period: unload', () => {
     assert.deepStrictEqual(shouldUnloadMainWindow(ok()), {unload: true, reason: 'tray', waitMs: 0});
 });
 
-test('the setting off keeps the window, whatever else is true', () => {
-    assert.strictEqual(shouldUnloadMainWindow(ok({setting: false})).reason, 'setting-off');
-});
-
-test('a settings file written before the key existed behaves like the default', () => {
-    // The back-fill covers a *missing* key, but a hand-edited file can hold
-    // anything; only an explicit `false` turns this off.
-    for (const value of [undefined, null, true, 'yes', 1]) {
+test('there is no setting any more: a stored one cannot switch it off', () => {
+    // `unloadWindowInTray` was an option until 1.0 and is now always on. A file
+    // that still carries it — including a `false` — behaves like every other.
+    assert.ok(!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, 'unloadWindowInTray'));
+    for (const value of [false, true, undefined, null, 'yes', 1]) {
         assert.strictEqual(shouldUnloadMainWindow(ok({setting: value})).unload, true, String(value));
     }
+    assert.ok(!KEEP_REASONS.includes('setting-off'));
 });
 
 test('a visible window is never torn down', () => {
@@ -55,7 +48,7 @@ test('a visible window is never torn down', () => {
 
 test('minimised to the taskbar is not hidden in the tray', () => {
     // The window is still on the user's desktop and restoring it has to be
-    // instant, so this is deliberately *not* covered by the setting.
+    // instant, so only a tray hide counts.
     assert.strictEqual(shouldUnloadMainWindow(ok({minimized: true})).reason, 'minimized');
 });
 
@@ -122,7 +115,7 @@ test('a window that was never hidden has no hiddenAt to measure from', () => {
 
 test('every reason the decision can give is documented in KEEP_REASONS', () => {
     const cases = [
-        ok({setting: false}), ok({hasWindow: false}), ok({quitting: true}), ok({installing: true}),
+        ok({hasWindow: false}), ok({quitting: true}), ok({installing: true}),
         ok({visible: true}), ok({minimized: true}), ok({busy: ['settings']}), ok({recording: true}),
         ok({updatePending: true}), ok({hiddenAt: NOW})
     ];

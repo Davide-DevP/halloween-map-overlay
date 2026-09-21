@@ -81,8 +81,15 @@ anything that looks like a spare allocation in the detector loop.
     for is `docs/SPEC-MAP-STATE.md`: the pure `shared/map-state.js` plus the
     thin `core/map-controller.js` now own the map state in **main**, the
     renderer is a view, and the window is destroyed after
-    `UNLOAD_GRACE_MS` (45 s) in the tray (`unloadWindowInTray`, default **true**,
-    the decision in the pure `shared/window-unload.js`). Two rules keep it safe
+    `UNLOAD_GRACE_MS` (45 s) in the tray — the decision is the pure
+    `shared/window-unload.js`. **There is no setting since 1.0**: it was
+    `unloadWindowInTray` (default true) in 0.7, and the switch needed a
+    paragraph about memory to explain itself, which is exactly what
+    docs/agents/settings-and-onboarding.md § The standing UX rule forbids.
+    Nobody has a reason to prefer ~32 MB held for the session over a window
+    that takes a moment to reopen, so the app decides. A leftover `false` in an
+    existing settings file is ignored rather than migrated, and
+    `unloadState()` no longer carries a `setting` for the report to print. Two rules keep it safe
     and both are load-bearing: the main window's `closed` handler skips its
     `overlayWindow.close()` when the window carries `__hmoUnloading`, and the
     one-time startup work (`checkUpdates`, the stale-helper sweep) is guarded by

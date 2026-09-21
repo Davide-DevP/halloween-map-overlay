@@ -15,14 +15,14 @@ const UNLOAD_GRACE_MS = 45000;
 
 /** Every reason the window is kept, in the order they are checked. */
 const KEEP_REASONS = [
-    'setting-off', 'no-window', 'quitting', 'installing', 'visible', 'minimized',
+    'no-window', 'quitting', 'installing', 'visible', 'minimized',
     'busy', 'recording', 'update-banner', 'grace'
 ];
 
 /**
- * @param {*} input.setting stored `unloadWindowInTray`; anything but an explicit
- *   `false` is "on", so a file written before the key existed behaves like the
- *   `true` default.
+ * The unload has **no setting** any more (`unloadWindowInTray` until 1.0): it
+ * is always on, and a stored `false` is ignored. Why: docs/agents/memory.md.
+ *
  * @param {boolean} input.minimized minimised to the taskbar is **not** "hidden
  *   in the tray": it is still on the desktop and must restore instantly.
  * @param {number} input.hiddenAt epoch ms the window was hidden, 0 = not hidden
@@ -40,7 +40,6 @@ function shouldUnloadMainWindow(input) {
     const now = Number(o.now) || 0;
     const graceMs = Number.isFinite(o.graceMs) ? o.graceMs : UNLOAD_GRACE_MS;
 
-    if (o.setting === false) return keep('setting-off');
     if (!o.hasWindow) return keep('no-window');
     // Both end with the process going away; neither wants a teardown racing it.
     if (o.quitting) return keep('quitting');

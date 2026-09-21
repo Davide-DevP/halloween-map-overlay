@@ -14,7 +14,13 @@
  * Why, and the five counter-intuitive findings: docs/agents/hotkeys.md.
  */
 
-const {isUnbound, MAP_HOTKEY_PREFIX, MAX_DEFAULT_MAP_HOTKEYS} = require('./hotkeys-constants');
+const {
+    isUnbound,
+    resolveSystemAccelerator,
+    SYSTEM_HOTKEY_DEFS,
+    MAP_HOTKEY_PREFIX,
+    MAX_DEFAULT_MAP_HOTKEYS
+} = require('./hotkeys-constants');
 
 /**
  * Modifier token (lower-cased) → the canonical token. `Cmd`/`Meta`/`Super` are
@@ -249,6 +255,38 @@ function canResetToDefault({effective, mapHotkeys, actionId, defaultAccelerator}
 }
 
 /**
+ * The Hotkeys tab's System rows, split into the main table and the collapsed
+ * *More keys* fold. **One** rule decides the fold, `defaultUnbound && !bound`:
+ * a key the user actually holds is never hidden behind one. `isDefault` lives
+ * here and not in the renderer because `sameAccelerator` says nothing equals
+ * unbound, so a plain comparison leaves *Reset* offering a combination that
+ * does not exist. Why: docs/agents/hotkeys.md § Defaults / § Unbinding.
+ * @param {Object} [defs] the definition table; injected only by the tests
+ */
+function systemHotkeyRows(systemHotkeys, defs) {
+    const stored = systemHotkeys && typeof systemHotkeys === 'object' ? systemHotkeys : {};
+    const table = defs && typeof defs === 'object' ? defs : SYSTEM_HOTKEY_DEFS;
+    const main = [];
+    const more = [];
+    for (const [actionId, def] of Object.entries(table)) {
+        if (!def) continue;
+        const accelerator = resolveSystemAccelerator(stored[actionId], def.defaultAccelerator);
+        const bound = !isUnbound(accelerator);
+        const defaultUnbound = isUnbound(def.defaultAccelerator);
+        const row = {
+            actionId,
+            descriptionKey: def.descriptionKey,
+            description: def.description,
+            accelerator: bound ? accelerator : '',
+            bound,
+            isDefault: defaultUnbound ? !bound : sameAccelerator(accelerator, def.defaultAccelerator)
+        };
+        (defaultUnbound && !bound ? more : main).push(row);
+    }
+    return {main, more};
+}
+
+/**
  * The `hotkeys.json` entries a **system** hotkey shadows; they register second,
  * so they can never fire.
  * @returns {Array<{accelerator: string, actionId: string}>} stored spellings
@@ -376,6 +414,7 @@ module.exports = {
     findSystemConflict,
     findMapConflict,
     canResetToDefault,
+    systemHotkeyRows,
     shadowedMapBindings,
     duplicateMapBindings,
     ownAcceleratorKeys,

@@ -101,7 +101,7 @@ class Maps {
 
     /**
      * A fresh renderer has no preview up, so it says so first: only this window
-     * can produce the sample image, and one that died with the Overlay tab open
+     * can produce the sample image, and one that died with the Map tab open
      * left main believing a preview it can never refresh is on screen.
      */
     async loadState() {

@@ -82,7 +82,7 @@ function scriptedChild(opts) {
 function loopWith(child, over) {
     const host = new DetectorWorkerHost({fork: () => child, timeoutMs: 500, startTimeoutMs: 800});
     const settings = {
-        get: (key) => ({mapDetection: true, hideInMenu: true}[key]),
+        get: (key) => ({mapDetection: true}[key]),
         set() {}
     };
     const detector = new MapDetector({send() {}, isDestroyed: () => true}, settings,

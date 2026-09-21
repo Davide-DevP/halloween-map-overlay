@@ -230,12 +230,22 @@ src/shared/hotkey-migration.js  → PURE one-time move onto the Ctrl+Alt default
                                   (`planHotkeyDefaultsMigration`). Tested.
 src/shared/settings-defaults.js → PURE default settings + mapLabel enum +
                                   `useHardwareAcceleration`. Tested.
-src/shared/onboarding-rules.js  → PURE welcome-tour decisions: does it open
-                                  (`shouldShowOnboarding`), step order/position,
+src/shared/map-placement.js     → PURE "where do you want to see the map?":
+                                  the `tabMarkers`+`tabHidesMinimap` pair read
+                                  and written as one of three choices
+                                  (`placementFromSettings`,
+                                  `settingsForPlacement`), which blocks each
+                                  choice shows (`placementSections`), the
+                                  auto-recognise switch's locked state
+                                  (`autoDetectSwitchState`) and the markers
+                                  master notice. Tested.
+src/shared/onboarding-rules.js  → PURE setup-tutorial decisions: does it open
+                                  (`shouldShowOnboarding` + `TOUR_VERSION`),
+                                  step order/position,
                                   the hotkey rows it prints, the "try it"
                                   prompt (incl. the conflict branch), the
-                                  Tab-map switch's enabled/reason state
-                                  (`tabMarkersSwitchState`) and the three rules
+                                  last step's recap (`placementRecap`)
+                                  and the three rules
                                   that keep the panel modal
                                   (`backgroundInertTargets`,
                                   `shouldRecaptureFocus`, `tabWrapTarget`).
@@ -297,14 +307,14 @@ src/js/maps.js                  → Gallery and the "showing" line. A **view**
 src/js/busy.js                  → `setBusy(reason, on)` — "do not tear this
                                   window down right now" (Settings, the tour, a
                                   report, an import).
-src/js/options.js               → Settings modal (General + Overlay tabs).
+src/js/options.js               → Settings modal (Map + General tabs).
 src/js/hotkeys.js               → Hotkeys tab: tables, editing, key capture.
-src/js/custom.js                → "Add custom image" modal.
+src/js/custom.js                → "Add your own map" modal.
 src/js/detector.js              → Home-page auto-detect switch + status line.
-src/js/overlay-preview.js       → Canvas sample image for the Overlay tab.
-src/js/onboarding.js            → First-run welcome tour (`#tour`): five steps,
+src/js/overlay-preview.js       → Canvas sample image for the Map tab.
+src/js/onboarding.js            → First-run setup tutorial (`#tour`): six steps,
                                   focus trap, and *mirrors* of the real Settings
-                                  controls. Owns no setting but `onboardingDone`.
+                                  controls. Owns only its own three markers.
 src/js/settings.js              → Renderer mirror of the settings file.
 src/js/i18n.js                  → Renderer i18n singleton: `t()`, `applyDom()`,
                                   `onChange()` re-render hooks.
@@ -375,7 +385,8 @@ test/                           → node:test unit tests for the pure modules.
 
 - **Pure vs impure**: `map-catalog.js`, `overlay-position.js`,
   `hotkeys-constants.js`, `hotkeys-rules.js`, `hotkey-migration.js`,
-  `settings-defaults.js`, `onboarding-rules.js`, `i18n.js`, `map-state.js`,
+  `settings-defaults.js`, `map-placement.js`, `onboarding-rules.js`,
+  `i18n.js`, `map-state.js`,
   `window-unload.js`,
   `update-message.js`, `detector-rules.js`, `redact.js`, `map-pack-rules.js`,
   `diagnostics/zip.js` and `map-detector/matcher.js`

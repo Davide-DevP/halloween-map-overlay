@@ -137,7 +137,8 @@ local file, and the user decides whether to send it.
   forwarded over `renderer-error` and main writes them.
 
 - **Three lines were added in 0.7, all because something became invisible.**
-  `[health]` gains `unloadWindowInTray = on|off` and
+  `[health]` gains (since 1.0 the removed `unloadWindowInTray` line no longer
+  prints — the unload is always on, so only the state is worth a line)
   `main window = loaded|unloaded` (plus `main window held by = …` when a busy
   reason is stopping the teardown), because the window is now destroyed while
   the app sits in the tray and "it took a moment to open" / "a toast never

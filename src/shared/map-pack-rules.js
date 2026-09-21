@@ -674,8 +674,10 @@ function shouldCheckPacks(state) {
     const retry = isPositiveInt(state && state.retryMs) ? state.retryMs : RETRY_INTERVAL_MS;
     // Never longer than the ordinary interval, whatever the two are set to.
     const interval = lastFailed ? Math.min(retry, full) : full;
+    // `force` is only ever the *Check now* button and the click is the consent;
+    // there is no separate map-pack switch left to point the user at.
+    if (force) return {check: true, reason: enabled === false ? 'manual' : 'forced'};
     if (enabled === false) return {check: false, reason: 'disabled'};
-    if (force) return {check: true, reason: 'forced'};
     if (!isFiniteNumber(now)) return {check: false, reason: 'no-clock'};
     if (!isFiniteNumber(lastCheckAt) || lastCheckAt <= 0) return {check: true, reason: 'never'};
     if (lastCheckAt > now) return {check: true, reason: 'clock-moved'};

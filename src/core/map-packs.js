@@ -156,18 +156,13 @@ class MapPacks {
     }
 
     /** Check the index and install what is new. `opts.force` is the button: it
-     * ignores the 24 h interval but **not** the setting. */
+     * ignores the 24 h interval **and** the setting — the click is the consent. */
     async check(opts) {
         const options = opts || {};
         if (this.checking) return {ok: false, installed: 0, error: 'busy', state: this.info()};
 
         const decision = rules.shouldCheckPacks(this.gateState(options.force));
         if (!decision.check) {
-            // With the setting off no socket is opened, and the button says so
-            // rather than appearing to do nothing.
-            if (decision.reason === 'disabled' && options.force) {
-                this.toast(msg('mapPacks.disabled'));
-            }
             return {ok: false, installed: 0, error: decision.reason, state: this.info()};
         }
 

@@ -43,7 +43,7 @@ player sees.
   death loses nothing: the overlay keeps its map, every hotkey keeps working
   through the reload, and the menu clear stays correctly gated.
 - **The main window is deliberately destroyed while it sits in the tray**
-  (`unloadWindowInTray`, default true). Its `closed` handler has two branches
+  (always on since 1.0; `unloadWindowInTray` up to 0.7). Its `closed` handler has two branches
   and both are load-bearing:
   - **our own teardown** (the window carries `__hmoUnloading`) returns at once.
     Without that guard every tray unload would take the overlay down mid-match.
@@ -93,7 +93,7 @@ player sees.
   label is unrotated, bottom-aligned (it lives in the 10 % of extra height the
   rotated bounding box already has) and uses the map's own opacity.
   The settings preview *does* now carry a label (`overlay.sampleMap`) so
-  `always` can be seen in the Overlay tab before it is turned on for real —
+  `always` can be seen in the Map tab before it is turned on for real —
   main only forwards it in `always` mode.
 
 ## DPI

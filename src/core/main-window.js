@@ -548,7 +548,6 @@ class MainWindow {
         }
         const hotkeys = this.shutdownHooks && this.shutdownHooks.hotkeys;
         return shouldUnloadMainWindow({
-            setting: this.settings ? this.settings.get('unloadWindowInTray') : undefined,
             hasWindow,
             visible,
             minimized,
@@ -592,7 +591,6 @@ class MainWindow {
 
     unloadState() {
         return {
-            setting: !(this.settings && this.settings.get('unloadWindowInTray') === false),
             loaded: !!(this.window && !this.window.isDestroyed()),
             unloaded: this.unloaded,
             busy: Array.from(this.busyReasons)

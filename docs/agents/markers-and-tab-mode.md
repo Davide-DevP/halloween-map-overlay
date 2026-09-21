@@ -54,13 +54,17 @@ is why every string says "possible location". Data provenance is in
   clamping it — a clamped point would land on the game's own objectives or
   player list — and none of the four bundled maps produces one.
 - **`tabHidesMinimap`** (off by default) suppresses the corner overlay while
-  Tab-map mode runs. Tied to `enabled`, never to the setting alone: if the mode
+  Tab-map mode runs. Since 1.0 it is not a switch of its own: with `tabMarkers`
+  it forms the one "where do you want to see the map?" choice — `tab` is the
+  pair on, `both` is `tabMarkers` alone (`shared/map-placement.js`,
+  docs/agents/settings-and-onboarding.md). Tied to `enabled`, never to the setting alone: if the mode
   cannot run — auto-detect off, the markers master switch off — the corner
   minimap is the only map the player has and it must come back.
 - **Tab-map mode is experimental and off by default** (`tabMarkers`), and it
   **requires auto-detect** — the map is only known because the detector
-  recognised it, so the switch is disabled with the reason on screen while
-  auto-detect is off, and it stops when the detector stops. The second window
+  recognised it, so choosing either of the two game's-map placements switches
+  auto-detect on and locks it there (`autoDetectSwitchState`), and the mode
+  stops when the detector stops. The second window
   follows `overlay-window.js`'s rules exactly, and here they matter more:
   `hotkeysGameOnly` means a window of ours that steals the foreground
   unregisters the player's hotkeys mid-match. **`showInactive()` / `hide()`**,
@@ -78,8 +82,9 @@ is why every string says "possible location". Data provenance is in
   holds the last payload and flushes it on `did-finish-load` — but only while
   `bounds` is still set, or a first load that finishes after the Tab screen is
   gone would draw exactly the lingering this feature must not do.
-- **`Settings.onChange(keys)`** is how the markers master switch and the layer
-  switches reach main: the renderer writes them through the generic
+- **`Settings.onChange(keys)`** is how the markers master switch (only
+  Ctrl+Alt+M since 1.0) and the layer chips reach main: the renderer writes them
+  through the generic
   `set-setting` (Ctrl+Alt+M included), so nothing used to tell Tab mode. The
   master switch now starts and stops it, a layer or opacity change mid-hold
   rebuilds the live payload, and an empty payload hides immediately.

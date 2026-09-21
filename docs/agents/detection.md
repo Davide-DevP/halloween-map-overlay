@@ -123,8 +123,8 @@ The overlay's map label rides on the detector's `map-change` —
   "Back in menu — map cleared" / "Detected <Map> at HH:MM", driven by the
   `map-detector-status` push plus one `invoke` at startup. The renderer keeps
   the last status so it can re-render the line in a new language.
-- **The main menu ends the match** (`hideInMenu`, default **true**, Settings ›
-  General). `matcher.js` carries a second template — the menu's navigation
+- **The main menu ends the match** — always on since 1.0; it was the optional
+  `hideInMenu` (default true, Settings › General) up to 0.7. `matcher.js` carries a second template — the menu's navigation
   strip, `MENU_STRIP_REL` = x 45..760, y 20..68 at 1919x1079, measured off
   `detection-fixtures/menu-main.png` by scanning the top-left corner (row means
   jump from ~0.6/255 above the strip to 9-41/255 across it and back by row 66;
@@ -146,7 +146,10 @@ The overlay's map label rides on the detector's `map-change` —
   2. **Only while a map is on the overlay** — `shownKey`, not `lastDetected`
      (0.3.3). `core/map-controller.js` calls `noteShown(key|null)` after
      **every** apply, hides included, and the loop keeps it whether or not it
-     is running; `shouldWatchMenu(shownKey, hideInMenu)` is the pure gate.
+     is running; `shouldWatchMenu(shownKey)` is the pure gate — it takes the key alone, because
+     a map from the last match still on the overlay in the menu is a bug, not a
+     preference (docs/agents/settings-and-onboarding.md § Two settings the app
+     decides).
      (Until 0.7 that report was the renderer's `map-detector-shown` IPC. Same
      rule, one process closer — and it can no longer be stale, because the
      process that knows and the process that asks are the same one.)
@@ -241,7 +244,7 @@ which is almost all of them. Now:
    21.9 % of the frame the gate regions cover, and allocates nothing).
    Verdict-identical to the old `TAB_SCREEN_GATE` path on every fixture.
 2. **Gated out** — nothing is reduced at all, unless the menu matcher is wanted
-   (`shownKey` + `hideInMenu`, both decided before any pixel work), and then
+   (`shownKey` alone, decided before any pixel work), and then
    only its 715×48 strip (~2.4 % of the frame).
 3. **Gated in** — luminance for the map panel plus its alignment margins only
    (`regionSearchBox` over `DEFAULT_OFFSETS`), about a third of the frame.

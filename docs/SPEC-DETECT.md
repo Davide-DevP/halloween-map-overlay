@@ -100,6 +100,10 @@ idempotent.
 
 - Home page: a switch "Auto-detect map (open the in-game map with Tab)" with a
   small status line: "Off" / "Watching…" / "Detected East Haddonfield 12:04".
+  *(1.0 relabelled it "Recognise the map automatically" and gave it a second copy on
+  Settings › Map, the same setting through the same `Detector.setEnabled`; the
+  two game's-map placements lock both on. See
+  docs/agents/settings-and-onboarding.md § Where do you want to see the map?)*
 - Settings → General: nothing new (the switch is on the home page).
 - FAQ + README: update the privacy text. It must now say: with auto-detect on,
   the app captures the game window every 2 s while the game is running,

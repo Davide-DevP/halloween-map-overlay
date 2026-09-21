@@ -26,7 +26,7 @@ function extensionFor(file) {
     return match ? match[0].toLowerCase() : '.png';
 }
 
-/** "Add custom image" modal: import, list and delete user map images. */
+/** "Add your own map" modal: import, list and delete user map images. */
 class Custom {
 
     constructor(maps) {

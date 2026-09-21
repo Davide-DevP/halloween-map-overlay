@@ -21,7 +21,7 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
   early with "Main window not available, cannot set system hotkeys", which is
   precisely the dependency that had to go.
 - `hotkey-action` (`{action}`) is still pushed to the window, as a
-  **notification only**: the welcome tour uses it to tick off its "try it" step.
+  **notification only**: the setup tutorial uses it to tick off its "try it" step.
   Nothing acts on it, and it is dropped when there is no window.
 - A new system action therefore needs three things, not two: an entry in
   `SYSTEM_HOTKEY_DEFS`, a default in `DEFAULT_SETTINGS`, **and** an entry in
@@ -31,7 +31,44 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
 
 ## Defaults and the migration onto them
 
-- **Every default hotkey is `Ctrl+Alt+…` (0.7).** Ctrl is crouch in the game
+- **Five of the ten actions ship with no key at all (1.0).** The owner's call:
+  ten default global combinations is too many for an app whose user has never
+  rebound a shortcut, and the five that went are the ones a player does not
+  need mid-match — **rotate map**, **more opaque**, **more transparent**,
+  **bigger**, **smaller**. They lost only their *default*: every one is still a
+  full system hotkey, listed in Settings › Hotkeys as *no key*, bindable with
+  **Edit**, and the stepping code and IPC are untouched. The five that keep a
+  default are **show / hide map**, **toggle markers**, **next map**,
+  **previous map** and **clear & re-detect**, as do the per-map
+  `Ctrl+Alt+1..9`. `ONBOARDING_HOTKEY_ACTIONS` in
+  `shared/onboarding-rules.js` lists exactly those five, deliberately — the
+  tour must not invite a press that does nothing.
+  An unbound default is the **empty string** in both
+  `SYSTEM_HOTKEY_DEFS.defaultAccelerator` and `DEFAULT_SETTINGS`, never a
+  missing property: `core/settings.js` back-fills on `=== undefined`, and the
+  `''`-is-unbound rule is the one every consumer already follows
+  (§ Unbinding). `resolveSystemAccelerator(undefined, '')` is therefore
+  unbound, and *that is the whole mechanism* — nothing else in the product has
+  to know which defaults exist.
+- **Those five sit in a collapsed *More keys* fold under the System table**
+  (`details.adv#systemHotkeyMoreFold` in `src/index.html`, a second
+  `<tbody id="systemHotkeyListMore">`), per the approved mockup: a list of ten
+  rows, half of them saying *no key*, reads as a broken feature rather than
+  as a choice. The split is the pure `systemHotkeyRows()` in
+  `shared/hotkeys-rules.js` and it has **one** rule —
+  `defaultUnbound && !bound`. A key the user actually holds is never folded
+  away: not a rebind, and **not an upgraded install whose rotate the
+  generation-2 migration pinned back onto Ctrl+Alt+R**, which is the case that
+  makes "fold by default" and "fold by current state" different answers. The
+  fold is `hide()`n outright when it would be empty — an empty fold with a
+  heading is worse than no fold.
+  `systemHotkeyRows()` also owns `isDefault`, because unbound-is-the-default is
+  a rule and not a rendering detail (§ Unbinding, rule 4); the renderer's
+  `systemHotkeyRow()` only draws what it is handed. `Hotkeys.startSystemHotkeyEdit()`,
+  the exported `acceleratorKbd` and `Hotkeys.recordingHotkey` are load-bearing
+  for the setup tutorial — the fold changed none of them, and neither should
+  anything else.
+- **Every default hotkey that exists is `Ctrl+Alt+…` (0.7).** Ctrl is crouch in the game
   and Ctrl+R / Ctrl+H / Ctrl+arrows / Ctrl+1..9 / Ctrl+Shift+D are browser,
   Discord and text-field shortcuts — a *global* accelerator takes them away
   system-wide. `Ctrl+Alt+<key>` is the Windows convention for an application's
@@ -44,12 +81,86 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
   two FAQ answers that name one take the live accelerator as a `{param}` and
   are rendered from `Hotkeys.updateHotkeyTexts()` (renderer) rather than from
   `data-i18n-html`, so they follow a rebind and an unbind.
-- **The move onto those defaults is a pure, once-only migration.**
+  **`faq.inTheWay.a` is the one to watch**: four of its five `{param}`s are
+  opacity/size actions, so on a fresh install it renders *no key* four times
+  in one sentence. The renderer still passes all five params — a catalogue
+  string that uses fewer simply ignores them — so the fix is the wording, in
+  all six catalogues, not the call site.
+- **Generations are numbered, and each one runs once.**
+  `hotkeyDefaultsVersion` records which generation a file has seen;
+  `HOTKEY_DEFAULTS_VERSION` is what this build ships. There are two:
+  **1** = the move off plain Ctrl onto Ctrl+Alt (0.7.0, below), **2** = the five
+  actions above stopped shipping with a default key (1.0). A file at 0 gets both
+  in one start, in that order, under **one** stamp.
+  Both the tables they move onto are **frozen historical data**:
+  `LEGACY_SYSTEM_DEFAULTS` (the 0.6.0 set) and `V070_SYSTEM_DEFAULTS` (the
+  0.7.0 set). The second one is not a duplicate of `SYSTEM_HOTKEY_DEFS` to be
+  cleaned up — five of those are now `''`, so deriving generation 1's *target*
+  from the live defaults would turn the 0.6.0 move into an **unbind**, and a
+  user upgrading 0.6.0 → 1.0 in one step would lose Ctrl+R instead of gaining
+  Ctrl+Alt+R.
+- **Generation 2 writes the previous default out explicitly.** For every install
+  that is **not** fresh, each of the five that the settings file holds *nothing*
+  for is given its 0.7.0 combination as a stored value. Without it the new
+  back-fill would hand `''` back and an upgrade would silently take a working
+  binding away — the one thing this change is not allowed to do. Three rules:
+  - **A stored value is never touched**, `''` included. A rebind stays, and an
+    action the user deliberately unbound stays unbound.
+  - **A pin that would collide is dropped** and the action is left unbound
+    (`blocked`, reason `system:<id>` or `map:<stored spelling>`) rather than
+    creating a conflict that would land in the banner.
+  - **A pin is not a move.** It goes in `plan.pinned`, not `plan.moved`, so
+    `migrated` stays false and no "your defaults moved" notice fires: for that
+    user *nothing changed*. It is logged as `hotkey-defaults-pinned`, because it
+    is still a write.
+  - **The pins are merged with NO `rollback`** — the one writer in the app that
+    must not have it, and the reverse of every other hotkey write on this page.
+    A rollback restores the *previous in-memory* value, and for a pinned key
+    that value is the `''` the back-fill invented: there is no "absent" to
+    restore to, because `merge()` sees the key as present. So a transient write
+    failure would leave `''` in memory, the next successful `set()` of any
+    unrelated key would persist it (`Settings.write()` serialises the whole
+    object) **without** the stamp, and the next start would read a stored
+    string, pin nothing, and stamp — five hotkeys gone, silently and
+    permanently, off one failed write. Keeping the pins in memory instead costs
+    nothing: this session holds the real bindings, the next successful write
+    carries them together with the stamp, and a start that never gets one
+    recomputes the same plan from disk (`hotkey-defaults-deferred` records it).
+    The single `merge()` is therefore **load-bearing**, not just the "two writes
+    at most" rule: a stamp that could reach the disk without its pins *is* the
+    permanent unbind. `test/hotkey-migration.test.js` runs the real
+    `Settings.merge()` over a disk that refuses a write, and keeps a test of the
+    `{rollback: true}` outcome so the trap cannot be walked back into.
+  **Why the fix has to be at the write, not a heuristic in the plan.** The
+  tempting alternative is to have generation 2 pin *over* a stored `''` when the
+  install is old and unstamped. It cannot: nothing in the file distinguishes the
+  two cases afterwards. A deliberate 0.6/0.7 unbind and a rolled-back pin both
+  end up as `''` sitting in a file that holds all ten `hotkey*` keys (every
+  `Settings` write serialises the full back-filled object, so "the other nine
+  keys are present" is true of both) with `hotkeyDefaultsVersion` still at its
+  pre-run value. Even "all five are `''` at once" is only *likely* to be the
+  accident — it is exactly what a user who switched all five off by hand has.
+  So the invariant is the other way round: **a stored `''` is never pinned
+  over**, in any state, and a test asserts that across every version/fresh
+  combination. Nothing has shipped with the rollback, so there is no field
+  population to recover.
+  **`Settings.fileSettings` exists for exactly this.** It is the parsed file
+  *before* the back-fill, and it is the only way to tell "the file holds no key
+  for rotate" from "the file stores `''` for rotate" — after the back-fill both
+  are `''`, and the second is a decision that must survive. When a caller does
+  not supply it the plan falls back to the back-filled object, which makes every
+  `''` look stored and therefore **pins nothing**: un-unbinding an action the
+  user switched off is the worse of the two mistakes.
+  `DEFAULT_UNBOUND_ACTIONS` is hand-written like the other two tables, and a
+  test asserts it is exactly the set of actions whose live default is unbound —
+  so unbinding a sixth default without adding a generation fails the suite.
+- **The 0.6.0 → 0.7.0 move is a pure, once-only migration.**
   `shared/hotkey-migration.js` → `planHotkeyDefaultsMigration({storedVersion,
-  freshInstall, settings, mapHotkeys})`, applied by
+  freshInstall, settings, fileSettings, mapHotkeys})`, applied by
   `Hotkeys.migrateDefaultHotkeys()` from the constructor. Four rules:
   a stored value that still equals the **0.6.0** default
-  (`LEGACY_SYSTEM_DEFAULTS`, frozen historical data — do not derive it) moves;
+  (`LEGACY_SYSTEM_DEFAULTS`) moves onto the **0.7.0** one
+  (`V070_SYSTEM_DEFAULTS`) — both frozen historical data, do not derive either;
   a value the user changed, or unbound (`''`), is left alone; a `hotkeys.json`
   key that is exactly Control+1..9 becomes `CommandOrControl+Alt+<n>`; and a
   move that would collide with anything (checked with the §1/§2 rules) is
@@ -68,11 +179,15 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
     older number back and the newer build re-runs its migration on the next
     upgrade.
   - `Settings.freshInstall` (was the settings file created by this very start?)
-    skips **only the system half**. The map half always runs: a user whose
+    skips **only the system halves** — both generations. The map half always
+    runs, and is not gated on a generation number either: a user whose
     `settings-app.json` was deleted or reset while `hotkeys.json` survived has
     a genuinely fresh settings file *and* nine stale Ctrl+1..9 bindings, and
-    skipping everything left those on the browser's tab shortcuts forever.
-    The system half would be a no-op on a fresh file anyway.
+    skipping everything left those on the browser's tab shortcuts forever. A
+    number binding an earlier run could not move is retried, which is safe
+    because the plan is recomputed from disk. Generation 1 would be a no-op on
+    a fresh file anyway; generation 2 would **not** — it is what gives the five
+    their old keys back, and on a genuinely new install they must stay unbound.
   - **Two writes at most.** `hotkeys.json`, then **one** `merge()` carrying up
     to nine accelerators *and* the version stamp (`{rollback: true}`). It used
     to `set()` per key — ten synchronous rewrites of `settings-app.json` during
@@ -303,7 +418,7 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
 
 ## Unbinding
 
-- **A system hotkey can be unbound** (Settings › Hotkeys › *Unbind*, IPC
+- **A system hotkey can be unbound** (Settings › Hotkeys › *Remove key*, IPC
   `unbind-system-hotkey`). Unbound is the **empty string** stored under the
   action's `ACTION_TO_SETTING_KEY`, not a deleted key: `core/settings.js`
   back-fills anything `undefined` from `DEFAULT_SETTINGS`, so a deleted key
@@ -324,19 +439,32 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
      and the `systemAccelerators` set in `registerCustomHotkeys`.
   3. **Reset now checks for conflicts.** `reset-system-hotkey` used to write
      the default blind, which was already wrong after a rebind and is far
-     more likely now. Unbind rotate, give Ctrl+Alt+R to a map, press Reset →
+     more likely now. Unbind show/hide, give Ctrl+Alt+H to a map, press Reset →
      refused with the usual `conflictMessage` / `hotkeys.error.usedByMap`. The
      rule itself is the pure `canResetToDefault`.
+  4. **For the five that ship with no key, Reset *is* an unbind** and can never
+     be refused: `canResetToDefault` with an unbound default asks
+     `findSystemConflict`/`findMapConflict` about `''`, both of which return
+     null because nothing conflicts with nothing. The write is
+     `set(key, '')`, and it gets its own `hotkey-unbound` log line — otherwise
+     `setting key=hotkeyRotateMap value=` reads like a write that lost its
+     value, which is the same reason the Unbind path logs one.
   The Hotkeys tab shows a muted `hotkeys.notBound` label instead of a `<kbd>`,
-  disables *Unbind* when already unbound and keeps *Reset* enabled (unbound is
-  not the default). Editing works from the unbound state — recording a
-  combination re-binds it. `system.txt` prints `(unbound)` rather than `""`.
+  disables *Remove key* when already unbound, and disables *Reset* only when the
+  row already **is** the default. That last one needs the two-branch test in
+  `systemHotkeyRows()`: `sameAccelerator` says nothing equals unbound, so
+  for a default-unbound action a plain comparison leaves *Reset* enabled and
+  offering a combination that does not exist. Everywhere else unbound is still
+  not the default, and *Reset* stays enabled.
+  Editing works from the unbound state — recording a
+  combination re-binds it. `system.txt` prints `(unbound)` rather than `""`,
+  which now covers five actions on a fresh install rather than none.
 
 ## Hotkeys that change a setting
 
 - **A system hotkey that changes a setting follows `rotate-map`.** `opacity-up`
-  / `opacity-down` (Ctrl+Alt+Up/Down, 0.1 steps, 0.1..1.0) and `size-up` /
-  `size-down` (Ctrl+Alt+Shift+Up/Down, 25 px steps, 50..800) all do the same four
+  / `opacity-down` (0.1 steps, 0.1..1.0) and `size-up` / `size-down` (25 px
+  steps, 50..800) all do the same four
   things, and since 0.7 they do them in `shared/map-state.js`'s `withSetting`:
   write the setting, re-send `currentKey || lastKey` so **main** recomputes the
   window bounds, toast the new value, and — through the `map-state` push — let
@@ -353,6 +481,14 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
   menu clear took away when the match ended — back over their game. It is
   `withSetting(…, {restore: false})` in `shared/map-state.js`, and it is
   tested.
+  All four of these ship with **no default key** since 1.0 (§ Defaults), and the
+  stepping, the clamps and the IPC are unchanged by that: the only difference is
+  that nothing is registered until the user binds one. Which is also why the
+  overlay's opacity and size have to stay reachable from Settings › Map —
+  a sentence that tells the player to "press Ctrl+Alt+Up" is now wrong for a
+  fresh install, and any user-visible text that names one of these must read
+  the live binding through `Hotkeys.updateHotkeyTexts()` and cope with
+  `hotkeys.notBound` coming back.
   The step arithmetic is pure (`stepOpacity`/`stepSize`) because `0.6 + 0.1` is
   `0.7000000000000001` and `0.7 + 0.1` is `0.7999999999999999`: without the
   round-to-one-decimal the stored opacity drifts off the slider's own grid after

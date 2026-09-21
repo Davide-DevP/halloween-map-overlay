@@ -246,13 +246,21 @@ test('minimising to the taskbar is not hiding to the tray', () => {
     assert.ok(mainWindow.window && !mainWindow.window.isDestroyed());
 });
 
-test('the setting off keeps the window forever', () => {
+test('a leftover unloadWindowInTray: false cannot keep the window forever', () => {
+    // The option went in 1.0; a settings file that still carries it unloads
+    // like every other, and nothing here reads the key at all.
     const {mainWindow} = build({unloadWindowInTray: false});
     mainWindow.show('startup');
     mainWindow.window.hide();
     agePastGrace(mainWindow);
     mainWindow.scheduleUnload('test');
-    assert.ok(mainWindow.window && !mainWindow.window.isDestroyed());
+    assert.ok(!mainWindow.window || mainWindow.window.isDestroyed());
+    assert.strictEqual(mainWindow.unloaded, true);
+    // The state lines in the diagnostic report survive; the setting line does
+    // not, so nothing can print "off" about something that is always on.
+    const state = mainWindow.unloadState();
+    assert.ok(!Object.prototype.hasOwnProperty.call(state, 'setting'));
+    assert.strictEqual(state.loaded, false);
 });
 
 test('an unloading window is not reported as a renderer crash', () => {
@@ -406,8 +414,10 @@ test('nothing is flushed into a window nobody can see', () => {
 test('unloadState is what system.txt prints', () => {
     const {mainWindow} = build();
     mainWindow.show('startup');
+    // The **state** lines only since 1.0: the unload is always on, so a
+    // `setting` line could only ever print "on".
     assert.deepStrictEqual(mainWindow.unloadState(),
-        {setting: true, loaded: true, unloaded: false, busy: []});
+        {loaded: true, unloaded: false, busy: []});
     IPC.listeners.get('window-busy')({}, {reason: 'report', on: true});
     assert.deepStrictEqual(mainWindow.unloadState().busy, ['report']);
     mainWindow.busyReasons.clear();
@@ -415,5 +425,5 @@ test('unloadState is what system.txt prints', () => {
     agePastGrace(mainWindow);
     mainWindow.scheduleUnload('test');
     assert.deepStrictEqual(mainWindow.unloadState(),
-        {setting: true, loaded: false, unloaded: true, busy: []});
+        {loaded: false, unloaded: true, busy: []});
 });

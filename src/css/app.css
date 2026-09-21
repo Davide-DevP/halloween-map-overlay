@@ -75,10 +75,14 @@
 
     /* Layers. Nothing in this app gets a bare 9999. */
     --hmo-z-nav: 20;
-    /* The welcome tour sits above the Bootstrap modals (1055) but deliberately
+    /* The setup tutorial sits above the Bootstrap modals (1055) but deliberately
        *below* the toast: the throttled "that change could not be saved" warning
        has to stay readable while the tour is writing settings. */
     --hmo-z-tour: 1085;
+    /* …and the two dialogs the tutorial itself opens go above it, or they open
+       invisibly while swallowing keys. Only while `body.is-touring`. */
+    --hmo-z-tour-backdrop: 1086;
+    --hmo-z-tour-modal: 1088;
     --hmo-z-toast: 1090;
     --hmo-z-loading: 1100;
     --hmo-z-grain: 2000;
@@ -837,9 +841,22 @@ main.container {
     box-shadow: var(--hmo-shadow-md);
 }
 
+/* The hotkey toast is a child of <body> (the tutorial's `inert` needs it to be),
+   so it has no modal stacking context to inherit any more. Same layer as
+   `.logalert`, which is later in the DOM and so still wins a collision. */
+#hotkeyToast {
+    z-index: var(--hmo-z-toast);
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * Auto-detect status strip
  * ──────────────────────────────────────────────────────────────────────────── */
+
+/* The one-line reason the switch is locked sits beside the switch it explains,
+   not centred between it and the readout (`justify-content: space-between`). */
+#mapDetectionLocked {
+    margin-right: auto;
+}
 
 .detector-bar {
     display: flex;
@@ -1418,6 +1435,24 @@ body.is-touring {
     overflow: hidden;
 }
 
+/* The bind dialog (step 5's "change") and the FAQ ("What does the app read?")
+   are siblings of `#tour` at Bootstrap's 1050/1055, so without this they open
+   *under* the panel — invisible, while the key recorder swallows every key and
+   the global hotkeys are suspended. Named one by one, never `.modal`: reopening
+   the tutorial from Settings raised the *fading* Settings modal over the panel
+   for the length of its transition. */
+body.is-touring #addHotkeyModal,
+body.is-touring #faqModal {
+    z-index: var(--hmo-z-tour-modal);
+}
+
+/* A backdrop carries no id, so this one is generic — harmless, because
+   `Onboarding.open()` waits for the Settings modal to finish hiding before the
+   panel goes up, and after that only those two dialogs can have one. */
+body.is-touring .modal-backdrop {
+    z-index: var(--hmo-z-tour-backdrop);
+}
+
 .tour-dialog {
     display: flex;
     width: min(560px, 100%);
@@ -1634,6 +1669,229 @@ body.is-touring {
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--hmo-text);
+}
+
+/* Two controls side by side (screen + corner, turn + map name). Collapses to
+   one column below the narrow-modal breakpoint, because German and Portuguese
+   labels wrap at two columns in a `modal-lg` on a small window. */
+.field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+@media (max-width: 575.98px) {
+    .field-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * "Where do you want to see the map?" — the three choice cards
+ *
+ * One radio group, not three switches: the three modes are exclusive, and the
+ * old UI let a user tick a combination that could not run. The pair of stored
+ * keys behind them is `shared/map-placement.js`; nothing here knows about it.
+ * The whole card is the label, so the hit target is the card and not the 16 px
+ * radio.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.where {
+    display: grid;
+    gap: 0.625rem;
+    margin: 0.375rem 0 1.125rem;
+}
+
+.where label {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 0.75rem;
+    align-items: start;
+    cursor: pointer;
+    background: var(--hmo-inset);
+    border: 1px solid var(--hmo-line);
+    border-radius: var(--hmo-r-md);
+    padding: 0.8rem 0.875rem;
+    transition: border-color var(--hmo-dur-fast) var(--hmo-ease),
+                background-color var(--hmo-dur-fast) var(--hmo-ease);
+}
+
+.where label:hover {
+    border-color: var(--hmo-line-strong);
+}
+
+.where input[type="radio"] {
+    margin-top: 0.2rem;
+    accent-color: var(--hmo-accent);
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+/* `:has()` rather than a sibling selector: the radio is inside the label. */
+.where label:has(input:checked) {
+    border-color: var(--hmo-accent-line);
+    background: var(--hmo-accent-wash);
+}
+
+.where label:focus-within {
+    border-color: var(--hmo-accent-line);
+    box-shadow: 0 0 0 3px var(--hmo-accent-ring);
+}
+
+/* `inline-block`, not `block`: the "in testing" tag is the title's *sibling*
+   (a `data-i18n` element cannot carry a translated child), so it has to be
+   able to sit on the same line — and the help text below is what breaks it. */
+.where strong {
+    display: inline-block;
+    font-weight: 600;
+    color: var(--hmo-text);
+    font-size: 0.9063rem;
+}
+
+.where span {
+    display: block;
+    color: var(--hmo-text-dim);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+}
+
+/* "in testing". Not a colour on its own: it sits on the card title, so it
+   borrows the warning hue and nothing else. */
+.tag {
+    display: inline-block;
+    font-size: 0.6563rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-style: normal;
+    color: var(--hmo-warn);
+    border: 1px solid var(--hmo-warn);
+    border-radius: var(--hmo-r-pill);
+    padding: 0 0.44rem;
+    margin-left: 0.375rem;
+    vertical-align: 1px;
+    opacity: 0.85;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * "What to show" — the layer chips
+ *
+ * Five checkboxes as pills instead of five switches with a paragraph each. The
+ * native input is hidden but still the control: it keeps the keyboard, the
+ * label association and the checked state, and `:focus-within` draws the ring
+ * the hidden box cannot.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0;
+}
+
+.chips label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.8125rem;
+    border: 1px solid var(--hmo-line-strong);
+    border-radius: var(--hmo-r-pill);
+    padding: 0.3rem 0.75rem;
+    color: var(--hmo-text-dim);
+    user-select: none;
+    transition: border-color var(--hmo-dur-fast) var(--hmo-ease),
+                background-color var(--hmo-dur-fast) var(--hmo-ease),
+                color var(--hmo-dur-fast) var(--hmo-ease);
+}
+
+/* Hidden but not `display: none`: a display-none input is not focusable, and
+   the chips would be unreachable by keyboard. Clipped inside its own label
+   (hence `position: relative` above), so it cannot drag the scroll position. */
+.chips input[type="checkbox"] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    clip-path: inset(50%);
+    pointer-events: none;
+}
+
+.chips label:has(input:checked) {
+    color: var(--hmo-text);
+    border-color: var(--hmo-accent-line);
+    background: var(--hmo-accent-wash);
+}
+
+.chips label:focus-within {
+    box-shadow: 0 0 0 3px var(--hmo-accent-ring);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * "Something not working?" / "Other adjustments" — the folds
+ *
+ * A switch that needs a paragraph belongs behind one of these. They bleed to
+ * the panel's edges so the rule reads as a section divider rather than a box.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+details.adv {
+    border-top: 1px solid var(--hmo-line);
+    margin-top: 1.125rem;
+}
+
+details.adv > summary {
+    cursor: pointer;
+    padding: 0.875rem 0;
+    color: var(--hmo-text-dim);
+    font-size: 0.8438rem;
+    list-style: none;
+}
+
+details.adv > summary::-webkit-details-marker {
+    display: none;
+}
+
+details.adv > summary::before {
+    content: '\25B8\00a0';
+    color: var(--hmo-text-mute);
+}
+
+details.adv[open] > summary::before {
+    content: '\25BE\00a0';
+}
+
+details.adv > summary small {
+    color: var(--hmo-text-mute);
+}
+
+details.adv > summary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--hmo-accent-ring);
+    border-radius: var(--hmo-r-xs);
+}
+
+/* The question a fold's switch answers. Deliberately a sentence, not a label:
+   the user is looking for a symptom, not for a setting name. */
+.q {
+    margin: 0.25rem 0 0.375rem;
+    font-size: 0.8438rem;
+    font-weight: 500;
+    color: var(--hmo-text);
+}
+
+/* A button that reads as a link: "What does the app read?", the tutorial's
+   "change". Never a bare <a>, so it cannot be dragged or opened in a browser. */
+.linkish {
+    color: var(--hmo-accent-bright);
+    font-size: 0.8125rem;
+    text-decoration: underline;
+    vertical-align: baseline;
+}
+
+.linkish:hover {
+    color: var(--hmo-accent);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

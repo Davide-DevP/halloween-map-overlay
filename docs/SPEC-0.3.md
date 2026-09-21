@@ -18,6 +18,9 @@ Order of implementation: 2, 4, 1, 5 (cheapest first; 5 touches every string).
   same map), status "Back in menu — map cleared". One positive tick does
   nothing (avoids flicker on transitions).
 - Setting `hideInMenu` (bool, default true), switch in Settings → General,
+  **removed in 1.0**: always on, no setting and no switch (the pure
+  `shouldWatchMenu(shownKey)`; docs/agents/settings-and-onboarding.md § Two
+  settings the app decides),
   under the auto-detect explanation.
 - Tests: `menu-main.png` → menu = true; all four Tab fixtures, both gameplay
   fixtures → menu = false; margin printed. The fixture test discovery must

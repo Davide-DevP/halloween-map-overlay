@@ -527,8 +527,7 @@ class MapDetector {
         try {
             // Whether the menu matcher is wanted is decided **here**, before any
             // pixel work: it depends on state main owns, not the worker.
-            const wantMenu = !!(this.menuTemplate && this.settings
-                && shouldWatchMenu(this.shownKey, this.settings.get('hideInMenu')));
+            const wantMenu = !!(this.menuTemplate && shouldWatchMenu(this.shownKey));
             const reply = await this.frames.grab({menu: wantMenu});
             if (!this.running || this.runId !== runId) return;
             // **No answer is not an answer about the window**, and not a reason

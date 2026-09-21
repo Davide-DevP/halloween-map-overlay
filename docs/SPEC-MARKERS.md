@@ -614,7 +614,12 @@ with the trigger's counters and error count.
 
 Settings › Overlay gains two groups: **Markers** (master switch, four per-layer
 switches, legend switch, opacity 0.1–1.0) and **Markers on the in-game map
-(experimental)**. Every marker setting defaults to **on** and is read as
+(experimental)**. *(1.0 rebuilt that UI: the Map tab has one choice — "where do
+you want to see the map?" — over `tabMarkers`+`tabHidesMinimap`, the four
+layers and the legend are chips, the master switch is only reachable through
+Ctrl+Alt+M, and the two long help texts moved into the FAQ. Every setting and
+every IPC handler below is unchanged. See
+docs/agents/settings-and-onboarding.md.)* Every marker setting defaults to **on** and is read as
 `!== false`, so a settings file written before markers existed behaves like the
 shipped defaults; `tabMarkers` needs an explicit `true`.
 
@@ -639,7 +644,8 @@ payload in place (or hides, if there is nothing left to draw).
 Tab-mode's group also holds **Game's map key** (a capture button, recorded on
 the *button* rather than on `document` so it cannot fight `src/js/hotkeys.js`'s
 recording listener, with `preventDefault` so pressing Tab does not just move
-focus) and **Do not read the key state**, plus a line naming the method in use.
+focus) and **Do not read the key state** — in 1.0 *Use the other method*, under
+*Something not working?* — plus a line naming the method in use.
 `set-tab-marker-key` and `set-marker-trigger` are their own IPC handlers for
 the same reason as `set-tab-markers`: main re-points or stops a running trigger,
 and it validates the virtual-key code the renderer sends — with

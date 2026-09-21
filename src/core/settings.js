@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 const {DEFAULT_SETTINGS: defaultConfig} = require("../shared/settings-defaults");
+const {TOUR_VERSION} = require("../shared/onboarding-rules");
 const {msg} = require("../shared/i18n");
 const appLog = require("./app-log");
 
@@ -27,8 +28,8 @@ class Settings {
         /** Epoch ms of the last write-failure warning shown to the user. */
         this.lastWarnAt = 0;
         if (this.freshInstall) {
-            // A failure is not worth refusing to start over: the defaults are
-            // in memory and the next `set()` tries again.
+            // A failure is survivable: the defaults are in memory and the
+            // next `set()` tries again.
             try {
                 fs.writeFileSync(fileDir, JSON.stringify(defaultConfig))
             } catch (err) {
@@ -42,14 +43,19 @@ class Settings {
             console.error("Settings: could not parse settings-app.json, using defaults:", err.message);
             this.settings = {};
         }
+        /**
+         * The parsed file **before** the back-fill: only it can tell "the file
+         * holds no key for this action" from "the file stores `''`".
+         * Why: docs/agents/hotkeys.md § Defaults and the migration onto them.
+         */
+        this.fileSettings = Object.assign({}, this.settings);
         for (let key in defaultConfig) {
             if (this.settings[key] === undefined) {
                 this.settings[key] = defaultConfig[key]
             }
         }
-        // "Owed the welcome tour", as a stored marker, and after the back-fill so
-        // a file that could not be created/parsed still has the tour owed in
-        // memory this session. Why: the doc § The first-run welcome tour.
+        // "Owed the setup tutorial", after the back-fill so a file that could
+        // not be created or parsed still has it owed in memory this session.
         if (this.freshInstall && this.settings.onboardingPending !== true) {
             this.settings.onboardingPending = true;
             this.write();
@@ -65,18 +71,23 @@ class Settings {
             classInstance.set(key, value);
             return classInstance.settings;
         })
-        // The tour's own handlers: `set-setting` answers with the settings
+        // The tutorial's own handlers: `set-setting` answers with the settings
         // object and so cannot say "that did not reach the disk".
         ipcMain.handle('get-onboarding-state', async () => ({
             onboardingPending: classInstance.settings.onboardingPending === true,
-            onboardingDone: classInstance.settings.onboardingDone === true
+            onboardingDone: classInstance.settings.onboardingDone === true,
+            tourSeenVersion: classInstance.settings.tourSeenVersion
         }));
         ipcMain.handle('set-onboarding-done', async (event, value) => {
             const done = value === true;
             const ok = classInstance.set('onboardingDone', done);
-            // Only the first write's success is reported: the second would fail
+            // Only the first write's success is reported: the rest would fail
             // the same way.
-            if (done) classInstance.set('onboardingPending', false);
+            if (done) {
+                classInstance.set('onboardingPending', false);
+                // The once-per-version stamp, on Finish *and* on Skip.
+                classInstance.set('tourSeenVersion', TOUR_VERSION);
+            }
             return {ok};
         });
         ipcMain.handle('save-settings', async (event, settings) => {
@@ -117,9 +128,8 @@ class Settings {
     /**
      * @param {{rollback?: boolean}} [options] `rollback: true` restores the
      *   previous in-memory value when the write fails. Opt-in.
-     * @returns {boolean} whether the value reached the disk; a caller answering
-     *   an IPC invoke has to pass this on.
-     *   Why both: the doc § Writing settings.
+     * @returns {boolean} whether the value reached the disk — a caller answering
+     *   an IPC invoke has to pass it on. Why: the doc § Writing settings.
      */
     set(key, value, options) {
         const had = Object.prototype.hasOwnProperty.call(this.settings, key);
@@ -168,7 +178,6 @@ class Settings {
     /**
      * Several keys at once, without dropping keys the caller never saw.
      * @param {{rollback?: boolean}} [options] as `set()`, for every key at once
-     * @returns {boolean} whether the write succeeded
      */
     merge(partial, options) {
         // Only a real object: `Object.assign(settings, 'nope')` would add
@@ -188,8 +197,7 @@ class Settings {
             }
             return ok;
         }
-        // Only the keys that actually moved, so a `save-settings` re-post is
-        // not reported as every setting changing.
+        // Only the keys that moved: a `save-settings` re-post is not every setting.
         const changed = [...before.keys()].filter(key => before.get(key) !== this.settings[key]);
         this.notifyChange(changed);
         return ok;

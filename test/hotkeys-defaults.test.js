@@ -44,23 +44,41 @@ test('the system hotkeys are the documented ones', () => {
         ['toggle-map', 'rotate-map', 'next-map', 'prev-map', 'clear-map',
             'opacity-up', 'opacity-down', 'size-up', 'size-down', 'toggle-markers']);
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['toggle-map'].defaultAccelerator, 'CommandOrControl+Alt+H');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['rotate-map'].defaultAccelerator, 'CommandOrControl+Alt+R');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['next-map'].defaultAccelerator, 'CommandOrControl+Alt+Right');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['prev-map'].defaultAccelerator, 'CommandOrControl+Alt+Left');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['clear-map'].defaultAccelerator, 'CommandOrControl+Alt+D');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-up'].defaultAccelerator, 'CommandOrControl+Alt+Up');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['opacity-down'].defaultAccelerator, 'CommandOrControl+Alt+Down');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-up'].defaultAccelerator, 'CommandOrControl+Alt+Shift+Up');
-    assert.strictEqual(SYSTEM_HOTKEY_DEFS['size-down'].defaultAccelerator, 'CommandOrControl+Alt+Shift+Down');
     assert.strictEqual(SYSTEM_HOTKEY_DEFS['toggle-markers'].defaultAccelerator, 'CommandOrControl+Alt+M');
+    // The other five ship with no key at all — see below.
 });
 
-test('no default is a plain Ctrl combination any more', () => {
+test('exactly five actions ship with no key, and they are these five', () => {
+    // The owner's call: ten default combinations was too many for an app whose
+    // user has never rebound a shortcut. These five stay fully available and
+    // rebindable, they are simply not *given* a combination on a new install.
+    // Which five is a decision, so it is asserted, not derived.
+    const unbound = Object.entries(SYSTEM_HOTKEY_DEFS)
+        .filter(([, def]) => isUnbound(def.defaultAccelerator)).map(([id]) => id);
+    assert.deepStrictEqual(unbound,
+        ['rotate-map', 'opacity-up', 'opacity-down', 'size-up', 'size-down']);
+    const bound = Object.entries(SYSTEM_HOTKEY_DEFS)
+        .filter(([, def]) => !isUnbound(def.defaultAccelerator)).map(([id]) => id);
+    assert.deepStrictEqual(bound,
+        ['toggle-map', 'next-map', 'prev-map', 'clear-map', 'toggle-markers']);
+    // An unbound default is the *empty string*, never a missing property: the
+    // back-fill in `core/settings.js` keys off `undefined`.
+    for (const actionId of unbound) {
+        assert.strictEqual(SYSTEM_HOTKEY_DEFS[actionId].defaultAccelerator, UNBOUND_ACCELERATOR);
+        assert.strictEqual(DEFAULT_SETTINGS[ACTION_TO_SETTING_KEY[actionId]], UNBOUND_ACCELERATOR);
+    }
+});
+
+test('no default that exists is a plain Ctrl combination any more', () => {
     // The point of the 0.7 defaults: Ctrl is crouch in the game, and Ctrl+R /
     // Ctrl+H / Ctrl+arrows / Ctrl+1..9 are browser, Discord and text-field
     // shortcuts that a *global* accelerator takes away system-wide. Every
     // default therefore carries Alt as well.
     for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        if (isUnbound(def.defaultAccelerator)) continue;
         const normalized = normalizeAccelerator(def.defaultAccelerator);
         assert.ok(normalized, `${actionId}: ${def.defaultAccelerator} does not parse`);
         assert.ok(normalized.split('+').includes('Alt'), `${actionId}: ${normalized} has no Alt`);
@@ -82,10 +100,15 @@ test('every system hotkey ships a stored default accelerator', () => {
 test('every system hotkey default is registrable and carries a modifier', () => {
     const seen = new Set();
     for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
+        // An unbound default is never registered at all, and `''` must not
+        // count as "already taken" or every one of the five would collide with
+        // every other.
+        if (isUnbound(def.defaultAccelerator)) continue;
         assert.ok(hasModifier(def.defaultAccelerator), `${actionId}: ${def.defaultAccelerator}`);
         assert.ok(!seen.has(def.defaultAccelerator), `${def.defaultAccelerator} is bound twice`);
         seen.add(def.defaultAccelerator);
     }
+    assert.strictEqual(seen.size, 5);
 });
 
 test('every system action persists under its own settings key', () => {
@@ -130,7 +153,10 @@ test('every system default resolves to itself when nothing is stored', () => {
     for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
         assert.strictEqual(resolveSystemAccelerator(undefined, def.defaultAccelerator),
             def.defaultAccelerator, actionId);
-        assert.ok(!isUnbound(resolveSystemAccelerator(undefined, def.defaultAccelerator)), actionId);
+        // A default-unbound action reads as unbound with nothing stored — the
+        // table must show *no key*, not an empty `<kbd>`.
+        assert.strictEqual(isUnbound(resolveSystemAccelerator(undefined, def.defaultAccelerator)),
+            isUnbound(def.defaultAccelerator), actionId);
         // …and unbinding it is visible as such, whatever the default was.
         assert.ok(isUnbound(resolveSystemAccelerator('', def.defaultAccelerator)), actionId);
     }
@@ -317,6 +343,12 @@ test('every shipped default has a readable display form', () => {
     // would be visible everywhere at once.
     for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
         const shown = acceleratorToDisplay(def.defaultAccelerator);
+        // An unbound default has no display form at all; the UI substitutes
+        // `hotkeys.notBound` rather than printing an empty cap.
+        if (isUnbound(def.defaultAccelerator)) {
+            assert.strictEqual(shown, '', actionId);
+            continue;
+        }
         assert.ok(shown.startsWith('Ctrl + Alt'), `${actionId}: ${shown}`);
         assert.ok(!/CommandOrControl/.test(shown), `${actionId}: ${shown}`);
     }

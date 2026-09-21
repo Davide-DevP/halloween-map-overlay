@@ -11,7 +11,7 @@ const {
     resolveSystemAccelerator,
     SYSTEM_HOTKEY_DEFS
 } = require("../shared/hotkeys-constants");
-const {sameAccelerator} = require("../shared/hotkeys-rules");
+const {systemHotkeyRows} = require("../shared/hotkeys-rules");
 const {escapeHtml} = require("../shared/escape-html");
 const {showStatus} = require("./status");
 const {t, translateMessage, onChange} = require("./i18n");
@@ -173,44 +173,50 @@ class Hotkeys {
         this.updateHotkeyTexts();
     }
 
+    /** One System row from a `systemHotkeyRows()` entry. @returns {string} markup */
+    systemHotkeyRow(row) {
+        // A muted word, not an empty `<kbd>`, which reads as a rendering
+        // fault rather than a deliberate "no shortcut".
+        const binding = row.bound
+            ? `<kbd class="system-hotkey-binding" data-action="${escapeHtml(row.actionId)}">${escapeHtml(acceleratorToDisplay(row.accelerator))}</kbd>`
+            : `<span class="hotkey-unbound">${escapeHtml(t('hotkeys.notBound'))}</span>`;
+
+        return `
+            <tr data-action="${escapeHtml(row.actionId)}">
+                <td>${escapeHtml(row.descriptionKey ? t(row.descriptionKey) : row.description || '')}</td>
+                <td>${binding}</td>
+                <td>
+                    <span class="row-actions">
+                        <button type="button" class="edit-system-btn btn btn-sm btn-quiet"
+                                data-action="${escapeHtml(row.actionId)}" title="${escapeHtml(t('hotkeys.editTitle'))}">${escapeHtml(t('common.edit'))}</button>
+                        <button type="button" class="unbind-system-btn btn btn-sm btn-quiet"
+                                data-action="${escapeHtml(row.actionId)}" title="${escapeHtml(t('hotkeys.unbindTitle'))}"
+                                ${row.bound ? '' : 'disabled'}>${escapeHtml(t('hotkeys.unbind'))}</button>
+                        <button type="button" class="reset-system-btn btn btn-sm btn-quiet"
+                                data-action="${escapeHtml(row.actionId)}" title="${escapeHtml(t('hotkeys.resetTitle'))}"
+                                ${row.isDefault ? 'disabled' : ''}>${escapeHtml(t('common.reset'))}</button>
+                    </span>
+                </td>
+            </tr>
+        `;
+    }
+
+    /**
+     * Two tbodies, one loop; the split is the pure `systemHotkeyRows`.
+     */
     updateSystemHotkeysTable() {
         const $list = $('#systemHotkeyList');
         if (!$list.length) return;
+        const $more = $('#systemHotkeyListMore');
+        const $fold = $('#systemHotkeyMoreFold');
         $list.empty();
+        $more.empty();
 
-        for (const [actionId, def] of Object.entries(SYSTEM_HOTKEY_DEFS)) {
-            // Never `|| def.defaultAccelerator`, or the table claims a binding
-            // that is not registered.
-            const currentAccel = resolveSystemAccelerator(this.systemHotkeys[actionId], def.defaultAccelerator);
-            const unbound = isUnbound(currentAccel);
-            // Unbound is not the default, so Reset stays available. Compared
-            // *normalised*: a hand-edited `ctrl+alt+r` is the default.
-            const isDefault = sameAccelerator(currentAccel, def.defaultAccelerator);
-            // A muted word, not an empty `<kbd>`, which reads as a rendering
-            // fault rather than a deliberate "no shortcut".
-            const binding = unbound
-                ? `<span class="hotkey-unbound">${escapeHtml(t('hotkeys.notBound'))}</span>`
-                : `<kbd class="system-hotkey-binding" data-action="${escapeHtml(actionId)}">${escapeHtml(acceleratorToDisplay(currentAccel))}</kbd>`;
-
-            $list.append(`
-                <tr data-action="${escapeHtml(actionId)}">
-                    <td>${escapeHtml(actionName(def))}</td>
-                    <td>${binding}</td>
-                    <td>
-                        <span class="row-actions">
-                            <button type="button" class="edit-system-btn btn btn-sm btn-quiet"
-                                    data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.editTitle'))}">${escapeHtml(t('common.edit'))}</button>
-                            <button type="button" class="unbind-system-btn btn btn-sm btn-quiet"
-                                    data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.unbindTitle'))}"
-                                    ${unbound ? 'disabled' : ''}>${escapeHtml(t('hotkeys.unbind'))}</button>
-                            <button type="button" class="reset-system-btn btn btn-sm btn-quiet"
-                                    data-action="${escapeHtml(actionId)}" title="${escapeHtml(t('hotkeys.resetTitle'))}"
-                                    ${isDefault ? 'disabled' : ''}>${escapeHtml(t('common.reset'))}</button>
-                        </span>
-                    </td>
-                </tr>
-            `);
-        }
+        const {main, more} = systemHotkeyRows(this.systemHotkeys);
+        for (const row of main) $list.append(this.systemHotkeyRow(row));
+        for (const row of more) $more.append(this.systemHotkeyRow(row));
+        // Nothing to unfold is not an empty fold with a heading: it is no fold.
+        $fold.toggle(more.length > 0);
 
         const self = this;
         $('.edit-system-btn').off('click').on('click', function () {
@@ -469,6 +475,5 @@ class Hotkeys {
 }
 
 module.exports = Hotkeys;
-// Exported rather than copied into the welcome tour: the escaping is the
-// load-bearing part, and two copies of that rule is one too many.
+// Exported rather than copied into the tutorial: the escaping is load-bearing.
 module.exports.acceleratorKbd = acceleratorKbd;

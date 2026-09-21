@@ -244,6 +244,9 @@ class Hotkeys {
                 classInstance.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
                 return;
             }
+            // Five actions ship with no key, so a Reset can *be* an unbind;
+            // its own line, or `value=` reads like a write that lost its value.
+            if (isUnbound(def.defaultAccelerator)) appLog.event('hotkey-unbound', {action: actionId});
             classInstance.mainWindow.sendUpdate(msg('hotkeys.resetToDefault'));
             classInstance.loadKeys();
         });
@@ -352,7 +355,7 @@ class Hotkeys {
 
     /**
      * Run a system hotkey. The action happens in **main**; `hotkey-action` only
-     * *tells* the window, for the welcome tour's "try it" step.
+     * *tells* the window, for the setup tutorial's "try it" step.
      * @param {string} actionId a `SYSTEM_HOTKEY_DEFS` id
      */
     runAction(actionId) {
@@ -491,6 +494,8 @@ class Hotkeys {
             storedVersion: this.settings.get(DEFAULTS_VERSION_KEY),
             freshInstall: !!this.settings.freshInstall,
             settings: this.settings.settings,
+            // The raw file, so "no key stored" is not read as a deliberate unbind.
+            fileSettings: this.settings.fileSettings,
             mapHotkeys: this.readHotkeyFile()
         });
 
@@ -499,7 +504,28 @@ class Hotkeys {
         const fileOk = plan.mapChanged ? this.writeHotkeyFile(plan.mapHotkeys, 'migrate') : true;
         const changes = Object.assign({}, plan.settingChanges);
         if (plan.stamp && fileOk) changes[DEFAULTS_VERSION_KEY] = plan.version;
-        if (Object.keys(changes).length) this.settings.merge(changes, {rollback: true});
+        // **No `rollback` here, deliberately** — the one writer in the app that
+        // must not have it: a rolled-back pin restores the `''` the back-fill
+        // invented, a later write persists that `''` without the stamp, and the
+        // next start reads it as a deliberate unbind. Why: the doc, same section.
+        if (Object.keys(changes).length && !this.settings.merge(changes)) {
+            // Kept in memory: a later successful write carries them along.
+            appLog.warn('hotkey-defaults-deferred', {
+                version: plan.version,
+                keys: Object.keys(changes).length
+            });
+        }
+
+        for (const entry of plan.blocked) {
+            appLog.warn('hotkey-defaults-kept', {kind: entry.kind, to: entry.to, reason: entry.reason});
+        }
+        // Not a move and never toasted, but logged: it *is* a write.
+        if (plan.pinned.length) {
+            appLog.event('hotkey-defaults-pinned', {
+                version: plan.version,
+                actions: plan.pinned.map(p => p.id).join(' ')
+            });
+        }
 
         if (!plan.migrated) return;
         appLog.event('hotkey-defaults-migrated', {
@@ -509,9 +535,6 @@ class Hotkeys {
             maps: plan.moved.filter(m => m.kind === 'map').length,
             blocked: plan.blocked.length
         });
-        for (const entry of plan.blocked) {
-            appLog.warn('hotkey-defaults-kept', {kind: entry.kind, to: entry.to, reason: entry.reason});
-        }
         console.log(`Hotkey defaults migrated to v${plan.version}: `
             + plan.moved.map(m => `${m.from} → ${m.to}`).join(', '));
         this.pendingNotice = this.defaultsMovedNotice(plan);
