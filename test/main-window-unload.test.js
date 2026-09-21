@@ -239,11 +239,25 @@ test('the grace period is waited out rather than unloading on the hide', () => {
 test('minimising to the taskbar is not hiding to the tray', () => {
     const {mainWindow} = build();
     mainWindow.show('startup');
+    // No `hide()`: minimize-to-tray is off, the window sits on the taskbar.
+    mainWindow.window.minimized = true;
+    mainWindow.window.visible = false;
+    mainWindow.scheduleUnload('test');
+    assert.strictEqual(mainWindow.unloadTimer, null, 'nothing to wait for: it is not in the tray');
+    assert.ok(mainWindow.window && !mainWindow.window.isDestroyed());
+});
+
+test('the minimise button with minimize-to-tray on does unload', () => {
+    // The owner's real path: Windows minimises first, the `minimize` handler
+    // then hides — and `isMinimized()` stays true on the hidden window.
+    const {mainWindow} = build();
+    mainWindow.show('startup');
     mainWindow.window.minimized = true;
     mainWindow.window.hide();
     agePastGrace(mainWindow);
     mainWindow.scheduleUnload('test');
-    assert.ok(mainWindow.window && !mainWindow.window.isDestroyed());
+    assert.strictEqual(mainWindow.window, null);
+    assert.strictEqual(mainWindow.unloadState().unloaded, true);
 });
 
 test('a leftover unloadWindowInTray: false cannot keep the window forever', () => {

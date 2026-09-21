@@ -45,8 +45,8 @@ is switched on — see [Auto-detect](#auto-detect-map).
 - **Six languages** — English, Italian, Spanish, German, French and Brazilian
   Portuguese — following your system language by default. See
   [Language](#language).
-- Built to stay out of the game's way: about 106 MB of RAM with a map up and the
-  window in the tray, and the graphics card left alone unless you ask for it.
+- Built to stay out of the game's way: about 140 MB of RAM during a match with
+  everything switched on and the window in the tray, and the graphics card left alone unless you ask for it.
   See [Memory use](#memory-use).
 - Import your own map images; they show up under the **Custom** creator.
 - OBS window with a `#00ff00` background for chroma keying.
@@ -399,10 +399,14 @@ same opacity as the map. The OBS window follows the same setting.
 ## Memory use
 
 The overlay runs for a whole match on a machine the game already fills, so this
-matters. On the development machine, with a map on the overlay, the window
-minimized to the tray and auto-detect on, the app settles at about **106 MB of
-RAM** across its five processes — the "Memory" column Task Manager shows, added
-up. It is a little higher for the first minute and then Windows trims it.
+matters. Measured during a real match (1.0, six and a half minutes, a sample
+every five seconds) with a map up, the window in the tray, the map recognised
+automatically and the points drawn on the game's map — that is, everything
+switched on — the app uses about **140 MB of RAM** across its six processes
+(median 143 MB, between 103 and 177 MB), the "Memory" column Task Manager
+shows, added up. The part that watches the game's window costs about 7 % of
+one processor core while you play; everything else together about 5 %. With
+automatic recognition off there is one process fewer and the total is lower.
 
 One switch is most of the difference. **Settings → General → Something not working? →
 "Use the graphics card to draw the map"** is **off by default**, and that is deliberate: the
@@ -419,8 +423,8 @@ problem. It takes effect the next time the app starts.
 
 The other half is not a setting at all — the app decides. While it sits in the
 tray this window is closed after about three quarters of a minute and its
-memory — an estimated quarter or so of everything the app uses, not yet
-measured end to end — goes back to the system. Nothing you use during a match is
+memory goes back to the system — measured, about 90 MB less reserved memory and
+one process fewer. Nothing you use during a match is
 affected: the overlay stays up, every hotkey still works, and it still switches
 the map and clears it back in the menu. The only difference you will notice is
 that opening the window from the tray takes a moment instead of being instant.
@@ -815,6 +819,43 @@ Security → Virus & threat protection → Manage settings → Exclusions** remo
 that too.
 
 ## Changelog
+
+### 1.0.0
+
+- **A setup guide instead of a tour.** Six short steps set the app up without
+  ever opening Settings: language, where you want the map, how it looks, what to
+  show, your hotkeys, updates. It opens on first run, and **once for everyone
+  who already has the app**, because so much has changed. It starts from what
+  you already chose, so pressing *Next* all the way changes nothing, and *Skip*
+  or Esc closes it at any point.
+- **One question instead of a page of switches: *Where do you want to see the
+  map?*** In a corner of the screen, on the game's own map while you hold the
+  map key, or both. Everything that choice needs switches itself on.
+- **Settings a player can read.** Three tabs, eight switches in sight instead of
+  twenty-one. The options you only need when something goes wrong are folded
+  under *Something not working?* and written as the question you would ask.
+  Two options are gone because the app decides them itself. One switch and one
+  *Check now* button cover both the app's updates and new maps.
+- **Every sentence rewritten** for someone who knows nothing about PCs, in all
+  six languages, one word per thing (*points*, *hotkeys*, *the map in the
+  corner*, *the game's map*). What the app reads and when it uses the internet
+  is in the FAQ, in plain language first.
+- **Five hotkeys instead of ten.** Rotate, more/less visible and bigger/smaller
+  have no key on a new installation — they are under *More keys* and one click
+  gives them one. **If you are updating, every key you have stays exactly as it
+  is.**
+- **The window really leaves memory now.** Sending the app to the tray with the
+  − button never freed the main window's memory, in 0.7.0 either. It does now:
+  measured in a match, about 90 MB less reserved memory and one process fewer.
+  The README's memory figures are now real in-match measurements (about 140 MB
+  of RAM with everything on).
+- *Map recognised … at 18:27* now shows when the map was first recognised, not
+  the last time you pressed Tab.
+- The installed app is about 55 MB smaller (only the languages the app speaks,
+  no development files).
+- For map authors: `build-pack` now compares a new map with every other one and
+  warns when two maps look too alike for the detector to tell apart.
+- Note: going back to 0.7.0 keeps your settings; it simply ignores the new ones.
 
 ### 0.7.0
 

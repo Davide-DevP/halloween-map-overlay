@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const {
-    toGray, downsample, DEFAULT_SIZE,
+    toGray, downsample, DEFAULT_SIZE, matchMap, templateVariants,
     menuThumbnail, MENU_TEMPLATE_WIDTH, MENU_TEMPLATE_HEIGHT
 } = require('../src/core/map-detector/matcher');
 const {buildCatalog, findClosestMapMatch} = require('../src/core/map-catalog');
@@ -45,6 +45,11 @@ const REF = {
 const FULLSCREEN_PREFIX = 'tab-fullscreen-';
 const TEMPLATE_PREFIX = 'tab-';
 const MENU_PREFIX = 'menu-';
+
+/** Cross-score at which two maps are too alike to be separate maps. Nothing at
+ * runtime reads it: a review gate, not a threshold.
+ * Why: docs/agents/detection.md § Map similarity is a build-time check */
+const SIMILAR_MAP_SCORE = 0.70;
 
 function listFixtures() {
     return fs.readdirSync(FIXTURES).filter(f => /\.png$/i.test(f)).sort();
@@ -159,6 +164,127 @@ function locatePanel(gray, width, height) {
     return {dx, dy, x, y, size, frameCol: panelLeft - 1, nameBoxRow};
 }
 
+/*
+ * ─── Cross-scores between maps ──────────────────────────────────────────────
+ * The similarity check, here for the shipped maps and in `build-pack.js` for
+ * one new one. Both score through `matchMap`: never a second implementation.
+ * Why: docs/agents/detection.md § Map similarity is a build-time check
+ */
+
+/** Every `tab-*` fixture mapped to the key it shows, `tab-fullscreen-*`
+ * included: not template sources, but frames of a real map. */
+function frameSourcesByKey() {
+    const entries = catalog();
+    const byKey = {};
+    for (const file of listFixtures()) {
+        if (!file.startsWith(TEMPLATE_PREFIX)) continue;
+        const asSource = file.startsWith(FULLSCREEN_PREFIX)
+            ? TEMPLATE_PREFIX + file.slice(FULLSCREEN_PREFIX.length)
+            : file;
+        const key = keyForFixture(asSource, entries);
+        if (key) (byKey[key] = byKey[key] || []).push(file);
+    }
+    return byKey;
+}
+
+/** One frame's score against every key, the **higher** of two registrations:
+ * the runtime path and the panel `locatePanel` finds — so no rule is needed
+ * about full frame versus hand-made crop, and a warning errs high. */
+function frameScores(gray, width, height, templates) {
+    const at = (scores, key) => (scores && scores[key] !== undefined ? scores[key] : -Infinity);
+    const direct = matchMap(gray, width, height, templates, {gate: false, report: true}).scores;
+    let located = null;
+    try {
+        const loc = locatePanel(gray, width, height);
+        const panel = cutSquare(gray, width, height, loc.x, loc.y, loc.size);
+        located = matchMap(panel, loc.size, loc.size, templates,
+            {region: null, gate: false, report: true}).scores;
+    } catch (err) {
+        /* no findable panel: the runtime registration alone */
+    }
+    const out = {};
+    for (const key of Object.keys(templates)) out[key] = Math.max(at(direct, key), at(located, key));
+    return out;
+}
+
+/** One row per frame: `{key, file, scores}`.
+ * @param {Array<{key: string, file: string}>} frames `file` is a full path */
+async function crossScoreRows(frames, templates) {
+    const rows = [];
+    for (const {key, file} of frames) {
+        const {gray, width, height} = await loadGray(file);
+        rows.push({key, file: path.basename(file), scores: frameScores(gray, width, height, templates)});
+    }
+    return rows;
+}
+
+/** One row per **stored variant** of every key: the only frame this repository
+ * has of a map published as a pack, so these keep the matrix two-directional. */
+function templateRows(templates, size) {
+    const n = size || DEFAULT_SIZE;
+    const rows = [];
+    for (const key of Object.keys(templates)) {
+        templateVariants(templates[key]).forEach((thumb, i) => {
+            // `region: null` on a `size`-square input makes the reduction the
+            // identity, so these are the matcher's own numbers.
+            rows.push({
+                key,
+                file: `${key} · stored variant ${i + 1}`,
+                scores: matchMap(thumb, n, n, templates, {region: null, gate: false, report: true}).scores
+            });
+        });
+    }
+    return rows;
+}
+
+/** The pairs of **different** maps whose cross-score reaches `threshold` either
+ * way round; sorted and deduplicated, so two runs report one list.
+ * @param {Array<{key: string, scores: Object<string, number>}>} rows */
+function similarPairsFromRows(rows, threshold) {
+    const bar = threshold === undefined ? SIMILAR_MAP_SCORE : threshold;
+    const seen = new Map();
+    for (const row of rows || []) {
+        for (const [key, score] of Object.entries(row.scores || {})) {
+            if (key === row.key || !(score >= bar)) continue;
+            const pair = [row.key, key].sort();
+            seen.set(pair[0] + '\n' + pair[1], pair);
+        }
+    }
+    return [...seen.keys()].sort().map(id => seen.get(id));
+}
+
+/** The shipped maps' cross-score matrix and the pairs that reach the
+ * threshold. Frames: every `tab-*` fixture, plus every stored variant. */
+async function buildSimilarity(templates) {
+    const frames = [];
+    for (const [key, files] of Object.entries(frameSourcesByKey())) {
+        if (!Object.prototype.hasOwnProperty.call(templates, key)) continue;
+        for (const file of files) frames.push({key, file: path.join(FIXTURES, file)});
+    }
+    const rows = (await crossScoreRows(frames, templates)).concat(templateRows(templates));
+    const measured = Object.keys(templates).filter(key => rows.some(row => row.key === key)).sort();
+    return {threshold: SIMILAR_MAP_SCORE, measured, pairs: similarPairsFromRows(rows), rows};
+}
+
+/** The matrix, so a reviewer sees the separation, not a verdict about it. */
+function printCrossScores(similar) {
+    const short = key => key.split('/').pop();
+    const keys = similar.measured;
+    console.log(`\nCross-scores between maps (too alike at ${similar.threshold})\n`);
+    console.log('  ' + 'frame'.padEnd(52) + keys.map(k => short(k).slice(0, 14).padEnd(16)).join(''));
+    for (const row of similar.rows) {
+        console.log('  ' + row.file.slice(0, 50).padEnd(52)
+            + keys.map(k => ((k === row.key ? '*' : ' ') + row.scores[k].toFixed(4)).padEnd(16)).join(''));
+    }
+    if (!similar.pairs.length) {
+        console.log('\n  no pair reaches the threshold: every wrong-map score is well below it');
+        return;
+    }
+    console.log(`\n  ! TOO ALIKE: ${similar.pairs.map(p => p.join(' ~ ')).join(', ')}`);
+    console.log('  ! Two shipped maps scoring this close have never been seen. Check they are not the');
+    console.log('  ! same map twice, and see docs/agents/maps-authoring.md § When two maps score alike.');
+}
+
 function menuFixtures() {
     return listFixtures().filter(f => f.startsWith(MENU_PREFIX));
 }
@@ -241,6 +367,15 @@ async function main() {
         }
     }
 
+    // Sorted keys + a stable 2-space format: re-running the script on an
+    // unchanged fixture set must produce a byte-identical file.
+    const ordered = {};
+    for (const key of Object.keys(templates).sort()) ordered[key] = templates[key];
+
+    // Measured on the rounded thumbnails that are committed, and only printed:
+    // nothing at runtime reads it, so nothing is written.
+    printCrossScores(await buildSimilarity(ordered));
+
     // Its own section, not a key in `templates`: the menu must never appear in
     // the map matcher's candidate list.
     const menu = await buildMenuTemplate();
@@ -257,10 +392,6 @@ async function main() {
         console.warn('  ! no detection-fixtures/menu-*.png — the menu template will be empty.');
     }
 
-    // Sorted keys + a stable 2-space format: re-running the script on an
-    // unchanged fixture set must produce a byte-identical file.
-    const ordered = {};
-    for (const key of Object.keys(templates).sort()) ordered[key] = templates[key];
     const payload = {
         // Format 2: `templates[key]` is a *list* of thumbnails, one per view of
         // the map panel. `templateVariants` also reads the format-1 shape.
@@ -285,8 +416,10 @@ async function main() {
 module.exports = {
     locatePanel, loadGray, cutSquare, buildTemplate, buildVariantsForKey,
     listFixtures, catalog, keyForFixture, templateSources, templateSourcesByKey,
+    frameSourcesByKey, frameScores, crossScoreRows, templateRows, similarPairsFromRows,
+    buildSimilarity, printCrossScores,
     menuFixtures, buildMenuTemplate,
-    REF, FIXTURES, MAPS, TEMPLATE_PREFIX, FULLSCREEN_PREFIX, MENU_PREFIX
+    REF, FIXTURES, MAPS, TEMPLATE_PREFIX, FULLSCREEN_PREFIX, MENU_PREFIX, SIMILAR_MAP_SCORE
 };
 
 if (require.main === module) {

@@ -71,6 +71,8 @@ class MapDetector {
         this.runId = 0;
         this.lastDetected = null;
         this.lastAt = null;
+        /** When the current map was first recognised — what the status line shows. */
+        this.detectedSince = null;
         this.lastScore = null;
         this.lastErrorAt = 0;
         this.lastMissingAt = 0;
@@ -329,7 +331,7 @@ class MapDetector {
         return {
             running: this.running,
             lastDetected: this.lastDetected,
-            lastAt: this.lastAt,
+            lastAt: this.lastDetected ? this.detectedSince : null,
             lastScore: this.lastScore,
             templates: this.templateKeys.length,
             inMenu: this.inMenu
@@ -614,6 +616,9 @@ class MapDetector {
             this.lastScore = match.score;
             this.lastAt = Date.now();
             const changed = match.key !== this.lastDetected;
+            // The status line says when this map was *first* recognised; every
+            // later Tab only re-confirms it.
+            if (changed || !this.detectedSince) this.detectedSince = this.lastAt;
             // `lastDetected` gates the menu clear and drives the status line;
             // it does **not** decide whether to send.
             this.lastDetected = match.key;
@@ -641,7 +646,7 @@ class MapDetector {
             // it because the key can be released *during* a capture, and Tab mode
             // drops anything older than its last hide.
             this.notifyTabMode('onMatch', match.key, gameRect, win.captured || null, started);
-            this.sendStatus({state: 'detected', key: match.key, at: this.lastAt, score: match.score});
+            this.sendStatus({state: 'detected', key: match.key, at: this.detectedSince, score: match.score});
         } catch (err) {
             this.log.write('error', {message: (err && err.message) || String(err)});
             this.logState('lastErrorAt', (err && err.message) || String(err), 'error');

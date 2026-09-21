@@ -252,3 +252,24 @@ test('a tick with no answer keeps the game cadence', async () => {
     assert.deepStrictEqual(armed, [2000]);
     detector.destroy();
 });
+
+test('the status line keeps the time the map was first recognised, not the last Tab', async () => {
+    const child = scriptedChild({});
+    const {detector, host} = loopWith(child);
+    detector.start();
+    await sleep(60);
+    const match = (key) => ({type: 'grab', window: GAME_WINDOW, gate: true, menu: null, timings: {total: 2, gc: 1},
+        match: {key, score: 0.99, second: 0.5, margin: 0.49, accepted: true, acceptedBy: 'score', panelMean: 0.2}});
+    host.grab = async () => match('deftyconchgaming/Haddonfield Heights');
+    await detector.tick();
+    const first = detector.status().lastAt;
+    assert.ok(first > 0);
+    await sleep(15);
+    await detector.tick();
+    assert.strictEqual(detector.status().lastAt, first, 'a re-confirmation moved the time');
+    await sleep(15);
+    host.grab = async () => match('deftyconchgaming/East Haddonfield');
+    await detector.tick();
+    assert.ok(detector.status().lastAt > first, 'a different map must restart the clock');
+    detector.destroy();
+});

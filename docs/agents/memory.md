@@ -94,10 +94,20 @@ anything that looks like a spare allocation in the detector loop.
     `overlayWindow.close()` when the window carries `__hmoUnloading`, and the
     one-time startup work (`checkUpdates`, the stale-helper sweep) is guarded by
     `startupTasksDone` so reopening the window is not a new network request.
-    **The ~32 MB is an ESTIMATE, not a measurement** — it is this report's own
-    figure for renderer A in the in-match state, and nobody has measured the app
-    with the window actually gone, because no agent may launch it. Say
-    "estimated" until the owner does. `app.log` records
+    **Measured by the owner in a real match on 2026-09-21 (1.0 test build,
+    auto-detect + Tab-map mode on, a sample every 5 s through
+    `Win32_PerfFormattedData_PerfProc_Process.WorkingSetPrivate`):** with the
+    window unloaded, 6 processes, **private working set median 143 MB (103–177)**,
+    commit 278 MB; with the window still loaded, 7 processes and 368 MB commit —
+    the window was worth **−90 MB of commit and one process** (its renderer alone:
+    ~76 MB commit, ~110 MB working set). CPU over the match: detector utility
+    process ~7 % of one core, main ~2 %, GPU process ~3 %, renderers ~0. The
+    "~106 MB" quoted above predates the detector's utility process and the Tab
+    window and must not be quoted for 1.0. **That same session found the unload
+    had never worked for anyone using the − button** (`isMinimized()` stays true
+    on a window hidden by the `minimize` handler; see `SPEC-MAP-STATE.md`, the
+    `minimized` row) — so no in-the-field number before 1.0 included it.
+    `app.log` records
     `main-window state=unloaded|loaded` with the reason and `system.txt` prints
     `main window = loaded|unloaded`, so a measurement run can at least be
     confirmed to have been in the right state (map on the overlay, auto-detect

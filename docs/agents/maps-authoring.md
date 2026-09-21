@@ -98,3 +98,42 @@ of the Tab transform differs from the runtime one on purpose — see
 
 `npm run build-pack` publishes the same data as a *map pack* instead, which
 reaches users without a 93 MB release — [map-packs.md](map-packs.md).
+
+## When two maps score alike
+
+Both generators measure the new map's Tab panel against every map a user could
+already hold and print the matrix: `npm run prepare-detector` for the shipped
+set, `npm run build-pack` (add `--dry-run` to see it without writing anything)
+for a pack. The `*`-marked column is the frame's own map; it scores 0.95–1.00,
+and a wrong map has always come out around 0.42–0.51. The normal ending is:
+
+```
+  no installed map scores 0.7 or more against "<key>"
+```
+
+`! TOO ALIKE` instead means two entries look like one map to the matcher.
+Nothing is recorded anywhere and nothing is refused — the warning *is* the
+check — but do not publish past it without reading it. In order:
+
+1. **Look at the two overlay images.** Two genuinely different maps scoring
+   0.70+ has never been observed. The likely cause is that it *is* the same
+   map: a re-cut of one already published, or a night/snow/seasonal version. If
+   so, publish it **under the existing key** as a new `--version`. A pack
+   replaces a bundled or published map, which is the whole feature — publishing
+   it as a new key instead gives the gallery two entries for one map, two
+   Ctrl+Alt+N bindings, and a coin-toss for auto-detect.
+2. **Check the fixture.** A `--fixture` whose panel `locatePanel`
+   mis-registered scores oddly against everything. If the `*` column is below
+   ~0.94 the screenshot is the problem, not the map — re-crop it or take
+   another.
+3. **Otherwise it is a real pair.** Publish it; the detector compares both maps
+   in full on every frame anyway ([detection.md](detection.md) § Why there is
+   no early exit), so the only cost is that auto-detect may pick the wrong one
+   of the two. Add a line to [detection.md](detection.md) § Map similarity is a
+   build-time check saying which pair and what was decided.
+
+One thing not to do: do **not** drop a pack's Tab screenshot into
+`detection-fixtures/` to get it into the matrix. That folder *is* the bundled
+template set, so the file would become a shipped template and
+`test/map-detector.test.js` would fail. The generators use a pack's own stored
+variants as its frames for exactly that reason.

@@ -220,7 +220,7 @@ logged. It refuses ("not now") when:
 | `setting-off` | `unloadWindowInTray` is not `true` — **gone in 1.0** |
 | `no-window` | there is no window to unload |
 | `visible` | the window is on screen |
-| `minimized` | minimised to the taskbar rather than hidden to the tray |
+| `minimized` | minimised to the taskbar rather than hidden to the tray. **`isMinimized()` alone cannot tell the two apart**: with minimize-to-tray on, the − button minimises first and the `minimize` handler then hides, and Windows keeps reporting the hidden window as minimised. `MainWindow.unloadVerdict()` therefore counts a window as minimised only while `hiddenAt` is 0 (no `hide` event). Until 1.0 it did not, and on the owner's machine — who sends the app to the tray with the − button — the window was **never** unloaded, in 0.7.0 either: found on 2026-09-21 by sampling the processes during a match (the main-window renderer, ~110 MB working set, was still alive after 90 s in the tray, and `app.log` had no `main-window state=unloaded` line since the feature shipped). The test that "covered" this had modelled the bug itself (`minimized = true` + `hide()` expected to keep the window). |
 | `busy` | the view reported a busy reason: **any open modal**, the Settings modal, the welcome tour, a diagnostic report, a custom-map import |
 | `recording` | the hotkey bind dialog is recording (`Hotkeys.suspended`) |
 | `update-banner` | an update is downloaded and its banner has not been in front of a person yet |

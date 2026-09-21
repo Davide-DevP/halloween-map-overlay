@@ -6,7 +6,7 @@
  * node scripts/build-pack.js --key "Creator/Map Name" --image <file.png> \
  *   --fixture <tab-*.png> [--fixture …] [--markers <file.json>] \
  *   [--credit "u/somebody"] [--version 2] [--min-app 0.7.0] \
- *   [--out packs] [--base some-dir]
+ *   [--out packs] [--base some-dir] [--dry-run]
  * ```
  * **Nothing here is new logic**, and it must stay that way: the templates come
  * from `prepare-detector.js`'s own `buildVariantsForKey`, so a pack's templates
@@ -23,10 +23,14 @@ const crypto = require('crypto');
 
 const rules = require('../src/shared/map-pack-rules');
 const {DEFAULT_SIZE} = require('../src/core/map-detector/matcher');
-const {buildVariantsForKey, catalog} = require('./prepare-detector');
+const {
+    buildVariantsForKey, catalog, frameSourcesByKey, crossScoreRows, templateRows,
+    similarPairsFromRows, FIXTURES, SIMILAR_MAP_SCORE
+} = require('./prepare-detector');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_OUT = path.join(ROOT, 'packs');
+const BUNDLED_TEMPLATES = path.join(ROOT, 'src', 'core', 'map-detector', 'templates.json');
 
 /** The keys this build ships, from `prepare-detector.js`'s own catalogue. */
 function bundledKeys() {
@@ -92,6 +96,87 @@ async function buildTemplates(key, fixtures) {
             [key]: variants.map(thumb => Array.from(thumb, v => Math.round(v * 1000) / 1000))
         }
     };
+}
+
+/*
+ * ─── The similarity check ───────────────────────────────────────────────────
+ * A review gate, not a runtime threshold: nothing in the app reads the result.
+ * Scoring is `prepare-detector.js`'s, which is `matchMap`'s — never a second one.
+ * Why: docs/agents/detection.md § Map similarity is a build-time check
+ */
+
+/** Every map a user's detector could already hold: the bundled templates plus
+ * every pack already published in `packs/`. Any spelling of `key` is removed —
+ * this build *is* that map, and the runtime merge folds case. */
+function knownTemplates(outRoot, index, key) {
+    const known = {};
+    let bundled;
+    try {
+        bundled = JSON.parse(fs.readFileSync(BUNDLED_TEMPLATES, 'utf-8'));
+    } catch (err) {
+        die(`could not read ${path.relative(ROOT, BUNDLED_TEMPLATES)}: ${err.message}`);
+    }
+    Object.assign(known, bundled.templates || {});
+    for (const entry of index.packs || []) {
+        if (!entry || typeof entry.key !== 'string') continue;
+        const dir = typeof entry.base === 'string' ? entry.base : rules.packDirName(entry.key);
+        const file = path.join(outRoot, dir, rules.TEMPLATES_NAME);
+        let json;
+        try {
+            json = JSON.parse(fs.readFileSync(file, 'utf-8'));
+        } catch (err) {
+            die(`"${entry.key}" is in the index but ${path.relative(ROOT, file)} could not be read: `
+                + `${err.message}. The similarity check needs every published pack's templates.`);
+        }
+        const check = rules.validateTemplates(json, {key: entry.key, size: DEFAULT_SIZE});
+        if (!check.ok) die(`"${entry.key}"'s published templates are not valid: ${check.error}`);
+        Object.assign(known, json.templates);
+    }
+    for (const other of Object.keys(known)) {
+        if (other.toLowerCase() === key.toLowerCase()) delete known[other];
+    }
+    return known;
+}
+
+/**
+ * The cross-score matrix and the pairs that reach `SIMILAR_MAP_SCORE`. Frames,
+ * in both directions: this map's `--fixture` screenshots, this repository's
+ * fixtures for the maps it *ships*, and every map's stored variants — the last
+ * being the only frame there is for a map published as a pack.
+ */
+async function measureSimilarity(key, templates, fixtures, known) {
+    const all = Object.assign({}, known, templates);
+    const frames = fixtures.map(file => ({key, file}));
+    for (const [other, files] of Object.entries(frameSourcesByKey())) {
+        if (!Object.prototype.hasOwnProperty.call(all, other)) continue;
+        for (const file of files) frames.push({key: other, file: path.join(FIXTURES, file)});
+    }
+    const rows = (await crossScoreRows(frames, all)).concat(templateRows(all));
+    const pairs = similarPairsFromRows(rows, SIMILAR_MAP_SCORE);
+    const alike = pairs.filter(pair => pair.includes(key))
+        .map(pair => (pair[0] === key ? pair[1] : pair[0])).sort();
+    return {all, rows, pairs, alike};
+}
+
+function printSimilarity(key, result) {
+    const short = k => k.split('/').pop();
+    const keys = Object.keys(result.all).sort();
+    console.log(`\nCross-scores against every installed map (too alike at ${SIMILAR_MAP_SCORE})\n`);
+    console.log('  ' + 'frame'.padEnd(46) + keys.map(k => short(k).slice(0, 14).padEnd(16)).join(''));
+    for (const row of result.rows) {
+        console.log('  ' + row.file.slice(0, 44).padEnd(46)
+            + keys.map(k => ((k === row.key ? '*' : ' ') + row.scores[k].toFixed(4)).padEnd(16)).join(''));
+    }
+    if (!result.alike.length) {
+        console.log(`\n  no installed map scores ${SIMILAR_MAP_SCORE} or more against "${key}"`);
+        return;
+    }
+    console.log(`\n  ! TOO ALIKE: "${key}" scores ${SIMILAR_MAP_SCORE}+ against ${result.alike.join(', ')}`);
+    console.log('  ! Two different maps scoring this close has never been seen. Almost certainly this is');
+    console.log('  ! the SAME map — a re-cut, or a night/snow version — in which case publish it under');
+    console.log('  ! that key as a new --version instead of as a new map. Nothing is recorded in the');
+    console.log('  ! pack: this warning is the check. docs/agents/maps-authoring.md § When two maps');
+    console.log('  ! score alike.');
 }
 
 async function main() {
@@ -196,6 +281,9 @@ async function main() {
     const templateCheck = rules.validateTemplates(templatesJson, {key, size: DEFAULT_SIZE});
     if (!templateCheck.ok) die(`the generated templates are not valid: ${templateCheck.error}`);
 
+    printSimilarity(key, await measureSimilarity(key, templatesJson.templates,
+        args.fixture.map(f => path.resolve(f)), knownTemplates(outRoot, index, key)));
+
     let markersBytes = null;
     if (typeof args.markers === 'string') {
         if (!fs.existsSync(args.markers)) die(`--markers ${args.markers} does not exist`);
@@ -244,6 +332,12 @@ async function main() {
     const manifestCheck = rules.validateManifest(manifest, entry, {});
     if (!manifestCheck.ok) die(`the generated manifest is not valid: ${manifestCheck.error}`);
 
+    if (args['dry-run']) {
+        console.log(`\nDry run: nothing written. ${key} v${version} would be `
+            + `${(total / 1024).toFixed(1)} KB in ${path.relative(ROOT, path.join(outRoot, base))}/.`);
+        return;
+    }
+
     const packDir = path.join(outRoot, base);
     fs.mkdirSync(packDir, {recursive: true});
     for (const file of files) fs.writeFileSync(path.join(packDir, file.name), file.bytes);
@@ -266,7 +360,7 @@ async function main() {
     console.log('\nCommit and push these; the app reads them from GitHub raw on its next check.');
 }
 
-module.exports = {parseArgs, sha256, buildTemplates, readIndex};
+module.exports = {parseArgs, sha256, buildTemplates, readIndex, knownTemplates, measureSimilarity};
 
 if (require.main === module) {
     main().catch(err => {

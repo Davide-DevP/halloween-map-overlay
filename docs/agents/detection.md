@@ -296,9 +296,11 @@ now 1.3 ms.
 
 #### What was *not* done, and why
 
-**`matchMap` still scales linearly with the number of installed maps.** Every
-variant of every map is scored on every gated-in frame. Two ways to break that
-were tried on the fixtures and **rejected as unsafe**:
+**`matchMap` scores every variant of every map on every gated-in frame**, so
+its cost is linear in installed variants — but see *Why there is no early exit*
+below for what that term is actually worth: the **fixed** cost dominates, and
+the linear part is ~0.10 ms per variant. Two ways to remove it were tried on
+the fixtures and **rejected as unsafe**:
 
 - **Coarse-to-fine** (rank every template at the zero offset, then run the full
   15-offset search for the top K). Measured: ranking by the zero offset picks a
@@ -317,6 +319,44 @@ Neither can ship without changing accept/reject decisions, and the thresholds
 are where they are for the reasons this file spends a section on. `LIMITS.variants`
 remains what bounds the growth. The scaling problem is answered instead by
 getting the work off the main thread entirely.
+
+#### Why there is no early exit
+
+A third shape was built and measured for 1.0 and then removed: score the
+recently recognised maps first and stop once the leader is bright enough that no
+unscored map could overtake it. **The measurement is the reason it is not
+here.** `matchMap` on a 640×360 window of a 1920×1080 frame, one pool per
+process, a fresh window per iteration, 5 ms paced, 160 iterations with the first
+30 dropped:
+
+| pool | median | p95 |
+|---|---|---|
+| **no templates at all** (the fixed cost) | **6.82 ms** | 7.05 ms |
+| 4 maps / 8 variants — what ships today | 7.60 ms | 7.71 ms |
+| 14 maps / 28 variants | 9.61 ms | 9.81 ms |
+| 24 maps / 48 variants — `LIMITS.variants`, the ceiling | 11.52 ms | 11.73 ms |
+
+So the **fixed** term is ~6.8 ms — the 15 alignment views, their gradient
+magnitudes and the panel mean, none of which an early exit can touch — and a
+template variant costs **~0.10 ms** on top. Skipping three of the four maps
+saves ~0.6 ms today and ~4.7 ms at the variant cap. That bought ~250 lines, a
+per-session recency list inside the pixel process, and a new field in the pack
+schema.
+
+It also had a hole, which is the other half of the answer. Safety rested on
+"every unscored map is *measured* far enough away from this one", but the
+measurement was recorded **per key, not per pair**, and nothing bound a
+measurement to the templates it was taken against: a pack measured against the
+1.0 bundle plus a map bundled *later* left both keys looking "measured" while
+that pair had never been compared, and the exit was allowed. A probe with
+tone-bent clones turned a full-table **reject** (0.965 against 0.965) into an
+**accept** whose winner depended on the recency order. "Provably identical" was
+an empirical margin, not a proof.
+
+**If the per-tick cost ever has to come down, the fixed 6.8 ms is the target**
+— `DEFAULT_OFFSETS` is 15 views for one panel — not the ~0.10 ms per variant.
+The separation between the maps is still measured, but as a build-time check
+with no runtime half; see *Map similarity is a build-time check* below.
 
 #### 2. Capture, gate, grayscale and match run in a utility process
 
@@ -425,7 +465,9 @@ positive line:
   object. Anything that would put pixel work back on it needs a written reason.
 - **Worker: ~30 ms of blocking JS per tick** — the old budget, now applying to
   the child. A gated-out tick is 1.3 ms and a gated-in one 22 ms at 1919×1079,
-  so there is room; `matchMap` is still linear in installed variants and
+  so there is room. `matchMap` is linear in installed variants, but the term is
+  small: ~0.10 ms each against a ~6.8 ms fixed cost, so the whole 48-variant
+  budget is under 5 ms of it (*Why there is no early exit* above).
   `LIMITS.variants` is what bounds it.
 - **The collection runs in the worker, inside that budget** (`gc.collect()`,
   3.2 ms, once per captured frame). It has to be *there*: the 8 MB native buffer
@@ -482,6 +524,47 @@ compile step, but the `.node` files cannot live inside the asar —
 matters on Windows. `package-lock.json` carries every platform's optional
 package, so `npm ci` on the `windows-latest` runner installs the win32-x64 one
 with no extra step.
+
+## Map similarity is a build-time check
+
+The acceptance thresholds rest on the maps' Tab panels being far apart, and
+nothing used to verify that: the four shipped maps sit 0.4–0.5 apart because
+they share an art style, not because anything checked. A new map that is really
+an existing one re-cut — or a night, snow or seasonal version of it — would
+score far higher, and the honest failure there is a *second gallery entry for
+one map*, which no runtime code can fix.
+
+So both generators measure it and print the matrix. Nothing at runtime reads
+the result: there is no field in the pack schema, no section in
+`templates.json`, and no behaviour keyed on it. **The warning is the product.**
+
+- `SIMILAR_MAP_SCORE = 0.70` lives in `scripts/prepare-detector.js`, with the
+  tool, so no runtime module carries a constant nothing in the app uses.
+  0.196 above every wrong pair measured so far and below the 0.80 accept floor,
+  so it can only fire on something that really looks like the same map.
+- `npm run prepare-detector` prints the shipped maps' matrix and warns on a
+  pair; `npm run build-pack` prints one new map against **every** map a user
+  could already hold (the bundled templates plus every pack in `packs/`, which
+  is why the index and `packs/` have to agree) and warns. `--dry-run` shows it
+  without writing.
+- Both score through `matchMap` itself — no second implementation of a score.
+  A frame is scored the **higher** of two registrations, the runtime path
+  (`MAP_PANEL_REL` plus the 15-offset search) and the panel `locatePanel`
+  finds, so no rule is needed about full frame versus hand-made crop, and
+  erring high is the safe direction for a warning.
+- Frames are every `tab-*` fixture (`tab-fullscreen-*` included) **plus every
+  stored template variant**. The stored thumbnails are what make the matrix
+  two-directional: a pack's own Tab screenshots are not in this repository — and
+  must not be, since `detection-fixtures/` *is* the bundled template set — so
+  its 64×64 variants are the only frame of it there is.
+
+Measured today (17 fixtures + 8 stored variants, 4 maps): worst right-map score
+**0.9461**, best wrong-map score **0.5041**, **no pairs**. The owner's field log
+of 1186 matches never saw a second-best above 0.509.
+`test/detector-similarity.test.js` asserts the separation and the threshold's
+place in the gap, and flags a deliberately cloned pack. What an author does
+about a flagged pair is in
+[maps-authoring.md](maps-authoring.md) § When two maps score alike.
 
 ## Fixture naming rules
 

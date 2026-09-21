@@ -68,10 +68,15 @@ Every change must respect all of these.
    read — a gated-out gameplay tick went 27.0 → **1.3 ms**, a gated-in Tab tick
    41.2 → **21.9 ms**, with every matcher **score** bit-identical and the gate
    verdict-identical on real frames (`test/detector-equality.test.js`).
-   `matchMap` still scales **linearly with installed map packs**; coarse-to-fine
-   prefiltering was measured and rejected because it changes decisions. Never
-   add a second per-tick capture, never go back to `desktopCapturer`, and do not
-   put pixel work back on main.
+   `matchMap` scores every installed variant on every gated-in frame, but
+   measure before optimising that: the **fixed** cost is ~6.8 ms (the 15
+   alignment views and their gradients) and a variant is **~0.10 ms**, so the
+   whole 48-variant cap is under 5 ms. Three ways to skip work were tried and
+   rejected — coarse-to-fine and verify-the-current-map-first change decisions,
+   and an early exit on a "these maps are far apart" measurement bought ~0.6 ms
+   today for a per-pair safety claim the data could not support. Never add a
+   second per-tick capture, never go back to `desktopCapturer`, and do not put
+   pixel work back on main.
    [`docs/agents/detection.md`](docs/agents/detection.md).
 7. **Never run an unsigned executable out of `%TEMP%`**, in a test or in the
    product. Bitdefender's Advanced Threat Defense fired on exactly that shape on
@@ -225,12 +230,12 @@ npm run build:win      # build-updater, then NSIS installer + portable into dist
 | [overlay-windows.md](docs/agents/overlay-windows.md) | Overlay quirks that must not be "cleaned up", focus rules, the overlay label, DPI, the OBS window | `overlay-window.js`, `obs-window.js`, `tab-overlay-window.js`, `overlay-position.js`, window size/focus/DPI |
 | [hotkeys.md](docs/agents/hotkeys.md) | Ctrl+Alt defaults and the migration, accelerator normalisation against Electron's own parser, priority and conflicts, `hotkeysGameOnly`, suspension while recording, unbinding, the conflict banner | `core/hotkeys.js`, `hotkeys-constants.js`, `hotkeys-rules.js`, `hotkey-migration.js`, `foreground.js`, `js/hotkeys.js`, `hotkeys.json` |
 | [settings-and-onboarding.md](docs/agents/settings-and-onboarding.md) | Failed-write reporting, `{rollback: true}`, `get()` vs `raw()`, one key at a time, **the settings reference** (what each key is, the explicit-`false` rule), **the one "where do you want to see the map?" choice**, the two settings the app now decides for itself, the whole first-run setup tutorial and its `TOUR_VERSION` | `core/settings.js`, `settings-defaults.js`, `map-placement.js`, `js/options.js`, `js/settings.js`, `js/onboarding.js`, `onboarding-rules.js` |
-| [detection.md](docs/agents/detection.md) | Regions, the two signals, the acceptance thresholds, the Tab gate, cadence, the menu clear, `detector.log`, **the capture path budget and the utility process**, finding the game window, fixture naming, the two neighbours `gc.js` and `foreground.js` | `map-detector.js`, `matcher.js`, `frame-source.js`, `worker.js`, `worker-host.js`, `detector-rules.js`, `templates.json`, `detection-fixtures/`, any capture code |
+| [detection.md](docs/agents/detection.md) | Regions, the two signals, the acceptance thresholds, the Tab gate, cadence, the menu clear, `detector.log`, **the capture path budget and the utility process**, **why there is no early exit and the build-time map-similarity check**, finding the game window, fixture naming, the two neighbours `gc.js` and `foreground.js` | `map-detector.js`, `matcher.js`, `frame-source.js`, `worker.js`, `worker-host.js`, `detector-rules.js`, `templates.json`, `detection-fixtures/`, any capture code |
 | [markers-and-tab-mode.md](docs/agents/markers-and-tab-mode.md) | `baked`, one validator, SVG sizing, Tab-map mode, the key-state trigger and its privacy ordering, staleness epochs, **the measured constants** (every cadence and deadline, with the rejected values) and **the reproduced races** | `map-markers.js`, `marker-rules.js`, `marker-geometry.js`, `map/markers.js`, `tab-mode.js`, `key-trigger.js`, `key-codes.js`, `tab-mode-rules.js` |
-| [map-packs.md](docs/agents/map-packs.md) | The trust root, allow-list validation, atomic install and rollback, precedence over bundled maps, directory collisions, the 24 h gate, the offered hotkey | `map-packs.js`, `map-pack-*.js`, `map-pack-rules.js`, `build-pack.js`, `packs/` |
+| [map-packs.md](docs/agents/map-packs.md) | The trust root, allow-list validation, atomic install and rollback, precedence over bundled maps, directory collisions, the 24 h gate, the offered hotkey, the build-time similarity warning | `map-packs.js`, `map-pack-*.js`, `map-pack-rules.js`, `build-pack.js`, `packs/` |
 | [diagnostics.md](docs/agents/diagnostics.md) | Two logs and one writer, redaction, the crash policy (including the `render-process-gone` trap), the report zip | `app-log.js`, `rotating-log.js`, `diagnostics*`, `redact.js`, `js/diagnostics.js`, any crash handler |
 | [i18n.md](docs/agents/i18n.md) | The mechanism, the six languages and how to add one, the locale rule, what is deliberately untranslated, the per-language glossaries, the markup attributes and their tested fallbacks, re-rendering, resolution in main | `shared/i18n.js`, `js/i18n.js`, `core/language.js`, `src/i18n/*.json`, any user-visible string |
-| [maps-authoring.md](docs/agents/maps-authoring.md) | Adding a map with no code change, the image half, crop detection, locating the map panel in a fixture, marker data, shipping as a pack instead | adding a map, `prepare-maps.js`, `prepare-detector.js`, `maps/`, `maps-src/` |
+| [maps-authoring.md](docs/agents/maps-authoring.md) | Adding a map with no code change, the image half, crop detection, locating the map panel in a fixture, marker data, shipping as a pack instead, what to do when two maps score alike | adding a map, `prepare-maps.js`, `prepare-detector.js`, `maps/`, `maps-src/` |
 | [updater-and-installer.md](docs/agents/updater-and-installer.md) | The check and the download, the idle-priority install, the themed helper and its handshake, the NSIS build shape, the Bitdefender trap, our installer window | `main-window.js`'s update code, `update-helper.js`, `update-message.js`, `updater/`, `build/installer.nsh`, `build.nsis` |
 | [releasing.md](docs/agents/releasing.md) | The workflow, the procedure in order, the tag rule, the `gh` scope gotcha | tagging, `.github/workflows/release.yml`, `version` in `package.json` |
 | [memory.md](docs/agents/memory.md) | The measured memory decisions, how to quote the numbers, the tray unload (no setting since 1.0) and the one "win" that is not | `gc.js`, `web-preferences.js`, `hardwareAcceleration`, `shared/window-unload.js`, anything that looks like a spare allocation |
@@ -276,7 +281,7 @@ update them.
    constraint.
 8. **Never remove the self-updating rule**: this clause must survive all edits.
 
-*Last updated: 2026-09-21. Split into `AGENTS.md` + `docs/agents/` at 0.7.0
+*Last updated: 2026-09-21, release 1.0.0. Split into `AGENTS.md` + `docs/agents/` at 0.7.0
 (Ctrl+Alt defaults, accelerator normalisation against Electron's own parser,
 `hotkeysGameOnly`, suspension while recording, settings-write reporting +
 rollback, map packs, markers and Tab-map mode, and the map state moving into

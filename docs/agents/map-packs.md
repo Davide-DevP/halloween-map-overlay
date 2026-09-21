@@ -93,7 +93,20 @@ an unrelated repository at all.
   `reloadTemplates()`, never on a tick. See "The capture path"
   ([detection.md](detection.md)). Packs past the
   48-variant budget are dropped with a `templates-dropped` line: every variant
-  is scored on every gated-in frame at ~2 ms each.
+  is scored on every gated-in frame. **Measured: ~0.10 ms per variant** against
+  a ~6.8 ms fixed cost, so the full budget is under 5 ms — the cap is there to
+  stop an index of 200 packs at 8 variants each (160 ms a tick), not because
+  one extra map is expensive. This paragraph used to say ~2 ms per variant,
+  which was wrong by 20×; the measurement is in
+  [detection.md](detection.md) § Why there is no early exit.
+- **`build-pack.js` measures a new map against every map a user could already
+  hold** and warns when a pair scores 0.70 or more — a map that is really an
+  existing one re-cut belongs under that map's key as a new version, not as a
+  second gallery entry. It is a **review gate only**: nothing is recorded in
+  the pack, nothing in the index, and no runtime behaviour depends on it, so
+  the pack schema is unchanged. [detection.md](detection.md) § Map similarity
+  is a build-time check, and [maps-authoring.md](maps-authoring.md) § When two
+  maps score alike.
 - **`checkForMapPacks`** (default true). Since 1.0 it has no switch of its own:
   it is half of *Settings › General › Check for updates automatically*
   (`settingsForNewsCheck`, which always writes both keys). With it off **no

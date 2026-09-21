@@ -540,7 +540,9 @@ class MainWindow {
         if (hasWindow) {
             try {
                 visible = this.window.isVisible();
-                minimized = this.window.isMinimized();
+                // Minimise-to-tray hides a window that Windows still reports as
+                // minimised; only a window `hide()` never touched is on the taskbar.
+                minimized = this.window.isMinimized() && !this.hiddenAt;
             } catch (err) {
                 // A window that cannot answer is not worth destroying.
                 visible = true;

@@ -222,10 +222,13 @@ The size cap is enforced on `content-length` *and* on the running total, so a
 server that lies about the length still cannot overrun it.
 
 The **variant** budget is a cost bound on the detector rather than a capacity
-plan: a frame that passes the Tab gate costs ~2 ms per variant, and
-`docs/agents/detection.md`'s own rule is that the blocking JS must not grow past ~30 ms per tick, so an index
-listing its full 200 packs at 8 variants each (1600 variants) would put seconds
-of work in the hot loop. Bundled maps are never dropped; packs past the budget
+plan: a frame that passes the Tab gate costs **~0.10 ms per variant** on top of
+a ~6.8 ms fixed cost (re-measured for 1.0 — this said ~2 ms per variant, which
+was wrong by 20×; see `docs/agents/detection.md` § Why there is no early exit),
+and that file's own rule is that the blocking JS must not grow past ~30 ms per
+tick. The full 48 is under 5 ms, but an index listing its 200 packs at 8
+variants each (1600 variants) would be ~160 ms in the hot loop, which is what
+the cap exists to stop. Bundled maps are never dropped; packs past the budget
 are, with a `templates-dropped` log line. Since 0.7 that work happens in the
 detector's `utilityProcess` rather than on the main thread, so the budget is no
 longer a stutter budget — but it is still one core of the player's CPU, and
@@ -479,7 +482,7 @@ npm run build-pack -- \
   --fixture detection-fixtures/tab-silver-shamrock.png \
   --fixture detection-fixtures/tab-civilian-silver-shamrock.png \
   [--markers markers/silver-shamrock.json] \
-  [--credit "u/deftyconchgaming"] [--version 2] [--min-app 0.7.0]
+  [--credit "u/deftyconchgaming"] [--version 2] [--min-app 0.7.0] [--dry-run]
 ```
 
 It reuses `prepare-detector.js`'s own `buildVariantsForKey` (the same
@@ -487,7 +490,16 @@ It reuses `prepare-detector.js`'s own `buildVariantsForKey` (the same
 the finished pack with the **runtime's** `map-pack-rules.js` before writing
 anything: if the app would refuse the pack, the script refuses to publish it.
 Then commit `packs/` and push — GitHub raw serves it, and nothing else
-publishes anything.
+publishes anything. `--dry-run` does everything except write.
+
+Since 1.0 it also **measures the new map's Tab panel against every map a user
+could already hold** — the bundled templates plus every pack already in
+`packs/`, in both directions — prints the cross-score matrix, and warns when a
+pair reaches 0.70. That is a **review gate only**: the pack format is unchanged,
+nothing is recorded and nothing is refused, because the failure it catches is an
+authoring one (the same map published twice under two keys). See
+`docs/agents/detection.md` § Map similarity is a build-time check and
+`docs/agents/maps-authoring.md` § When two maps score alike.
 
 `--version` defaults to "one more than the index already has", and a version
 that is not newer is refused, because the app refuses a downgrade and

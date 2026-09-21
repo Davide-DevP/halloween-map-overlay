@@ -32,8 +32,8 @@ const LIMITS = {
     /** Files one pack may list. */
     files: 8,
     /** Template variants the detector may score, bundled **and** packs: a cost
-     * bound at ~2 ms each against a ~30 ms per-tick budget, not a capacity
-     * plan. See `docs/agents/detection.md`. */
+     * bound at ~0.10 ms each (re-measured for 1.0) against a ~30 ms per-tick
+     * budget, not a capacity plan. See `docs/agents/detection.md`. */
     variants: 48
 };
 
