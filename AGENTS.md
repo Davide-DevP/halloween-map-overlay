@@ -286,7 +286,7 @@ update them.
    constraint.
 8. **Never remove the self-updating rule**: this clause must survive all edits.
 
-*Last updated: 2026-09-21, release 1.0.0. Split into `AGENTS.md` + `docs/agents/` at 0.7.0
+*Last updated: 2026-09-22, release 1.1.0 (the controller button). Split into `AGENTS.md` + `docs/agents/` at 0.7.0
 (Ctrl+Alt defaults, accelerator normalisation against Electron's own parser,
 `hotkeysGameOnly`, suspension while recording, settings-write reporting +
 rollback, map packs, markers and Tab-map mode, and the map state moving into
