@@ -42,7 +42,7 @@ test('every offered button is one XInput bit, or one trigger, and has a label', 
     assert.strictEqual(P.padLabel(0x0400), '');
     // Both faces of the pad are named, because XInput cannot say which one is plugged in.
     assert.strictEqual(P.padLabel(0x1000), 'A / ✕');
-    assert.strictEqual(P.padLabel(0x0020), 'View / Share');
+    assert.strictEqual(P.padLabel(0x0020), 'View / Share / Touchpad');
 });
 
 test('"down" is the one configured bit; a trigger counts past XInput\'s own threshold', () => {

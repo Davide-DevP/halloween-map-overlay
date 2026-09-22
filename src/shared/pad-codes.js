@@ -24,7 +24,7 @@ const RIGHT_TRIGGER = 0x20000;
  * is not here: `XInputGetState` does not report it.
  */
 const PAD_BUTTONS = Object.freeze([
-    {code: 0x0020, mask: 0x0020, label: 'View / Share'},
+    {code: 0x0020, mask: 0x0020, label: 'View / Share / Touchpad'},
     {code: 0x0010, mask: 0x0010, label: 'Menu / Options'},
     {code: 0x1000, mask: 0x1000, label: 'A / ✕'},
     {code: 0x2000, mask: 0x2000, label: 'B / ○'},

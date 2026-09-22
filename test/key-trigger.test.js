@@ -775,7 +775,7 @@ test('recording waits for exactly one button on any pad and answers with its lab
     assert.ok(trigger.recording, 'two buttons did not end the recording');
     behaviour.pads[1].wButtons = VIEW;
     const result = await pending;
-    assert.deepStrictEqual(result, {ok: true, code: VIEW, label: 'View / Share'});
+    assert.deepStrictEqual(result, {ok: true, code: VIEW, label: 'View / Share / Touchpad'});
     assert.strictEqual(trigger.recording, null);
     // The recorder is the one place the pad is read outside the game: no pid
     // was ever set here, and it still answered.

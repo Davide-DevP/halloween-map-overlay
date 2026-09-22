@@ -542,8 +542,11 @@ is **not** seen; reading raw HID reports was rejected as a far broader
 statement about what the app reads, and Chromium's Gamepad API needs a focused
 window with a user gesture, which no overlay window ever is.
 
-**Labels** name both faces — `A / ✕`, `View / Share`, `LB / L1` — because
-XInput cannot say which pad is plugged in. The Guide button is not offered:
+**Labels** name both faces — `A / ✕`, `View / Share / Touchpad`, `LB / L1` —
+because XInput cannot say which pad is plugged in. The touchpad is there because
+Steam maps a DualShock's touchpad *click* onto the virtual pad's View button —
+the first PlayStation field test (1.1.0) opened the map with it and saw a label
+that named a button the player had not pressed. The Guide button is not offered:
 `XInputGetState` does not report it. Labels are never translated (they name
 physical buttons); only *None* is.
 
