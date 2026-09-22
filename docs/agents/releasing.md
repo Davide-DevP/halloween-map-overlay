@@ -45,6 +45,13 @@ the account owner).
 The workflow has run for every release since 0.2.x. Still watch each run before
 telling anyone to download.
 
+**Two runs for one tag (v1.2.0).** One tag push started two identical runs a
+second apart; the first published the release with all four assets, the second
+failed at *Create GitHub release* with "tag_name already exists". Harmless —
+that step exists precisely so a second creator cannot make a second release
+object — so judge a release by `gh release view vX.Y.Z` listing the four
+assets, not by the red badge.
+
 **Node version.** The workflow runs **Node 24**, the same as the dev machine
 (rule 9), since just after 1.1.0. It ran 22 until then, and 22 cancels a test
 whose awaited promise rests on an un-ref'd timer ("Promise resolution is still
