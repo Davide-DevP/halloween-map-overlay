@@ -22,6 +22,15 @@ const KEY_POLL_INTERVAL = 30;
 /** Periodic-check cadence once the key trigger is healthy (ms). */
 const SAFETY_INTERVAL = 500;
 
+/** With no controller found, how often the four XInput slots are scanned (ms). */
+const PAD_SCAN_INTERVAL = 1000;
+
+/** XInput's `XUSER_MAX_COUNT`: the slots a controller can be in. */
+const PAD_SLOTS = 4;
+
+/** How long *Choose button…* waits for one controller button (ms). */
+const PAD_RECORD_TIMEOUT = 10000;
+
 /** Confirming-capture retries while the key is held, as delays from the last (ms). */
 const CONFIRM_RETRY_DELAYS = [50, 50, 50, 50, 50, 100];
 
@@ -94,6 +103,26 @@ function keyHintFor(reading) {
     else if (down && r.alt) { down = false; reason = 'alt'; }
     if (down === wasDown) return {hint: null, down, reason: 'unchanged'};
     return {hint: down ? 'down' : 'up', down, reason};
+}
+
+/**
+ * The map key's two inputs folded into the one reading `keyHintFor` takes.
+ * Either held is "down"; **Alt only vetoes the keyboard** — Alt+Tab is a
+ * keyboard gesture, and a controller button held while Alt happens to be down
+ * is still the player opening the map. `null` from a read means "not down".
+ * @param {{key?: ?boolean, pad?: ?boolean, alt?: ?boolean}} inputs
+ * @returns {{down: boolean, alt: boolean, source: 'key'|'pad'|null}}
+ */
+function foldMapInputs(inputs) {
+    const i = inputs || {};
+    const key = i.key === true;
+    const pad = i.pad === true;
+    const alt = i.alt === true;
+    if (key && !alt) return {down: true, alt: false, source: 'key'};
+    if (pad) return {down: true, alt: false, source: 'pad'};
+    // Only the vetoed keyboard press is left: `keyHintFor` turns it into "up".
+    if (key) return {down: true, alt: true, source: 'key'};
+    return {down: false, alt: false, source: null};
 }
 
 /** No timers, no handles. `confirmedKey` is the only map showable unseen. */
@@ -349,6 +378,9 @@ module.exports = {
     HIDE_AFTER_NEGATIVE,
     KEY_POLL_INTERVAL,
     SAFETY_INTERVAL,
+    PAD_SCAN_INTERVAL,
+    PAD_SLOTS,
+    PAD_RECORD_TIMEOUT,
     CONFIRM_RETRY_DELAYS,
     confirmRetryDelay,
     PROVISIONAL_DEADLINE_MS,
@@ -363,6 +395,7 @@ module.exports = {
     checkInterval,
     detectIntervalFor,
     keyHintFor,
+    foldMapInputs,
     initialTabModeState,
     reduceTabMode,
     displayForRect,

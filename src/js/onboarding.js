@@ -101,6 +101,9 @@ class Onboarding {
             this.options.attachMapKeyRecorder('#tourMapKeyBtn', '#tourMapKeyValue');
             this.options.attachMapKeyReset('#tourMapKeyReset');
             this.options.renderMapKey();
+            this.options.attachMapPadRecorder('#tourMapPadBtn', '#tourMapPadValue');
+            this.options.attachMapPadRemove('#tourMapPadReset');
+            this.options.renderMapPad();
         }
 
         // A re-entrant click is dropped, never disabled (see `detectBusy`).

@@ -11,16 +11,17 @@ const {
 const {tabLayers, markerState, MARKER_LAYERS} = require('../shared/marker-rules');
 const {msg} = require('../shared/i18n');
 const {resolveMapVk} = require('../shared/key-codes');
+const {resolveMapPad, padLabel} = require('../shared/pad-codes');
 const {
     FAST_INTERVAL, DETECT_INTERVAL, HIDE_AFTER_NEGATIVE, KEY_POLL_INTERVAL, SAFETY_INTERVAL,
-    PROVISIONAL_DEADLINE_MS, CONFIRMED_MEMORY_MS,
+    PROVISIONAL_DEADLINE_MS, CONFIRMED_MEMORY_MS, PAD_RECORD_TIMEOUT,
     initialTabModeState, reduceTabMode, gameRectToDip, rectChanged, confirmRetryDelay,
     resolveTriggerMethod, triggerMode, checkInterval, detectIntervalFor,
     shouldShowProvisionally, forgetConfirmedMap, confirmedMemoryFresh
 } = require('../shared/tab-mode-rules');
 
 /** Settings that change what is on screen *right now*, so they re-place it. */
-const LIVE_MARKER_SETTINGS = ['markers', 'markerOpacity', 'markerLegend', 'tabMarkerKey']
+const LIVE_MARKER_SETTINGS = ['markers', 'markerOpacity', 'markerLegend', 'tabMarkerKey', 'tabMarkerPad']
     .concat(MARKER_LAYERS.map(layer => layer.settingKey));
 
 /**
@@ -122,6 +123,7 @@ class TabMode {
         this.trigger = d.trigger || new KeyTrigger({
             onHint: (hint, reason) => self.onKeyHint(hint, reason),
             mapVk: this.mapVk(),
+            mapPad: this.mapPad(),
             log: (event, fields) => self.log(event, fields)
         });
         if (d.trigger) {
@@ -167,6 +169,28 @@ class TabMode {
             self.dispatch({type: 'lost', reason: 'key-changed'});
             appLog.event('tab-markers', {action: 'map-key', vk: resolved});
             return self.status();
+        });
+        // The controller button: validated here for the same reason, and
+        // `null` clears it. The pad is read only while a button is set.
+        this.ipcMain.handle('set-tab-marker-pad', async (event, code) => {
+            const resolved = resolveMapPad(code);
+            if (self.settings) self.settings.set('tabMarkerPad', resolved);
+            self.trigger.setMapPad(resolved);
+            self.invalidate();
+            self.dispatch({type: 'lost', reason: 'key-changed'});
+            appLog.event('tab-markers', {action: 'map-pad', set: resolved === null ? 'no' : 'yes'});
+            return self.status();
+        });
+        // *Choose button…*: main reads the pad for the one button the user is
+        // about to press, for at most `PAD_RECORD_TIMEOUT`. The result is only
+        // a code and a label; the renderer then stores it through the handler above.
+        this.ipcMain.handle('record-tab-marker-pad', async () => {
+            if (typeof self.trigger.recordPad !== 'function') return {ok: false, reason: 'unavailable'};
+            return self.trigger.recordPad({timeoutMs: PAD_RECORD_TIMEOUT});
+        });
+        this.ipcMain.handle('cancel-tab-marker-pad', async () => {
+            if (typeof self.trigger.cancelPadRecording === 'function') self.trigger.cancelPadRecording('cancelled');
+            return true;
         });
         // "Polling only" — the user's escape hatch; main switches methods here.
         this.ipcMain.handle('set-marker-trigger', async (event, mode) => {
@@ -234,6 +258,11 @@ class TabMode {
 
     mapVk() {
         return resolveMapVk(this.settings ? this.settings.get('tabMarkerKey') : null);
+    }
+
+    /** @returns {?number} the controller button's code, null = none set. */
+    mapPad() {
+        return resolveMapPad(this.settings ? this.settings.get('tabMarkerPad') : null);
     }
 
     triggerMode() {
@@ -465,7 +494,8 @@ class TabMode {
             checkMs: this.checkMs(),
             detectMs: this.wantsFasterDetection() ? DETECT_INTERVAL : 0,
             game: this.gameWindowPresent ? 'yes' : 'no',
-            vk: this.mapVk()
+            vk: this.mapVk(),
+            pad: this.mapPad() === null ? 'no' : 'yes'
         });
     }
 
@@ -493,6 +523,7 @@ class TabMode {
             && this.triggerMode() !== 'polling';
         if (wantsKey) {
             this.trigger.setMapVk(this.mapVk());
+            if (typeof this.trigger.setMapPad === 'function') this.trigger.setMapPad(this.mapPad());
             // The notice belongs to a failed probe, not to a closed game.
             if (!this.trigger.probe().ok) this.noticeFallback(this.trigger.reason || 'unavailable');
         }
@@ -1107,6 +1138,8 @@ class TabMode {
             triggerMode: this.triggerMode(),
             mapVk: this.mapVk(),
             mapKeyLabel: this.keyLabel(),
+            mapPad: this.mapPad(),
+            mapPadLabel: padLabel(this.mapPad()),
             gameWindow: this.gameWindowPresent,
             sizeMismatch: !!this.sizeMismatch,
             keyMs: KEY_POLL_INTERVAL,

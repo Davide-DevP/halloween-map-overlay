@@ -227,6 +227,12 @@ p, .help-text {
     letter-spacing: -0.01em;
 }
 
+/* A key chip standing for "nothing set" (the controller button). */
+kbd.is-unset {
+    color: var(--hmo-text-dim);
+    font-style: italic;
+}
+
 code {
     font-family: var(--bs-font-monospace);
     font-size: 0.86em;

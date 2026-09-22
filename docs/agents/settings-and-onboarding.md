@@ -179,7 +179,11 @@ or user text, which is why `core/settings.js` may log every change.
   **Windows virtual-key code** (9 = Tab), never an accelerator and never
   registered, and `tabMarkerKeyLabel` stores what the *browser* called that key
   because a virtual-key code cannot be turned back into a name on anything but a
-  US layout. `markerTrigger` picks `auto` (the key trigger, falling back to
+  US layout. `tabMarkerPad` (1.1) is the map key's optional **second input**,
+  a controller button as an XInput code from `shared/pad-codes.js`, `null` =
+  none — the only binding with two inputs, and never a hotkey
+  ([markers-and-tab-mode.md § The controller button](markers-and-tab-mode.md#the-controller-button)).
+  `markerTrigger` picks `auto` (the key trigger, falling back to
   polling) or `polling`. `markerOpacity` is separate from the overlay's own
   `opacity`: the map is a backdrop, the markers are the thing being read.
   [markers-and-tab-mode.md](markers-and-tab-mode.md) and

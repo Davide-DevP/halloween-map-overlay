@@ -8,6 +8,7 @@ const {buildPreviewImage} = require('./overlay-preview');
 const {presetToGlide} = require('../core/overlay-position');
 const {mapLabelMode, newsCheckState, settingsForNewsCheck} = require('../shared/settings-defaults');
 const {keyEventToVk, vkLabel, resolveMapVk, DEFAULT_MAP_VK} = require('../shared/key-codes');
+const {resolveMapPad, padLabel} = require('../shared/pad-codes');
 const {manualCheckView} = require('../shared/update-message');
 const {
     normalisePlacement, placementFromSettings, settingsForPlacement, placementSections,
@@ -84,6 +85,9 @@ class Options {
         /** Which map-key button is armed, or null. */
         this.recordingMapKey = null;
         this.mapKeyTargets = [];
+        /** Which controller-button recorder is waiting on main, or null. */
+        this.recordingMapPad = null;
+        this.mapPadTargets = [];
         /** Ticket per `applyPlacement`: a queued write whose ticket moved on drops out. */
         this.placementSeq = 0;
         /** Serialises the writes — see `applyPlacement`. */
@@ -295,6 +299,9 @@ class Options {
         this.attachMapKeyRecorder('#tabMarkerKeyBtn', '#tabMarkerKeyValue');
         this.attachMapKeyReset('#tabMarkerKeyReset');
         this.renderMapKey();
+        this.attachMapPadRecorder('#tabMarkerPadBtn', '#tabMarkerPadValue');
+        this.attachMapPadRemove('#tabMarkerPadReset');
+        this.renderMapPad();
 
         $("#tabMarkersInstantCheck").prop('checked', settings.raw("tabMarkersInstant") !== false);
         $("#tabMarkersInstantCheck").on("input", async function () {
@@ -311,6 +318,7 @@ class Options {
         this.refreshTabMarkerMethod();
         onChange(() => {
             classInstance.renderMapKey();
+            classInstance.renderMapPad();
             classInstance.refreshTabMarkerMethod();
             classInstance.syncPlacement();
         });
@@ -579,6 +587,85 @@ class Options {
         }
     }
 
+    /* ── The controller button ──────────────────────────────────────────── */
+
+    /**
+     * Arm one button as the controller-button recorder. The renderer cannot
+     * see the pad, so the wait happens in **main** (`record-tab-marker-pad`,
+     * bounded there); a click elsewhere cancels it, and a second click on the
+     * armed button cancels too. One recorder for however many buttons.
+     */
+    attachMapPadRecorder(buttonId, valueId) {
+        const self = this;
+        if (!$(buttonId).length) return;
+        this.mapPadTargets.push({buttonId, valueId});
+        $(buttonId).on("click", async function () {
+            if (self.recordingMapPad === buttonId) {
+                await self.cancelMapPadRecording();
+                return;
+            }
+            if (self.recordingMapPad) await self.cancelMapPadRecording();
+            self.recordingMapPad = buttonId;
+            $(this).text(t('settings.tabMarkers.pad.press')).addClass('active').focus();
+            const result = await ipcRenderer.invoke('record-tab-marker-pad');
+            // A cancel already re-rendered, and its answer is not a result.
+            if (self.recordingMapPad !== buttonId) return;
+            self.recordingMapPad = null;
+            if (!result || !result.ok) {
+                self.renderMapPad();
+                const reason = result && result.reason;
+                if (reason === 'no-controller') showStatus(t('settings.tabMarkers.pad.error.noController'));
+                else if (reason === 'timeout') showStatus(t('settings.tabMarkers.pad.error.timeout'));
+                else if (reason === 'unavailable') showStatus(t('settings.tabMarkers.pad.error.unavailable'));
+                return;
+            }
+            await ipcRenderer.invoke('set-tab-marker-pad', result.code);
+            await self.settings.refresh();
+            self.renderMapPad();
+            self.refreshTabMarkerMethod();
+        });
+        $(buttonId).on("blur", function () {
+            if (self.recordingMapPad !== buttonId) return;
+            self.cancelMapPadRecording();
+        });
+        $(buttonId).on("keydown", function (event) {
+            if (self.recordingMapPad !== buttonId) return;
+            const original = event.originalEvent || event;
+            if (original.key !== 'Escape') return;
+            event.preventDefault();
+            self.cancelMapPadRecording();
+        });
+    }
+
+    async cancelMapPadRecording() {
+        if (!this.recordingMapPad) return;
+        this.recordingMapPad = null;
+        this.renderMapPad();
+        await ipcRenderer.invoke('cancel-tab-marker-pad');
+    }
+
+    attachMapPadRemove(buttonId) {
+        const self = this;
+        if (!$(buttonId).length) return;
+        $(buttonId).on("click", async function () {
+            await self.cancelMapPadRecording();
+            await ipcRenderer.invoke('set-tab-marker-pad', null);
+            await self.settings.refresh();
+            self.renderMapPad();
+            self.refreshTabMarkerMethod();
+        });
+    }
+
+    /** The label names a physical button, so only "None" is translated. */
+    renderMapPad() {
+        const code = resolveMapPad(this.settings.raw('tabMarkerPad'));
+        const label = code === null ? t('settings.tabMarkers.pad.none') : padLabel(code);
+        for (const {buttonId, valueId} of this.mapPadTargets) {
+            $(valueId).text(label).toggleClass('is-unset', code === null);
+            $(buttonId).text(t('settings.tabMarkers.pad.change')).removeClass('active');
+        }
+    }
+
     /** Display only — never touches `Settings`, so anything may call it. */
     syncReadouts() {
         const px = (value) => t('settings.value.px', {value: Math.round(Number(value) || 0)});
@@ -603,12 +690,26 @@ class Options {
         if (!info) return;
         this.tabMarkerInfo = info;
         let text = '';
+        // With a controller button set the line names both inputs — unless the
+        // pad path failed its probe, which is its own sentence.
+        const pad = (info.trigger && info.trigger.pad) || {};
+        const padSet = info.mapPad !== null && info.mapPad !== undefined;
+        const padBroken = padSet && pad.available === false;
+        const params = {key: this.mapKeyLabel(info), button: info.mapPadLabel || ''};
+        const both = padSet && !padBroken;
         if (!info.setting) text = '';
-        else if (info.method === 'key') text = t('settings.tabMarkers.method.key', {key: this.mapKeyLabel(info)});
+        else if (info.method === 'key') {
+            text = both ? t('settings.tabMarkers.method.keyPad', params) : t('settings.tabMarkers.method.key', params);
+        }
         // Ready but the game is not running: "unavailable" would be alarming.
-        else if (info.method === 'key-waiting') text = t('settings.tabMarkers.method.waiting', {key: this.mapKeyLabel(info)});
+        else if (info.method === 'key-waiting') {
+            text = both ? t('settings.tabMarkers.method.waitingPad', params) : t('settings.tabMarkers.method.waiting', params);
+        }
         else if (info.methodReason === 'forced') text = t('settings.tabMarkers.method.polling');
         else text = t('settings.tabMarkers.method.unavailable');
+        if (info.setting && padBroken && info.method !== 'polling') {
+            text += ' ' + t('settings.tabMarkers.method.padUnavailable');
+        }
         // A bordered window's capture is not its own rectangle, so every marker
         // would sit off by the border and nothing is drawn at all.
         if (info.setting && info.sizeMismatch) text = t('settings.tabMarkers.method.windowed');

@@ -36,8 +36,10 @@ Every change must respect all of these.
    **key-state read** (**off** by default, Settings › Map › *Where do you want
    to see the map?*: one `user32`
    `GetAsyncKeyState` for the *one* key the user configured, plus Alt only while
-   that key reads down; no hook, nothing reserved, nothing received, see
-   `docs/SPEC-MARKERS.md` §5.7). Adding a fifth needs the README
+   that key reads down, plus — since 1.1, only with a controller button set —
+   one `XInputGetState` whose one bit is looked at; no hook, nothing reserved,
+   nothing received, see `docs/SPEC-MARKERS.md` §5.7 and §5.7.1). Adding a
+   fifth needs the README
    "Network use" / "Auto-detect" sections and the FAQ changed in the same commit.
 2. **Nothing that reads or injects into the game**, and no feature that gives a
    player information the game does not show them: a marker is a *possible*
@@ -140,8 +142,10 @@ Markers and Tab-map mode
   src/core/tab-mode.js          Tab-map mode: the fast loop, the window, the IPC
   src/map/tab.html, tab-renderer.js  That window's renderer
   src/shared/tab-mode-rules.js  PURE Tab-mode scheduler, cadences, DIP conversion, key decisions
-  src/core/key-trigger.js       koffi → `user32` `GetAsyncKeyState` for one configured key
+  src/core/key-trigger.js       koffi → `user32` `GetAsyncKeyState` for one configured key (+ the pad, same tick)
   src/shared/key-codes.js       PURE `KeyboardEvent` → Windows virtual-key code (not an accelerator)
+  src/core/pad-input.js         koffi → `XInputGetState`: the map key's optional controller button
+  src/shared/pad-codes.js       PURE controller-button codes, labels, "is this bit down"
 Detection
   src/core/map-detector.js      The loop, the state machine and the IPC. Off by default
   src/core/map-detector/frame-source.js  The pixel work: window, capture, gate, grayscale, match
@@ -204,6 +208,7 @@ Dev-only scripts and data
   scripts/build-markers.js      maps-src/markers.json → the shipped runtime file (`--check`)
   scripts/build-pack.js         One map image + fixtures → a pack in `packs/`
   scripts/build-updater.js      updater/*.cs → build/updater/
+  scripts/probe-pad.js          Plain-node check: which controller button XInput sees on this PC
   maps-src/*.webp, detection-fixtures/*.png  Untouched map originals; game screenshots (template sources + test matrix)
   test/                         node:test unit tests for the pure and fs-only modules
 ```
@@ -231,7 +236,7 @@ npm run build:win      # build-updater, then NSIS installer + portable into dist
 | [hotkeys.md](docs/agents/hotkeys.md) | Ctrl+Alt defaults and the migration, accelerator normalisation against Electron's own parser, priority and conflicts, `hotkeysGameOnly`, suspension while recording, unbinding, the conflict banner | `core/hotkeys.js`, `hotkeys-constants.js`, `hotkeys-rules.js`, `hotkey-migration.js`, `foreground.js`, `js/hotkeys.js`, `hotkeys.json` |
 | [settings-and-onboarding.md](docs/agents/settings-and-onboarding.md) | Failed-write reporting, `{rollback: true}`, `get()` vs `raw()`, one key at a time, **the settings reference** (what each key is, the explicit-`false` rule), **the one "where do you want to see the map?" choice**, the two settings the app now decides for itself, the whole first-run setup tutorial and its `TOUR_VERSION` | `core/settings.js`, `settings-defaults.js`, `map-placement.js`, `js/options.js`, `js/settings.js`, `js/onboarding.js`, `onboarding-rules.js` |
 | [detection.md](docs/agents/detection.md) | Regions, the two signals, the acceptance thresholds, the Tab gate, cadence, the menu clear, `detector.log`, **the capture path budget and the utility process**, **why there is no early exit and the build-time map-similarity check**, finding the game window, fixture naming, the two neighbours `gc.js` and `foreground.js` | `map-detector.js`, `matcher.js`, `frame-source.js`, `worker.js`, `worker-host.js`, `detector-rules.js`, `templates.json`, `detection-fixtures/`, any capture code |
-| [markers-and-tab-mode.md](docs/agents/markers-and-tab-mode.md) | `baked`, one validator, SVG sizing, Tab-map mode, the key-state trigger and its privacy ordering, staleness epochs, **the measured constants** (every cadence and deadline, with the rejected values) and **the reproduced races** | `map-markers.js`, `marker-rules.js`, `marker-geometry.js`, `map/markers.js`, `tab-mode.js`, `key-trigger.js`, `key-codes.js`, `tab-mode-rules.js` |
+| [markers-and-tab-mode.md](docs/agents/markers-and-tab-mode.md) | `baked`, one validator, SVG sizing, Tab-map mode, the key-state trigger and its privacy ordering, **the controller button** (the map key's second input, XInput, why not HID), staleness epochs, **the measured constants** (every cadence and deadline, with the rejected values) and **the reproduced races** | `map-markers.js`, `marker-rules.js`, `marker-geometry.js`, `map/markers.js`, `tab-mode.js`, `key-trigger.js`, `key-codes.js`, `pad-input.js`, `pad-codes.js`, `tab-mode-rules.js` |
 | [map-packs.md](docs/agents/map-packs.md) | The trust root, allow-list validation, atomic install and rollback, precedence over bundled maps, directory collisions, the 24 h gate, the offered hotkey, the build-time similarity warning | `map-packs.js`, `map-pack-*.js`, `map-pack-rules.js`, `build-pack.js`, `packs/` |
 | [diagnostics.md](docs/agents/diagnostics.md) | Two logs and one writer, redaction, the crash policy (including the `render-process-gone` trap), the report zip | `app-log.js`, `rotating-log.js`, `diagnostics*`, `redact.js`, `js/diagnostics.js`, any crash handler |
 | [i18n.md](docs/agents/i18n.md) | The mechanism, the six languages and how to add one, the locale rule, what is deliberately untranslated, the per-language glossaries, the markup attributes and their tested fallbacks, re-rendering, resolution in main | `shared/i18n.js`, `js/i18n.js`, `core/language.js`, `src/i18n/*.json`, any user-visible string |

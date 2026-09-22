@@ -489,6 +489,71 @@ against a synthesised 400 ms Tab press: the down edge was seen 15 ms late and
 the up edge 8 ms late, and 194 idle ticks cost a worst single tick of 0.54 ms
 (timer noise, not the call). Heap flat.
 
+#### 5.7.1 The controller button (1.1)
+
+Implemented. `src/core/pad-input.js` + the pure `shared/pad-codes.js` and
+`foldMapInputs`. The map key gets **one optional second input**: a controller
+button (`tabMarkerPad`, default `null` = none), read through koffi →
+`XInputGetState` — the only input in the app that may have two bindings, and
+the second one is *only* for players on a pad. A pad player gets the same
+~60 ms path as a keyboard player; the polling fallback (~480 ms) was rejected
+for them as "waiting for the markers".
+
+**What is read.** In the *same* tick as the key, **after** it, and again only
+while the game is the foreground window: one `XInputGetState(slot)` for the
+slot a pad was last seen in. XInput has no per-button call — the reading is the
+pad's whole state (buttons word, two triggers, four stick axes); `padButtonDown`
+looks at the one configured bit (or one trigger against XInput's own threshold
+of 30) and nothing else is kept, logged or crosses any boundary. With no button
+set the pad is never opened at all. With no pad connected the four slots are
+scanned at `PAD_SCAN_INTERVAL` (1 s), not every tick; the first connected pad is
+kept and read alone until it answers `ERROR_DEVICE_NOT_CONNECTED`, which reads
+as "up" and restarts the scan.
+
+**Either input held is "down"** (`foldMapInputs`): a key released while the
+button is still held is not an edge, and vice versa. **Alt vetoes only the
+keyboard** — Alt+Tab is a keyboard gesture, and a pad button held while Alt
+happens to be down is still the player opening the map.
+
+**The pad's failure is its own.** `PadInput` has the same lazy load, tri-state
+`available` and `load`/`bind`/`call` reasons as the key trigger, but a failure
+never stops the loop or triggers the polling fallback: the keyboard half carries
+on, Settings appends *"The controller button cannot be used …"* and
+`system.txt` prints the reason. A probe runs the moment a button is set, game
+or no game, for the same reason the key trigger's does (§5.7 "three method
+states").
+
+**Recording** (*Choose button…*) is the one time the pad is read outside the
+game: the renderer cannot see XInput, so main polls all four slots at the key
+cadence for at most `PAD_RECORD_TIMEOUT` (10 s), waits for **exactly one**
+held button (two at once is a hand on its way somewhere) and answers
+`{ok, code, label}`; `no-controller`, `timeout`, `unavailable` and
+`cancelled`/`replaced` are the refusals, each with its own toast. A click
+elsewhere, Esc, or a second click cancels through `cancel-tab-marker-pad`.
+`set-tab-marker-pad` validates the code in main like `set-tab-marker-key`.
+
+**Which pads.** Anything XInput sees: Xbox controllers, generic "XInput" PC
+pads, and a PlayStation controller **while Steam is translating it** — with
+*PlayStation controller support* on (Steam's default) Steam creates a virtual
+Xbox pad only while a Steam game is running, so the FAQ and the *no controller*
+toast both say to choose the button with the game open. DS4Windows does the
+same permanently. A DualShock/DualSense plugged in bare is DirectInput/HID and
+is **not** seen; reading raw HID reports was rejected as a far broader
+statement about what the app reads, and Chromium's Gamepad API needs a focused
+window with a user gesture, which no overlay window ever is.
+
+**Labels** name both faces — `A / ✕`, `View / Share`, `LB / L1` — because
+XInput cannot say which pad is plugged in. The Guide button is not offered:
+`XInputGetState` does not report it. Labels are never translated (they name
+physical buttons); only *None* is.
+
+Measured (plain node, dev machine, no pad connected): `xinput1_4.dll` bind
+3.0 ms once; `XInputGetState` on an empty slot **~15 µs**, so a full four-slot
+scan is 60 µs once a second and one connected-slot read is 0.05 % of a core at
+30 ms — three orders of magnitude over `GetAsyncKeyState`, three under the
+capture it sits beside. `scripts/probe-pad.js` is the same binding in plain
+node, to check a PC's pad before trusting the app with it.
+
 #### "Is the game in front?"
 
 Read with `GetForegroundWindow` + `GetWindowThreadProcessId` and compared
@@ -650,7 +715,11 @@ focus) and **Do not read the key state** — in 1.0 *Use the other method*, unde
 the same reason as `set-tab-markers`: main re-points or stops a running trigger,
 and it validates the virtual-key code the renderer sends — with
 `nodeIntegration: true` the renderer is not a trust boundary, and
-`GetAsyncKeyState` would answer for a mouse button.
+`GetAsyncKeyState` would answer for a mouse button. Since 1.1 the same group
+holds **Controller button** (§5.7.1): `set-tab-marker-pad` (a code or `null`),
+`record-tab-marker-pad` (main waits for the press, since the renderer cannot
+see XInput) and `cancel-tab-marker-pad`. Both rows appear in Settings › Map
+and in the setup tutorial's key step, through the same recorders.
 
 System hotkey **Show / hide markers**, default `CommandOrControl+Alt+M`,
 through `SYSTEM_HOTKEY_DEFS` like every other one (so the tables, the conflict

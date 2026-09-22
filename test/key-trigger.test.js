@@ -306,12 +306,32 @@ test('with the trigger unavailable the polling path is byte-for-byte itself', ()
  * The impure trigger, driven without koffi
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** A fake koffi whose `user32` behaves however the test needs. */
+/**
+ * A fake koffi whose `user32` (and, since 1.1, `xinput`) behaves however the
+ * test needs. `b.pads` is `{slot: gamepadReading}` for the connected pads.
+ */
 function fakeKoffi(behaviour) {
     const b = behaviour || {};
     return {
         load(name) {
             if (b.loadThrows) throw new Error('user32 blocked');
+            if (/xinput/i.test(name)) {
+                if (b.xinputMissing) throw new Error(`${name} not found`);
+                return {
+                    func(convention, symbol) {
+                        if (b.xinputBindThrows) throw new Error(`cannot bind ${symbol}`);
+                        return (slot, out) => {
+                            if (b.xinputCallThrows) throw new Error('call failed');
+                            b.xinputCalls = (b.xinputCalls || []);
+                            b.xinputCalls.push(slot);
+                            const pad = b.pads && b.pads[slot];
+                            if (!pad) return 1167;
+                            out[0] = {dwPacketNumber: 1, Gamepad: pad};
+                            return 0;
+                        };
+                    }
+                };
+            }
             return {
                 func(convention, symbol) {
                     if (b.bindThrows) throw new Error(`cannot bind ${symbol}`);
@@ -338,7 +358,8 @@ function fakeKoffi(behaviour) {
             };
         },
         out: (t) => t,
-        pointer: (t) => t
+        pointer: (t) => t,
+        struct: (def) => def
     };
 }
 
@@ -522,9 +543,257 @@ test('status is counters and one reason — never anything about a key', () => {
     trigger.start();
     const status = trigger.status();
     assert.deepStrictEqual(Object.keys(status).sort(),
-        ['available', 'downs', 'errors', 'intervalMs', 'polls', 'reason', 'running', 'ups', 'vk'].sort());
+        ['available', 'downs', 'errors', 'intervalMs', 'pad', 'polls', 'reason', 'running', 'ups', 'vk'].sort());
     // The only key-ish thing it reports is the one code the user configured.
     assert.strictEqual(status.vk, DEFAULT_MAP_VK);
     assert.strictEqual(status.available, true);
+    // …and the same for the controller: its one code, availability, counters.
+    assert.deepStrictEqual(Object.keys(status.pad).sort(),
+        ['available', 'code', 'errors', 'reads', 'reason', 'scans', 'slot'].sort());
+    assert.strictEqual(status.pad.code, null);
+    assert.strictEqual(status.pad.available, null, 'no button set: the pad path is never tried');
     trigger.stop();
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The controller button — the map key's second input
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const VIEW = 0x0020;
+const A_BUTTON = 0x1000;
+
+test('with no button set the controller is never opened, let alone read', () => {
+    const behaviour = {keys: {}, foregroundPid: 1, pads: {0: {wButtons: 0xFFFF}}};
+    const trigger = new KeyTrigger({load: () => fakeKoffi(behaviour), intervalMs: 100000});
+    trigger.start();
+    trigger.setGamePid(1);
+    trigger.tick();
+    trigger.tick();
+    assert.strictEqual(behaviour.xinputCalls, undefined, 'XInput was called with no button configured');
+    assert.strictEqual(trigger.pad.usable, null);
+    trigger.stop();
+});
+
+test('a controller button held in the game is a down edge, released an up edge', () => {
+    const hints = [];
+    const behaviour = {keys: {}, foregroundPid: 1, pads: {0: {wButtons: 0}}};
+    const trigger = new KeyTrigger({
+        load: () => fakeKoffi(behaviour),
+        onHint: (hint, reason) => hints.push(`${hint}:${reason}`),
+        mapPad: VIEW,
+        intervalMs: 100000
+    });
+    const lines = [];
+    trigger.logLine = (event, fields) => lines.push(Object.assign({event}, fields));
+    assert.strictEqual(trigger.start(), true);
+    assert.strictEqual(trigger.pad.usable, true, 'probed at start because a button is set');
+    trigger.setGamePid(1);
+    trigger.tick();
+    assert.deepStrictEqual(hints, []);
+    behaviour.pads[0].wButtons = VIEW;
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down:down']);
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down:down'], 'held: no second edge');
+    // Another button is not the map button.
+    behaviour.pads[0].wButtons = A_BUTTON;
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down:down', 'up:up']);
+    // The log names the source of a down edge and nothing else about the pad.
+    assert.deepStrictEqual(lines[0], {event: 'tab-key', state: 'down', reason: 'down', source: 'pad'});
+    assert.deepStrictEqual(lines[1], {event: 'tab-key', state: 'up', reason: 'up'});
+    assert.strictEqual(trigger.wasDown, false);
+    trigger.stop();
+});
+
+test('the keyboard and the controller are one input: either holds the markers up', () => {
+    const hints = [];
+    const behaviour = {keys: {}, foregroundPid: 1, pads: {0: {wButtons: 0}}};
+    const trigger = new KeyTrigger({
+        load: () => fakeKoffi(behaviour),
+        onHint: (hint) => hints.push(hint),
+        mapPad: VIEW,
+        intervalMs: 100000
+    });
+    trigger.start();
+    trigger.setGamePid(1);
+    behaviour.keys = {[DEFAULT_MAP_VK]: true};
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down']);
+    // The pad joins in, the key lets go: still down, no edge.
+    behaviour.pads[0].wButtons = VIEW;
+    trigger.tick();
+    behaviour.keys = {};
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down']);
+    // Alt while holding the pad button is not Alt+Tab.
+    behaviour.keys = {[VK_MENU]: true};
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down']);
+    // Everything released: one up.
+    behaviour.pads[0].wButtons = 0;
+    behaviour.keys = {};
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down', 'up']);
+    trigger.stop();
+});
+
+test('the controller is read only in the game, after the key, and one slot per tick', () => {
+    const behaviour = {keys: {}, foregroundPid: 7, pads: {2: {wButtons: 0}}};
+    const trigger = new KeyTrigger({load: () => fakeKoffi(behaviour), mapPad: VIEW, intervalMs: 100000});
+    trigger.start();
+    trigger.setGamePid(1);                // the game is not in front (pid 7)
+    behaviour.xinputCalls = [];
+    trigger.tick();
+    trigger.tick();
+    assert.deepStrictEqual(behaviour.xinputCalls, [], 'the pad was read while the game was not in front');
+    // In the game: the first reading scans the slots and stops at the pad.
+    behaviour.foregroundPid = 1;
+    trigger.tick();
+    assert.deepStrictEqual(behaviour.xinputCalls, [0, 1, 2]);
+    assert.strictEqual(trigger.pad.slot, 2);
+    // From then on, one call per tick, to that slot.
+    behaviour.xinputCalls = [];
+    trigger.tick();
+    trigger.tick();
+    assert.deepStrictEqual(behaviour.xinputCalls, [2, 2]);
+    trigger.stop();
+});
+
+test('with no controller plugged in the slots are scanned at the slow cadence', () => {
+    let now = 0;
+    const behaviour = {keys: {}, foregroundPid: 1, pads: {}};
+    const trigger = new KeyTrigger({
+        load: () => fakeKoffi(behaviour), mapPad: VIEW, intervalMs: 100000, now: () => now
+    });
+    trigger.start();
+    trigger.setGamePid(1);
+    behaviour.xinputCalls = [];
+    trigger.tick();
+    assert.deepStrictEqual(behaviour.xinputCalls, [0, 1, 2, 3], 'one full scan');
+    now += 30;
+    trigger.tick();
+    now += 30;
+    trigger.tick();
+    assert.deepStrictEqual(behaviour.xinputCalls, [0, 1, 2, 3], 'no scan inside the interval');
+    now += T.PAD_SCAN_INTERVAL;
+    trigger.tick();
+    assert.deepStrictEqual(behaviour.xinputCalls, [0, 1, 2, 3, 0, 1, 2, 3]);
+    assert.strictEqual(trigger.pad.counters.scans, 2);
+    // A pad plugged into slot 1 is found on the next scan and then read alone.
+    behaviour.pads[1] = {wButtons: VIEW};
+    now += T.PAD_SCAN_INTERVAL;
+    const hints = [];
+    trigger.onHint = (hint) => hints.push(hint);
+    trigger.tick();
+    assert.strictEqual(trigger.pad.slot, 1);
+    assert.deepStrictEqual(hints, ['down']);
+    // Unplugged: this tick reads as up and the scan starts again.
+    delete behaviour.pads[1];
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down', 'up']);
+    assert.strictEqual(trigger.pad.slot, null);
+    trigger.stop();
+});
+
+test('a controller path that fails is the pad\'s failure alone: the key still works', () => {
+    for (const [behaviour, reason] of [
+        [{xinputMissing: true}, 'bind'],
+        [{xinputBindThrows: true}, 'bind']
+    ]) {
+        const hints = [];
+        const b = Object.assign({keys: {}, foregroundPid: 1}, behaviour);
+        const trigger = new KeyTrigger({
+            load: () => fakeKoffi(b), onHint: (hint) => hints.push(hint), mapPad: VIEW, intervalMs: 100000
+        });
+        assert.strictEqual(trigger.start(), true, reason);
+        assert.strictEqual(trigger.pad.usable, false);
+        assert.strictEqual(trigger.pad.reason, reason);
+        assert.strictEqual(trigger.status().pad.available, false);
+        trigger.setGamePid(1);
+        b.keys = {[DEFAULT_MAP_VK]: true};
+        trigger.tick();
+        assert.deepStrictEqual(hints, ['down'], 'the keyboard half must be untouched');
+        trigger.stop();
+    }
+    // A call that starts throwing stops the pad, not the loop.
+    const b = {keys: {}, foregroundPid: 1, pads: {0: {wButtons: 0}}};
+    const trigger = new KeyTrigger({load: () => fakeKoffi(b), mapPad: VIEW, intervalMs: 100000});
+    trigger.start();
+    trigger.setGamePid(1);
+    b.xinputCallThrows = true;
+    trigger.tick();
+    assert.strictEqual(trigger.running, true);
+    assert.strictEqual(trigger.pad.usable, false);
+    assert.strictEqual(trigger.pad.reason, 'call');
+    b.xinputCalls = [];
+    trigger.tick();
+    assert.deepStrictEqual(b.xinputCalls, [], 'a broken pad path is not retried every tick');
+    trigger.stop();
+});
+
+test('setting or clearing the button forgets a held state and re-scans', () => {
+    const behaviour = {keys: {}, foregroundPid: 1, pads: {3: {wButtons: 0}}};
+    const trigger = new KeyTrigger({load: () => fakeKoffi(behaviour), intervalMs: 100000});
+    trigger.start();
+    assert.strictEqual(trigger.mapPad, null);
+    trigger.setMapPad(VIEW);
+    assert.strictEqual(trigger.mapPad, VIEW);
+    assert.strictEqual(trigger.pad.usable, true, 'probed the moment a button is set');
+    trigger.wasDown = true;
+    trigger.pad.slot = 3;
+    trigger.setMapPad(A_BUTTON);
+    assert.strictEqual(trigger.wasDown, false);
+    assert.strictEqual(trigger.pad.slot, null);
+    trigger.setMapPad(A_BUTTON);
+    trigger.wasDown = true;
+    assert.strictEqual(trigger.wasDown, true, 'the same button again resets nothing');
+    // Junk clears the button rather than storing it.
+    trigger.setMapPad(0x0400);
+    assert.strictEqual(trigger.mapPad, null);
+    assert.strictEqual(trigger.wasDown, false);
+    trigger.stop();
+});
+
+test('recording waits for exactly one button on any pad and answers with its label', async () => {
+    const behaviour = {keys: {}, pads: {1: {wButtons: 0}}};
+    const trigger = new KeyTrigger({load: () => fakeKoffi(behaviour), intervalMs: 100000});
+    const pending = trigger.recordPad({timeoutMs: 2000, intervalMs: 5});
+    assert.ok(trigger.recording, 'a recording is in flight');
+    await new Promise(r => setTimeout(r, 20));
+    // Two buttons at once is a hand on its way: keep waiting.
+    behaviour.pads[1].wButtons = VIEW | A_BUTTON;
+    await new Promise(r => setTimeout(r, 20));
+    assert.ok(trigger.recording, 'two buttons did not end the recording');
+    behaviour.pads[1].wButtons = VIEW;
+    const result = await pending;
+    assert.deepStrictEqual(result, {ok: true, code: VIEW, label: 'View / Share'});
+    assert.strictEqual(trigger.recording, null);
+    // The recorder is the one place the pad is read outside the game: no pid
+    // was ever set here, and it still answered.
+});
+
+test('recording gives up with a reason: no controller, no press, or no XInput', async () => {
+    const none = new KeyTrigger({load: () => fakeKoffi({keys: {}, pads: {}}), intervalMs: 100000});
+    assert.deepStrictEqual(await none.recordPad({timeoutMs: 30, intervalMs: 5}), {ok: false, reason: 'no-controller'});
+
+    const idle = new KeyTrigger({load: () => fakeKoffi({keys: {}, pads: {0: {wButtons: 0}}}), intervalMs: 100000});
+    assert.deepStrictEqual(await idle.recordPad({timeoutMs: 30, intervalMs: 5}), {ok: false, reason: 'timeout'});
+
+    const broken = new KeyTrigger({load: () => fakeKoffi({keys: {}, xinputMissing: true}), intervalMs: 100000});
+    assert.deepStrictEqual(await broken.recordPad({timeoutMs: 30, intervalMs: 5}), {ok: false, reason: 'unavailable'});
+
+    // Cancelled from the renderer (a click elsewhere, Esc): its own reason.
+    const cancelled = new KeyTrigger({load: () => fakeKoffi({keys: {}, pads: {0: {wButtons: 0}}}), intervalMs: 100000});
+    const pending = cancelled.recordPad({timeoutMs: 2000, intervalMs: 5});
+    assert.strictEqual(cancelled.cancelPadRecording('cancelled'), true);
+    assert.deepStrictEqual(await pending, {ok: false, reason: 'cancelled'});
+    assert.strictEqual(cancelled.cancelPadRecording(), false, 'nothing left to cancel');
+
+    // A second recording replaces the first rather than racing it.
+    const twice = new KeyTrigger({load: () => fakeKoffi({keys: {}, pads: {0: {wButtons: 0}}}), intervalMs: 100000});
+    const first = twice.recordPad({timeoutMs: 2000, intervalMs: 5});
+    const second = twice.recordPad({timeoutMs: 30, intervalMs: 5});
+    assert.deepStrictEqual(await first, {ok: false, reason: 'replaced'});
+    assert.deepStrictEqual(await second, {ok: false, reason: 'timeout'});
 });

@@ -375,6 +375,30 @@ key held down right now?**
   off, or the game closed, or the markers switched off, nothing is read at all —
   not the key, not the foreground window.
 
+#### Playing with a controller
+
+The map key can have a **second input**: one controller button, under
+*Settings → Map → Controller button* (and in the setup tutorial). Click
+*Choose button…*, press the button that opens the map in the game, done. The
+keyboard key keeps working alongside it, and the markers appear just as fast
+either way.
+
+- **It is read in the same moment as the key, and under the same rules**: only
+  while the game is the window in front, only with a button set. Windows hands
+  the app the controller's current state — which buttons are down, where the
+  sticks are — and the app looks at the one button you chose and throws the
+  rest away. Nothing about it is written down except that your map button went
+  down or came up. With no button set, the controller is never read at all.
+- **Choosing the button is the one time it is read outside the game**: for up
+  to ten seconds after you click *Choose button…*.
+- **Xbox controllers and generic PC pads** work as they are. **A PlayStation
+  controller is seen while Steam is translating it**, which Steam does by
+  default for PlayStation pads — but only while a Steam game is open, so choose
+  the button with the game running. DS4Windows does the same job all the time.
+  A DualShock or DualSense plugged in with nothing translating it is not seen.
+- To check a PC before trusting the app with it, `npm run probe-pad` prints the
+  button XInput sees, using the same code as the app.
+
 If reading the key state does not work on your PC — some security software
 blocks it — the app says so once and falls back to the slower method below, all
 by itself. You can also choose that method yourself with **Do not read the key
@@ -770,6 +794,15 @@ not reserve the key either, so the game still sees every press. Switch that
 mode off, or switch on *Use the other method*, and no key is read at all.
 Everything else the app does with the keyboard is its own hotkeys, which you
 choose and can unbind.
+
+**Does it read my controller?**
+Only if you set a controller button under *Settings → Map*, and then under the
+same rules as the key: only while the game is the window in front, in the same
+moment. Windows hands the app the controller's current state and the app looks
+at the one button you chose; the rest is thrown away and never written down.
+Choosing the button is the one time it is read outside the game, for at most
+ten seconds after you click *Choose button…*. With no button set the
+controller is never read. See [Playing with a controller](#playing-with-a-controller).
 
 **Why are there markers where there is nothing?**
 Because a marker is a place the game **may** put a cellar, a gate, a car or a

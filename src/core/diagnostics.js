@@ -211,6 +211,17 @@ class Diagnostics {
             + `every ${trigger.intervalMs || 0} ms`);
         lines.push(`key trigger counters = ${trigger.polls || 0} polls, ${trigger.downs || 0} down, `
             + `${trigger.ups || 0} up, ${trigger.errors || 0} errors`);
+        // The controller half: the one configured code, never a reading.
+        const pad = trigger.pad || {};
+        if (tab.mapPad === null || tab.mapPad === undefined) {
+            lines.push('controller button = none (the controller is not read)');
+        } else {
+            lines.push(`controller button = 0x${Number(tab.mapPad).toString(16).toUpperCase()} `
+                + `(${tab.mapPadLabel || '?'}), available ${pad.available === true ? 'yes'
+                    : (pad.available === false ? 'no' : 'not probed')}`
+                + `${pad.reason ? ` (${pad.reason})` : ''}, slot ${pad.slot === null || pad.slot === undefined ? '-' : pad.slot}, `
+                + `${pad.reads || 0} reads, ${pad.scans || 0} scans, ${pad.errors || 0} errors`);
+        }
         lines.push(`tab mode cadence = check ${tab.checkMs || 0} ms `
             + `(fast ${tab.fastMs || 0} / safety ${tab.safetyMs || 0}), detect ${tab.detectMs || 0} ms, `
             + `hide after ${tab.hideAfterNegative || 0} negative gate(s)`);

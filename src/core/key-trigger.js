@@ -1,37 +1,50 @@
 'use strict';
 
 const appLog = require('./app-log');
-const {KEY_POLL_INTERVAL, keyHintFor} = require('../shared/tab-mode-rules');
+const PadInput = require('./pad-input');
+const {KEY_POLL_INTERVAL, PAD_RECORD_TIMEOUT, keyHintFor, foldMapInputs} = require('../shared/tab-mode-rules');
 const {VK_MENU, resolveMapVk} = require('../shared/key-codes');
+const {resolveMapPad, padLabel, heldPadButtons} = require('../shared/pad-codes');
 
 /**
  * ELECTRON tier: Tab-map mode's **key-state trigger** — koffi → `user32`
  * `GetAsyncKeyState`, asking whether *one* key is held and reporting the edges.
+ * Since 1.1 the map key has a second, optional input: one controller button,
+ * read through `core/pad-input.js` in the **same tick, after the key**.
  *
  * **The privacy contract, which this code must keep rather than imply.**
  * Exactly **two** virtual keys are ever queried: the map key, and `VK_MENU`
- * only while the map key reads down. Nothing about any key is logged but the
- * edges of that one key, and nothing is stored or sent. Deliberately **not**
- * `globalShortcut` (it *reserves* the key and has no key-up), **not** a
- * keyboard hook, **not** `GetKeyboardState`. Loaded **lazily**, every step
- * wrapped because any can fail on a user's machine, after which
- * `core/tab-mode.js` falls back to polling. Why, and the measurements:
- * docs/agents/markers-and-tab-mode.md § The key-state trigger.
+ * only while the map key reads down; plus, only with a controller button
+ * configured, one `XInputGetState` whose one bit is looked at. Nothing about
+ * any key or button is logged but the edges of that one input, and nothing is
+ * stored or sent. Deliberately **not** `globalShortcut` (it *reserves* the key
+ * and has no key-up), **not** a keyboard hook, **not** `GetKeyboardState`.
+ * Loaded **lazily**, every step wrapped because any can fail on a user's
+ * machine, after which `core/tab-mode.js` falls back to polling. Why, and the
+ * measurements: docs/agents/markers-and-tab-mode.md § The key-state trigger.
  */
 class KeyTrigger {
 
     /**
-     * @param {{onHint, mapVk?, intervalMs?, load?, log?}} opts `intervalMs` in
-     *   ms; `load` returns koffi, injected so the tests can drive the failures.
+     * @param {{onHint, mapVk?, mapPad?, intervalMs?, load?, log?, now?}} opts
+     *   `intervalMs` in ms; `load` returns koffi, injected so the tests can
+     *   drive the failures.
      */
     constructor(opts) {
         const o = opts || {};
         this.onHint = typeof o.onHint === 'function' ? o.onHint : () => {};
         this.mapVk = resolveMapVk(o.mapVk);
+        /** The controller button, or null: the pad is read only with one set. */
+        this.mapPad = resolveMapPad(o.mapPad);
         this.intervalMs = typeof o.intervalMs === 'number' && o.intervalMs > 0
             ? o.intervalMs : KEY_POLL_INTERVAL;
         this.loader = typeof o.load === 'function' ? o.load : () => require('koffi');
         this.logLine = typeof o.log === 'function' ? o.log : null;
+        this.now = typeof o.now === 'function' ? o.now : () => Date.now();
+        /** The XInput half, opened only once a button is configured. */
+        this.pad = new PadInput({load: this.loader, now: this.now});
+        /** The *Choose button…* recorder in flight, if any. */
+        this.recording = null;
 
         /** The bound functions, or null until `open()` succeeds. */
         this.fn = null;
@@ -129,6 +142,26 @@ class KeyTrigger {
         this.wasDown = false;
     }
 
+    /** Which controller button is watched; null = none, and the pad is not read. */
+    setMapPad(code) {
+        const next = resolveMapPad(code);
+        if (next === this.mapPad) return;
+        this.mapPad = next;
+        this.wasDown = false;
+        this.pad.reset();
+        if (next !== null) this.probePad();
+    }
+
+    /**
+     * Prove the XInput path once a button is configured, game or no game, so
+     * Settings can say "not available" about a path that was actually tried.
+     * A failure here is the pad's alone: the keyboard half carries on.
+     */
+    probePad() {
+        if (this.mapPad === null) return {ok: false, reason: 'none'};
+        return this.pad.probe();
+    }
+
     /** The game's pid from the detector's read — **not** a second enumeration. */
     setGamePid(pid) {
         this.gamePid = typeof pid === 'number' && pid > 0 ? pid : null;
@@ -180,6 +213,8 @@ class KeyTrigger {
         if (this.running) return true;
         const opened = this.open();
         if (!opened.ok) return false;
+        // The pad's failure is its own: the loop starts either way.
+        if (this.mapPad !== null) this.probePad();
         this.running = true;
         this.wasDown = false;
         this.counters = {polls: 0, downs: 0, ups: 0, errors: 0};
@@ -206,8 +241,25 @@ class KeyTrigger {
     }
 
     /**
+     * The controller button, read **only in the game** like the key. A pad
+     * failure is never the trigger's: it reads as "up" and stays so.
+     * @returns {boolean}
+     */
+    isPadDown() {
+        if (this.mapPad === null || this.pad.usable !== true) return false;
+        const down = this.pad.isDown(this.mapPad);
+        if (down === null) {
+            // One line, then silence: the keyboard half is untouched.
+            this.pad.fail('call', new Error('an XInput call failed'));
+            return false;
+        }
+        return down;
+    }
+
+    /**
      * One reading: one foreground read; then, **only in the game**, one key
-     * read; then, only while it is held, one Alt read. **That ordering is the
+     * read; then, only while it is held, one Alt read; then, only with a
+     * controller button configured, one pad read. **That ordering is the
      * privacy promise itself. Do not reorder it.**
      */
     tick() {
@@ -219,18 +271,20 @@ class KeyTrigger {
             this.giveUp();
             return;
         }
-        // Not in the game: **no key is read at all**, and a held one resolves
-        // to "up" below, so leaving the game hides the markers.
-        const down = foreground ? this.isDown(this.mapVk) : false;
-        if (down === null) {
+        // Not in the game: **no key or button is read at all**, and a held one
+        // resolves to "up" below, so leaving the game hides the markers.
+        const keyDown = foreground ? this.isDown(this.mapVk) : false;
+        if (keyDown === null) {
             this.giveUp();
             return;
         }
         // Alt is only asked about while the key reads as down.
-        const alt = down ? this.isDown(VK_MENU) === true : false;
+        const alt = keyDown ? this.isDown(VK_MENU) === true : false;
+        const padDown = foreground ? this.isPadDown() : false;
+        const folded = foldMapInputs({key: keyDown, pad: padDown, alt});
         const verdict = keyHintFor({
-            down,
-            alt,
+            down: folded.down,
+            alt: folded.alt,
             foreground,
             wasDown: this.wasDown,
             enabled: this.running
@@ -239,8 +293,10 @@ class KeyTrigger {
         if (verdict.hint) {
             if (verdict.hint === 'down') this.counters.downs++;
             else this.counters.ups++;
-            // The only thing about a key that ever reaches a log.
-            if (this.logLine) this.logLine('tab-key', {state: verdict.hint, reason: verdict.reason});
+            // The only thing about a key or button that ever reaches a log.
+            const line = {state: verdict.hint, reason: verdict.reason};
+            if (verdict.hint === 'down' && folded.source) line.source = folded.source;
+            if (this.logLine) this.logLine('tab-key', line);
             try {
                 this.onHint(verdict.hint, verdict.reason);
             } catch (err) {
@@ -248,6 +304,66 @@ class KeyTrigger {
             }
         }
         this.schedule(this.intervalMs);
+    }
+
+    /**
+     * *Choose button…*: wait for **one** controller button, on any pad, and
+     * answer with its code and label. The one time the pad is read outside the
+     * game, because the user just clicked for exactly that; bounded by
+     * `PAD_RECORD_TIMEOUT`, one recording at a time, cancellable. Resolves,
+     * never rejects: `{ok: true, code, label}` or `{ok: false, reason}`.
+     * @param {{timeoutMs?, intervalMs?}} [opts]
+     */
+    recordPad(opts) {
+        const o = opts || {};
+        if (this.recording) this.cancelPadRecording('replaced');
+        const opened = this.pad.probe();
+        if (!opened.ok) return Promise.resolve({ok: false, reason: 'unavailable'});
+        const timeoutMs = typeof o.timeoutMs === 'number' && o.timeoutMs > 0 ? o.timeoutMs : PAD_RECORD_TIMEOUT;
+        const intervalMs = typeof o.intervalMs === 'number' && o.intervalMs > 0 ? o.intervalMs : this.intervalMs;
+        const self = this;
+        return new Promise((resolve) => {
+            const rec = {timer: null, seenPad: false, done: false};
+            const finish = (result) => {
+                if (rec.done) return;
+                rec.done = true;
+                if (rec.timer) clearTimeout(rec.timer);
+                if (self.recording === rec) self.recording = null;
+                if (result.ok) appLog.event('tab-markers', {action: 'map-pad-recorded'});
+                resolve(result);
+            };
+            rec.cancel = (why) => finish({ok: false, reason: why || 'cancelled'});
+            const deadline = self.now() + timeoutMs;
+            const step = () => {
+                rec.timer = null;
+                if (rec.done) return;
+                const readings = self.pad.readAll();
+                if (readings === null) {
+                    self.pad.fail('call', new Error('an XInput call failed'));
+                    return finish({ok: false, reason: 'unavailable'});
+                }
+                if (readings.length) rec.seenPad = true;
+                for (const gamepad of readings) {
+                    const held = heldPadButtons(gamepad);
+                    // Exactly one: two at once is a hand on the way somewhere.
+                    if (held.length === 1) return finish({ok: true, code: held[0], label: padLabel(held[0])});
+                }
+                if (self.now() >= deadline) {
+                    return finish({ok: false, reason: rec.seenPad ? 'timeout' : 'no-controller'});
+                }
+                rec.timer = setTimeout(step, intervalMs);
+                if (rec.timer.unref) rec.timer.unref();
+            };
+            self.recording = rec;
+            step();
+        });
+    }
+
+    /** Stop a recording in flight; its promise answers `{ok: false, reason}`. */
+    cancelPadRecording(why) {
+        if (!this.recording) return false;
+        this.recording.cancel(why);
+        return true;
     }
 
     /** What `system.txt` prints. */
@@ -262,12 +378,17 @@ class KeyTrigger {
             polls: this.counters.polls,
             downs: this.counters.downs,
             ups: this.counters.ups,
-            errors: this.counters.errors
+            errors: this.counters.errors,
+            // The controller half: the one configured code, and its own
+            // tri-state availability — `null` when no button is set.
+            pad: Object.assign({code: this.mapPad}, this.pad.status())
         };
     }
 
     destroy() {
         this.stop();
+        this.cancelPadRecording('destroyed');
+        this.pad.destroy();
         this.fn = null;
     }
 }
