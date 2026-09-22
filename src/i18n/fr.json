@@ -190,7 +190,7 @@
   "settings.tabMarkers.pad.press": "Appuie sur un bouton de la manette…",
   "settings.tabMarkers.pad.remove": "Retirer",
   "settings.tabMarkers.pad.none": "Aucun",
-  "settings.tabMarkers.pad.help": "Tu joues à la manette\u00a0? Règle le bouton qui ouvre la carte dans le jeu. La touche au-dessus continue de marcher.",
+  "settings.tabMarkers.pad.help": "Tu joues à la manette\u00a0? Règle le bouton qui ouvre la carte dans le jeu\u00a0: normalement View, c'est-à-dire le pavé tactile sur une manette PlayStation. La touche au-dessus continue de marcher.",
   "settings.tabMarkers.pad.error.noController": "Aucune manette trouvée. Branche-la, ou, si c'est une manette PlayStation, ouvre d'abord le jeu via Steam, puis réessaie.",
   "settings.tabMarkers.pad.error.timeout": "Aucun bouton n'a été pressé. Réessaie.",
   "settings.tabMarkers.pad.error.unavailable": "Ce PC ne laisse pas l'app lire les manettes.",

@@ -190,7 +190,7 @@
   "settings.tabMarkers.pad.press": "Press a button on the controller…",
   "settings.tabMarkers.pad.remove": "Remove",
   "settings.tabMarkers.pad.none": "None",
-  "settings.tabMarkers.pad.help": "Playing with a controller? Set the button that opens the map in the game. The key above keeps working too.",
+  "settings.tabMarkers.pad.help": "Playing with a controller? Set the button that opens the map in the game: normally View, which is the touchpad on a PlayStation controller. The key above keeps working too.",
   "settings.tabMarkers.pad.error.noController": "No controller found. Plug it in, or, if it is a PlayStation controller, open the game through Steam first, then try again.",
   "settings.tabMarkers.pad.error.timeout": "No button was pressed. Try again.",
   "settings.tabMarkers.pad.error.unavailable": "This PC does not let the app read controllers.",

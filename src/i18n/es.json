@@ -190,7 +190,7 @@
   "settings.tabMarkers.pad.press": "Presiona un botón del mando…",
   "settings.tabMarkers.pad.remove": "Quitar",
   "settings.tabMarkers.pad.none": "Ninguno",
-  "settings.tabMarkers.pad.help": "¿Juegas con mando? Elige el botón que abre el mapa en el juego. La tecla de arriba sigue funcionando.",
+  "settings.tabMarkers.pad.help": "¿Juegas con mando? Elige el botón que abre el mapa en el juego: normalmente View, que en un mando de PlayStation es el panel táctil. La tecla de arriba sigue funcionando.",
   "settings.tabMarkers.pad.error.noController": "No se encontró ningún mando. Conéctalo, o, si es un mando de PlayStation, abre primero el juego a través de Steam, y vuelve a intentarlo.",
   "settings.tabMarkers.pad.error.timeout": "No se presionó ningún botón. Vuelve a intentarlo.",
   "settings.tabMarkers.pad.error.unavailable": "Este equipo no permite que la app lea mandos.",

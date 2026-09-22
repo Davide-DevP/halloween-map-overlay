@@ -190,7 +190,7 @@
   "settings.tabMarkers.pad.press": "Drück eine Taste am Controller…",
   "settings.tabMarkers.pad.remove": "Entfernen",
   "settings.tabMarkers.pad.none": "Keine",
-  "settings.tabMarkers.pad.help": "Spielst du mit Controller? Stell die Taste ein, die im Spiel die Karte öffnet. Die Taste oben funktioniert weiterhin.",
+  "settings.tabMarkers.pad.help": "Spielst du mit Controller? Stell die Taste ein, die im Spiel die Karte öffnet: normalerweise View, auf einem PlayStation-Controller das Touchpad. Die Taste oben funktioniert weiterhin.",
   "settings.tabMarkers.pad.error.noController": "Kein Controller gefunden. Schließ ihn an, oder öffne bei einem PlayStation-Controller zuerst das Spiel über Steam, und versuch es noch einmal.",
   "settings.tabMarkers.pad.error.timeout": "Es wurde keine Taste gedrückt. Versuch es noch einmal.",
   "settings.tabMarkers.pad.error.unavailable": "Dieser PC lässt die App keine Controller lesen.",

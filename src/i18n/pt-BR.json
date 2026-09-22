@@ -190,7 +190,7 @@
   "settings.tabMarkers.pad.press": "Aperte um botão no controle…",
   "settings.tabMarkers.pad.remove": "Tirar",
   "settings.tabMarkers.pad.none": "Nenhum",
-  "settings.tabMarkers.pad.help": "Joga com controle? Defina o botão que abre o mapa no jogo. A tecla acima continua funcionando.",
+  "settings.tabMarkers.pad.help": "Joga com controle? Defina o botão que abre o mapa no jogo: normalmente o View, que num controle de PlayStation é o touchpad. A tecla acima continua funcionando.",
   "settings.tabMarkers.pad.error.noController": "Nenhum controle encontrado. Conecte o controle, ou, se for um controle de PlayStation, abra o jogo pelo Steam primeiro, e tente de novo.",
   "settings.tabMarkers.pad.error.timeout": "Nenhum botão foi apertado. Tente de novo.",
   "settings.tabMarkers.pad.error.unavailable": "Este PC não deixa o app ler controles.",
