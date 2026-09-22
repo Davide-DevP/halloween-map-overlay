@@ -224,6 +224,11 @@ class Diagnostics {
                 + `${pad.reason ? ` (${pad.reason})` : ''}, slot ${pad.slot === null || pad.slot === undefined ? '-' : pad.slot}, `
                 + `${pad.reads || 0} reads, ${pad.scans || 0} scans, ${pad.errors || 0} errors`);
         }
+        // The Gamepad API half: a hidden window, a count of pads, edges. Never a reading.
+        const pw = tab.padWindow || {};
+        lines.push(`controller window = ${pw.exists ? 'open' : 'closed'}${pw.exists && !pw.ready ? ' (loading)' : ''}, `
+            + `watching ${pw.watching ? 'yes' : 'no'}, ${pw.padsSeen || 0} pad(s) seen, ${pw.edges || 0} edges, `
+            + `created ${pw.created || 0} time(s)`);
         lines.push(`tab mode cadence = check ${tab.checkMs || 0} ms `
             + `(fast ${tab.fastMs || 0} / safety ${tab.safetyMs || 0}), detect ${tab.detectMs || 0} ms, `
             + `hide after ${tab.hideAfterNegative || 0} negative gate(s)`);

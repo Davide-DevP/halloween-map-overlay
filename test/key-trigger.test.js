@@ -567,8 +567,8 @@ test('status is counters and one reason — never anything about a key', () => {
  * The controller button — the map key's second input
  * ──────────────────────────────────────────────────────────────────────────── */
 
-const VIEW = 0x0020;
-const A_BUTTON = 0x1000;
+const VIEW = 8;               // the standard index; the XInput readings below still carry the bit
+const A_BUTTON = 0;
 
 test('with no button set the controller is never opened, let alone read', () => {
     const behaviour = {keys: {}, foregroundPid: 1, pads: {0: {wButtons: 0xFFFF}}};
@@ -598,13 +598,13 @@ test('a controller button held in the game is a down edge, released an up edge',
     trigger.setGamePid(1);
     trigger.tick();
     assert.deepStrictEqual(hints, []);
-    behaviour.pads[0].wButtons = VIEW;
+    behaviour.pads[0].wButtons = 0x0020;
     trigger.tick();
     assert.deepStrictEqual(hints, ['down:down']);
     trigger.tick();
     assert.deepStrictEqual(hints, ['down:down'], 'held: no second edge');
     // Another button is not the map button.
-    behaviour.pads[0].wButtons = A_BUTTON;
+    behaviour.pads[0].wButtons = 0x1000;
     trigger.tick();
     assert.deepStrictEqual(hints, ['down:down', 'up:up']);
     // The log names the source of a down edge and nothing else about the pad.
@@ -629,7 +629,7 @@ test('the keyboard and the controller are one input: either holds the markers up
     trigger.tick();
     assert.deepStrictEqual(hints, ['down']);
     // The pad joins in, the key lets go: still down, no edge.
-    behaviour.pads[0].wButtons = VIEW;
+    behaviour.pads[0].wButtons = 0x0020;
     trigger.tick();
     behaviour.keys = {};
     trigger.tick();
@@ -689,7 +689,7 @@ test('with no controller plugged in the slots are scanned at the slow cadence', 
     assert.deepStrictEqual(behaviour.xinputCalls, [0, 1, 2, 3, 0, 1, 2, 3]);
     assert.strictEqual(trigger.pad.counters.scans, 2);
     // A pad plugged into slot 1 is found on the next scan and then read alone.
-    behaviour.pads[1] = {wButtons: VIEW};
+    behaviour.pads[1] = {wButtons: 0x0020};
     now += T.PAD_SCAN_INTERVAL;
     const hints = [];
     trigger.onHint = (hint) => hints.push(hint);
@@ -770,12 +770,12 @@ test('recording waits for exactly one button on any pad and answers with its lab
     assert.ok(trigger.recording, 'a recording is in flight');
     await new Promise(r => setTimeout(r, 20));
     // Two buttons at once is a hand on its way: keep waiting.
-    behaviour.pads[1].wButtons = VIEW | A_BUTTON;
+    behaviour.pads[1].wButtons = 0x0020 | 0x1000;
     await new Promise(r => setTimeout(r, 20));
     assert.ok(trigger.recording, 'two buttons did not end the recording');
-    behaviour.pads[1].wButtons = VIEW;
+    behaviour.pads[1].wButtons = 0x0020;
     const result = await pending;
-    assert.deepStrictEqual(result, {ok: true, code: VIEW, label: 'View / Share / Touchpad'});
+    assert.deepStrictEqual(result, {ok: true, code: VIEW, label: 'View / Share'});
     assert.strictEqual(trigger.recording, null);
     // The recorder is the one place the pad is read outside the game: no pid
     // was ever set here, and it still answered.
@@ -804,4 +804,55 @@ test('recording gives up with a reason: no controller, no press, or no XInput', 
     const second = twice.recordPad({timeoutMs: 30, intervalMs: 5});
     assert.deepStrictEqual(await first, {ok: false, reason: 'replaced'});
     assert.deepStrictEqual(await second, {ok: false, reason: 'timeout'});
+});
+
+test('the Gamepad API level is folded in like the XInput one, and only in the game', () => {
+    const hints = [];
+    const behaviour = {keys: {}, foregroundPid: 1, pads: {}};
+    const trigger = new KeyTrigger({
+        load: () => fakeKoffi(behaviour), onHint: (hint) => hints.push(hint), mapPad: VIEW, intervalMs: 100000
+    });
+    trigger.start();
+    trigger.setGamePid(1);
+    // The window says the button is down: a down edge, with no XInput pad at all.
+    trigger.setApiPadDown(true);
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down']);
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down'], 'held: no second edge');
+    // The game loses the front: up, whatever the window still says.
+    behaviour.foregroundPid = 7;
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down', 'up']);
+    behaviour.foregroundPid = 1;
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down', 'up', 'down']);
+    trigger.setApiPadDown(false);
+    trigger.tick();
+    assert.deepStrictEqual(hints, ['down', 'up', 'down', 'up']);
+    // Stopping forgets the pushed level, so a restart sees a fresh press.
+    trigger.setApiPadDown(true);
+    trigger.stop();
+    assert.strictEqual(trigger.apiPadDown, false);
+});
+
+test('the foreground is reported on its edges only, and as false on stop', () => {
+    const seen = [];
+    const behaviour = {keys: {}, foregroundPid: 7};
+    const trigger = new KeyTrigger({load: () => fakeKoffi(behaviour), intervalMs: 100000});
+    trigger.onForeground = (fg) => seen.push(fg);
+    trigger.start();
+    trigger.setGamePid(1);
+    trigger.tick();
+    trigger.tick();
+    assert.deepStrictEqual(seen, [false], 'one edge for "not in front", not one per tick');
+    behaviour.foregroundPid = 1;
+    trigger.tick();
+    trigger.tick();
+    assert.deepStrictEqual(seen, [false, true]);
+    trigger.stop();
+    assert.deepStrictEqual(seen, [false, true, false]);
+    // A stopped trigger that was never in front reports nothing new.
+    trigger.stop();
+    assert.deepStrictEqual(seen, [false, true, false]);
 });

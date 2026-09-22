@@ -125,6 +125,26 @@ function foldMapInputs(inputs) {
     return {down: false, alt: false, source: null};
 }
 
+/**
+ * *Choose button…* runs on both controller paths at once (XInput in main, the
+ * Gamepad API in its window) and one answer comes back: the first `ok`; else
+ * the more informative refusal — a pad that was seen but not pressed beats
+ * "no controller", which beats "unavailable". Pure, so the order is testable.
+ * @param {Array<{ok: boolean, code?: number, label?: string, reason?: string}>} results
+ */
+function combineRecordings(results) {
+    const list = (results || []).filter(r => r && typeof r === 'object');
+    const winner = list.find(r => r.ok === true);
+    if (winner) return winner;
+    const rank = {timeout: 3, 'no-controller': 2, cancelled: 1, replaced: 1, unavailable: 0};
+    let best = null;
+    for (const r of list) {
+        const score = rank[r.reason] === undefined ? 0 : rank[r.reason];
+        if (!best || score > best.score) best = {score, reason: r.reason || 'unavailable'};
+    }
+    return {ok: false, reason: best ? best.reason : 'unavailable'};
+}
+
 /** No timers, no handles. `confirmedKey` is the only map showable unseen. */
 function initialTabModeState() {
     return {showing: false, key: null, negatives: 0, provisional: false, confirmedKey: null};
@@ -396,6 +416,7 @@ module.exports = {
     detectIntervalFor,
     keyHintFor,
     foldMapInputs,
+    combineRecordings,
     initialTabModeState,
     reduceTabMode,
     displayForRect,

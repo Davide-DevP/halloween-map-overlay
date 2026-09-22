@@ -43,14 +43,15 @@ test('extras are merged last and each call is a fresh object', () => {
 });
 
 test('every window in the app is built through this one builder', () => {
-    // Four windows now (main, overlay, OBS, Tab markers) and the next one must
+    // Five windows now (main, overlay, OBS, Tab markers, controller input) and the next one must
     // not quietly go back to an inline object — that is how three of them ended
     // up with spellcheck on for years.
     const files = [
         'src/core/main-window.js',
         'src/core/overlay-window.js',
         'src/core/obs-window.js',
-        'src/core/tab-overlay-window.js'
+        'src/core/tab-overlay-window.js',
+        'src/core/pad-window.js'
     ];
     for (const file of files) {
         const src = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');

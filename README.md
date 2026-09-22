@@ -389,16 +389,17 @@ either way.
   sticks are — and the app looks at the one button you chose and throws the
   rest away. Nothing about it is written down except that your map button went
   down or came up. With no button set, the controller is never read at all.
-- **Choosing the button is the one time it is read outside the game**: for up to fifteen seconds after you click *Choose button…* — switch back to the game
-  and press it there if the button does nothing on the desktop: Steam shows a
-  PlayStation controller only while the game is in front.
-- **Xbox controllers and generic PC pads** work as they are. **A PlayStation
-  controller is seen while Steam is translating it**, which Steam does by
-  default for PlayStation pads — but only while a Steam game is open, so choose
-  the button with the game running. DS4Windows does the same job all the time.
-  A DualShock or DualSense plugged in with nothing translating it is not seen.
+- **Choosing the button is the one time it is read outside the game**: for up to fifteen seconds after you click *Choose button…* — long enough to switch
+  back to the game and press it there, should the button do nothing on the
+  desktop.
+- **Xbox, PlayStation and other PC controllers all work as they are**, with
+  nothing to install: the app reads them the way a browser does (the Gamepad
+  API, which knows the DualShock 4, the DualSense and the Xbox pads by name)
+  and, for the Xbox-shaped ones, through Windows' own XInput as well. On a
+  PlayStation pad the touchpad click is a button like any other.
 - To check a PC before trusting the app with it, `npm run probe-pad` prints the
-  button XInput sees, using the same code as the app.
+  button XInput sees — the Xbox path only; a PlayStation pad shows up in the
+  app, not there.
 
 If reading the key state does not work on your PC — some security software
 blocks it — the app says so once and falls back to the slower method below, all

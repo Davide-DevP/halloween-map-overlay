@@ -324,12 +324,20 @@ agent must not undo:
     §5.7.1) — and stores through `set-tab-marker-pad` so main validates the
     code. The recorder logs its outcome and counters to `app.log`; the first
     field report had no line at all for a failed recording.
-  - **PlayStation pads are seen only through Steam or DS4Windows**, and the
-    Steam virtual pad exists only while a Steam game is running — so every
-    string that says "no controller found" says to open the game first. Do
-    not "fix" that by reading HID: it was rejected as a broader read than
-    the app should make. `scripts/probe-pad.js` is the plain-node check for
-    a PC and its pad.
+  - **PlayStation pads come through the Gamepad API window, not XInput**
+    (`core/pad-window.js`): Halloween talks to Steam Input directly, so
+    Steam never creates a virtual XInput pad for it (`joy.cpl` on the
+    owner's PC, Steam Input on, game open: one physical Xbox pad, nothing
+    virtual). Two rules for that window: it exists only while a button is
+    set or being chosen (`syncPadWatch` is the one place that decides, and
+    `close()` is *not* for good — the button can be set and cleared all
+    day); and the renderer polls only while main said `pad-watch on`, which
+    main says on the foreground **edge** with the same three facts as the key
+    read. `backgroundThrottling: false` is load-bearing there, see
+    [memory.md](memory.md). Do not "fix" a missing pad by reading HID in
+    main: rejected as a broader read than the app should make, and a
+    re-implementation of Chromium's mappings. `scripts/probe-pad.js` checks
+    the XInput path only.
 
 ## Measured constants
 

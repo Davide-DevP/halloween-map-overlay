@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Nothing is drawn here: this hidden window exists only to run
+         navigator.getGamepads(), which lives in a renderer. Every rule for what
+         it reads and when is in src/core/pad-window.js. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'">
+    <title>Controller input</title>
+</head>
+<body>
+<script src="pad-renderer.js"></script>
+</body>
+</html>

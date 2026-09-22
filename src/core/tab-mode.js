@@ -5,6 +5,7 @@ const electron = require('electron');
 const appLog = require('./app-log');
 const TabOverlayWindow = require('./tab-overlay-window');
 const KeyTrigger = require('./key-trigger');
+const PadWindow = require('./pad-window');
 const {
     DEFAULT_SIZE
 } = require('./map-detector/matcher');
@@ -17,7 +18,7 @@ const {
     PROVISIONAL_DEADLINE_MS, CONFIRMED_MEMORY_MS, PAD_RECORD_TIMEOUT,
     initialTabModeState, reduceTabMode, gameRectToDip, rectChanged, confirmRetryDelay,
     resolveTriggerMethod, triggerMode, checkInterval, detectIntervalFor,
-    shouldShowProvisionally, forgetConfirmedMap, confirmedMemoryFresh
+    shouldShowProvisionally, forgetConfirmedMap, confirmedMemoryFresh, combineRecordings
 } = require('../shared/tab-mode-rules');
 
 /** Settings that change what is on screen *right now*, so they re-place it. */
@@ -57,7 +58,7 @@ const STATE_LOG_INTERVAL = 30000;
 class TabMode {
 
     /**
-     * @param {{ipcMain?, screen?, overlay?, trigger?, now?}} [deps] injected so
+     * @param {{ipcMain?, screen?, overlay?, trigger?, padWindow?, now?}} [deps] injected so
      *   the tests can drive the show/hide races the real Electron, screen and
      *   keyboard cannot. The app never passes it.
      */
@@ -138,6 +139,17 @@ class TabMode {
         };
         // Fall back mid-session rather than stop reacting to the key.
         this.trigger.onUnavailable = (why) => self.fallBackToPolling(why);
+        /**
+         * The Gamepad API half of the controller button: a hidden window that
+         * exists only while a button is set, reads only while the game is in
+         * front, and pushes edges into the trigger. Injectable, like the rest.
+         */
+        this.padWindow = d.padWindow || new PadWindow();
+        this.padWindow.onEdge = (down) => {
+            if (typeof self.trigger.setApiPadDown === 'function') self.trigger.setApiPadDown(down);
+        };
+        // The same gate as the key read, on the foreground **edge**.
+        this.trigger.onForeground = () => self.syncPadWatch();
 
         // The master switch, the layers and the opacity go through the generic
         // `set-setting` (the Show/hide-markers hotkey included), so this hook is
@@ -178,18 +190,17 @@ class TabMode {
             self.trigger.setMapPad(resolved);
             self.invalidate();
             self.dispatch({type: 'lost', reason: 'key-changed'});
+            self.syncPadWatch();
             appLog.event('tab-markers', {action: 'map-pad', set: resolved === null ? 'no' : 'yes'});
             return self.status();
         });
         // *Choose button…*: main reads the pad for the one button the user is
         // about to press, for at most `PAD_RECORD_TIMEOUT`. The result is only
         // a code and a label; the renderer then stores it through the handler above.
-        this.ipcMain.handle('record-tab-marker-pad', async () => {
-            if (typeof self.trigger.recordPad !== 'function') return {ok: false, reason: 'unavailable'};
-            return self.trigger.recordPad({timeoutMs: PAD_RECORD_TIMEOUT});
-        });
+        this.ipcMain.handle('record-tab-marker-pad', async () => self.recordPad());
         this.ipcMain.handle('cancel-tab-marker-pad', async () => {
             if (typeof self.trigger.cancelPadRecording === 'function') self.trigger.cancelPadRecording('cancelled');
+            self.padWindow.cancelRecord('cancelled');
             return true;
         });
         // "Polling only" — the user's escape hatch; main switches methods here.
@@ -263,6 +274,55 @@ class TabMode {
     /** @returns {?number} the controller button's code, null = none set. */
     mapPad() {
         return resolveMapPad(this.settings ? this.settings.get('tabMarkerPad') : null);
+    }
+
+    /**
+     * The one place that decides whether the Gamepad API window reads: the
+     * trigger runs, a button is set, the game is in front — the key read's
+     * own three facts. Off, the window is closed, not kept.
+     */
+    syncPadWatch() {
+        const code = this.mapPad();
+        const wanted = code !== null && this.trigger.running === true && !this.destroyed;
+        if (!wanted) {
+            if (!this.padWindow.recording) this.padWindow.close();
+            else this.padWindow.setWatch(false, null);
+            if (typeof this.trigger.setApiPadDown === 'function') this.trigger.setApiPadDown(false);
+            return;
+        }
+        this.padWindow.ensure();
+        this.padWindow.setWatch(this.trigger.foreground === true, code);
+    }
+
+    /**
+     * *Choose button…* on both paths at once — XInput sees Xbox pads without
+     * Steam, the Gamepad API sees the rest — and `combineRecordings` picks the
+     * answer. The window is built for it if need be and closed again by
+     * `syncPadWatch` when no button comes of it.
+     */
+    async recordPad() {
+        const self = this;
+        const viaXInput = typeof this.trigger.recordPad === 'function'
+            ? this.trigger.recordPad({timeoutMs: PAD_RECORD_TIMEOUT})
+            : Promise.resolve({ok: false, reason: 'unavailable'});
+        const viaApi = this.padWindow.record({timeoutMs: PAD_RECORD_TIMEOUT});
+        // The first `ok` ends the other; a refusal waits for its partner.
+        const first = await new Promise((resolve) => {
+            let pending = 2;
+            const results = [];
+            const settle = (result) => {
+                results.push(result);
+                if (result && result.ok) return resolve(combineRecordings(results));
+                if (--pending === 0) resolve(combineRecordings(results));
+            };
+            viaXInput.then(settle, () => settle({ok: false, reason: 'unavailable'}));
+            viaApi.then(settle, () => settle({ok: false, reason: 'unavailable'}));
+        });
+        if (typeof this.trigger.cancelPadRecording === 'function') this.trigger.cancelPadRecording('replaced');
+        this.padWindow.cancelRecord('replaced');
+        appLog.event('tab-markers', {action: 'map-pad-record', result: first.ok ? 'ok' : first.reason});
+        self.syncPadWatch();
+        return first;
     }
 
     triggerMode() {
@@ -533,6 +593,7 @@ class TabMode {
         } else if (!this.trigger.start()) {
             this.noticeFallback(this.trigger.reason || 'unavailable');
         }
+        this.syncPadWatch();
         const info = this.methodInfo();
         appLog.event('tab-markers', {action: 'method', method: info.method, reason: info.reason});
         // The cadence depends on the method, so a change re-arms a live loop.
@@ -563,6 +624,7 @@ class TabMode {
         const wasEnabled = this.enabled;
         this.clearTimer();
         this.trigger.stop();
+        this.syncPadWatch();
         this.dispatch({type: 'stop'});
         // As well as through `dispatch`: a stop with nothing on screen must
         // still strand a capture in flight, or stop()/start() is overtaken.
@@ -588,6 +650,7 @@ class TabMode {
         this.clearTimer();
         this.invalidate();
         this.trigger.destroy();
+        this.padWindow.destroy();
         this.state = initialTabModeState();
         this.enabled = false;
         this.rect = null;
@@ -1158,7 +1221,8 @@ class TabMode {
             provisional: this.counters.provisional,
             unconfirmed: this.counters.unconfirmed,
             lastTiming: this.lastTiming,
-            trigger: this.trigger.status()
+            trigger: this.trigger.status(),
+            padWindow: this.padWindow.status()
         };
     }
 }

@@ -144,8 +144,10 @@ Markers and Tab-map mode
   src/shared/tab-mode-rules.js  PURE Tab-mode scheduler, cadences, DIP conversion, key decisions
   src/core/key-trigger.js       koffi → `user32` `GetAsyncKeyState` for one configured key (+ the pad, same tick)
   src/shared/key-codes.js       PURE `KeyboardEvent` → Windows virtual-key code (not an accelerator)
-  src/core/pad-input.js         koffi → `XInputGetState`: the map key's optional controller button
-  src/shared/pad-codes.js       PURE controller-button codes, labels, "is this bit down"
+  src/core/pad-input.js         koffi → `XInputGetState`: the controller button, Xbox path
+  src/core/pad-window.js        Hidden window for the Gamepad API: every other pad; exists only with a button set
+  src/map/pad.html, pad-renderer.js  That window's renderer: polls only when told, sends edges only
+  src/shared/pad-codes.js       PURE standard-mapping codes, XInput bits, labels, "is this button down"
 Detection
   src/core/map-detector.js      The loop, the state machine and the IPC. Off by default
   src/core/map-detector/frame-source.js  The pixel work: window, capture, gate, grayscale, match

@@ -540,23 +540,42 @@ first version treated as a cancel. The strings now say to switch to the game
 and press there.
 `set-tab-marker-pad` validates the code in main like `set-tab-marker-key`.
 
-**Which pads.** Anything XInput sees: Xbox controllers, generic "XInput" PC
-pads, and a PlayStation controller **while Steam is translating it** — with
-*PlayStation controller support* on (Steam's default) Steam creates a virtual
-Xbox pad only while a Steam game is running, so the FAQ and the *no controller*
-toast both say to choose the button with the game open. DS4Windows does the
-same permanently. A DualShock/DualSense plugged in bare is DirectInput/HID and
-is **not** seen; reading raw HID reports was rejected as a far broader
-statement about what the app reads, and Chromium's Gamepad API needs a focused
-window with a user gesture, which no overlay window ever is.
+**Two paths, one button (1.2).** XInput above is the Xbox path. The field
+test that shipped 1.1.0–1.1.2 to a DualShock 4 player found the rest: with a
+Steam game open, `joy.cpl` on the owner's PC listed only the physical Xbox
+pad even with Steam Input switched on for it — Halloween talks to the Steam
+Input API directly and Steam creates **no** virtual XInput pad for it, so a
+PlayStation pad never becomes XInput, game in front or not. (The 1.1.2 theory
+that Steam's virtual pad comes and goes with the foreground was wrong; the
+no-blur-cancel and the 15 s stay because they cost nothing.) So the second
+path is **Chromium's Gamepad API**, in a hidden window of its own
+(`core/pad-window.js`, `map/pad.html` + `pad-renderer.js`): Chromium reads
+every pad it knows — DualShock 4, DualSense, Xbox, generic — through Raw Input
+with `RIDEV_INPUTSINK`, i.e. without focus, and the "user gesture" it wants
+before exposing gamepads is a button press *on the pad*, not on the page. The
+window is built only while a button is set (or being chosen), closed again
+otherwise, `backgroundThrottling: false` because Chromium samples gamepads
+only for a visible page and Electron reports a hidden window's page as hidden
+unless throttling is off (the one deviation from `shared/web-preferences.js`'s
+default; `docs/agents/memory.md`). The renderer polls
+`navigator.getGamepads()` at `KEY_POLL_INTERVAL` **only while main says so**
+(`pad-watch`: trigger running, button set, game in front — sent on the
+foreground *edge* from `KeyTrigger.noteForeground`) and sends **edges** of the
+one button (`pad-edge`), never a reading and never a pad's id; main folds that
+level in beside the XInput one (`KeyTrigger.setApiPadDown`). A stored code is
+now the **standard-mapping index** (0 = A/✕ … 8 = View/Share, 17 = Touchpad),
+with the XInput bit kept beside it and 1.1.x's stored bits migrated
+(`LEGACY_XINPUT`). *Choose button…* runs on **both** paths at once and
+`combineRecordings` picks the answer. Not yet measured on a real PlayStation
+pad at the time of writing: the DualShock field tester is the first test.
+Reading raw HID reports in main was rejected as a far broader statement about
+what the app reads, and it would have re-implemented Chromium's mappings.
 
-**Labels** name both faces — `A / ✕`, `View / Share / Touchpad`, `LB / L1` —
-because XInput cannot say which pad is plugged in. The touchpad is there because
-Steam maps a DualShock's touchpad *click* onto the virtual pad's View button —
-the first PlayStation field test (1.1.0) opened the map with it and saw a label
-that named a button the player had not pressed. The Guide button is not offered:
-`XInputGetState` does not report it. Labels are never translated (they name
-physical buttons); only *None* is.
+**Labels** name both faces — `A / ✕`, `View / Share`, `LB / L1` — because
+neither path can say which pad is plugged in; the touchpad is its own button
+(standard index 17, Gamepad API only). The Guide button is not offered:
+`XInputGetState` does not report it and it is the platform overlay's key.
+Labels are never translated (they name physical buttons); only *None* is.
 
 Measured (plain node, dev machine, no pad connected): `xinput1_4.dll` bind
 3.0 ms once; `XInputGetState` on an empty slot **~15 µs**, so a full four-slot

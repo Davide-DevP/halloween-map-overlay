@@ -71,7 +71,12 @@ anything that looks like a spare allocation in the detector loop.
     cannot quietly go back to an inline object.
     `backgroundThrottling` is deliberately absent:
     throttling the tray-hidden main window is right, and its hotkeys arrive as
-    IPC, not as timers.
+    IPC, not as timers. **One window passes `{backgroundThrottling: false}`
+    as an extra** since 1.2: `core/pad-window.js`, the hidden controller-input
+    window, because Chromium samples gamepads only for a *visible* page and
+    Electron reports a hidden window's page as hidden unless throttling is
+    off. It exists only while a controller button is configured; its cost is
+    **not yet measured** — measure it before quoting a number.
   - **Tearing the main window's renderer down in the tray — done in 0.7, and
     only because the architecture moved first.** `docs/MEMORY-REPORT-2.md` §3.3
     rejected it: `src/js/maps.js` owned `currentKey`/`lastKey`, every hotkey,

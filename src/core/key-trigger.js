@@ -45,6 +45,12 @@ class KeyTrigger {
         this.pad = new PadInput({load: this.loader, now: this.now});
         /** The *Choose button…* recorder in flight, if any. */
         this.recording = null;
+        /** The Gamepad API's level for the button, pushed by `core/pad-window.js`. */
+        this.apiPadDown = false;
+        /** Last foreground verdict, so `onForeground` fires on edges only. */
+        this.foreground = null;
+        /** Called with true/false when the game gains or loses the front. */
+        this.onForeground = null;
 
         /** The bound functions, or null until `open()` succeeds. */
         this.fn = null;
@@ -162,6 +168,26 @@ class KeyTrigger {
         return this.pad.probe();
     }
 
+    /**
+     * The Gamepad API half's level for the configured button — the other
+     * path's reading, folded in on the next tick like the XInput one.
+     */
+    setApiPadDown(down) {
+        this.apiPadDown = down === true;
+    }
+
+    /** Remember the foreground and tell the owner on a change. */
+    noteForeground(foreground) {
+        const next = foreground === true;
+        if (next === this.foreground) return;
+        this.foreground = next;
+        if (typeof this.onForeground === 'function') {
+            try { this.onForeground(next); } catch (err) {
+                console.error('Tab markers: foreground handler failed:', err && err.message);
+            }
+        }
+    }
+
     /** The game's pid from the detector's read — **not** a second enumeration. */
     setGamePid(pid) {
         this.gamePid = typeof pid === 'number' && pid > 0 ? pid : null;
@@ -229,6 +255,8 @@ class KeyTrigger {
         this.running = false;
         // A key held when the loop stops must not look held when it starts.
         this.wasDown = false;
+        this.apiPadDown = false;
+        this.noteForeground(false);
     }
 
     /** `setTimeout` chaining, never `setInterval` — the project-wide rule. */
@@ -271,6 +299,7 @@ class KeyTrigger {
             this.giveUp();
             return;
         }
+        this.noteForeground(foreground);
         // Not in the game: **no key or button is read at all**, and a held one
         // resolves to "up" below, so leaving the game hides the markers.
         const keyDown = foreground ? this.isDown(this.mapVk) : false;
@@ -280,7 +309,8 @@ class KeyTrigger {
         }
         // Alt is only asked about while the key reads as down.
         const alt = keyDown ? this.isDown(VK_MENU) === true : false;
-        const padDown = foreground ? this.isPadDown() : false;
+        // Both controller paths: XInput here, the Gamepad API's level as pushed.
+        const padDown = foreground ? (this.isPadDown() || this.apiPadDown) : false;
         const folded = foldMapInputs({key: keyDown, pad: padDown, alt});
         const verdict = keyHintFor({
             down: folded.down,
