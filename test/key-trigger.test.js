@@ -3,7 +3,7 @@ const assert = require('node:assert');
 
 // The recorder un-refs its timers (they must never keep the *app* alive), so a
 // test awaiting one leaves the event loop empty. Node 24 waits for the test's
-// promise anyway; Node 22 — what the release workflow runs — cancels the test
+// promise anyway; Node 22 (the workflow ran it until 1.1.0) cancels the test
 // ('Promise resolution is still pending but the event loop has already
 // resolved'). One ref'd timer for the life of the file makes both behave alike.
 const keepAlive = setInterval(() => {}, 1000);

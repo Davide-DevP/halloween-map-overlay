@@ -44,3 +44,13 @@ the account owner).
 
 The workflow has run for every release since 0.2.x. Still watch each run before
 telling anyone to download.
+
+**Node version.** The workflow runs **Node 24**, the same as the dev machine
+(rule 9), since just after 1.1.0. It ran 22 until then, and 22 cancels a test
+whose awaited promise rests on an un-ref'd timer ("Promise resolution is still
+pending but the event loop has already resolved") where 24 waits — which
+failed the first 1.1.0 run, and 9f65bd0 before it, with `npm test` green
+locally each time. Node never ships in the app (Electron carries its own
+runtime), so the version matters only for the tests and electron-builder.
+The three test files that await un-ref'd timers keep their `keepAlive`
+interval anyway, so anyone on an older Node gets the same result.
