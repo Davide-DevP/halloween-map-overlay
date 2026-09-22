@@ -1,5 +1,13 @@
-const {test} = require('node:test');
+const {test, after} = require('node:test');
 const assert = require('node:assert');
+
+// The recorder un-refs its timers (they must never keep the *app* alive), so a
+// test awaiting one leaves the event loop empty. Node 24 waits for the test's
+// promise anyway; Node 22 — what the release workflow runs — cancels the test
+// ('Promise resolution is still pending but the event loop has already
+// resolved'). One ref'd timer for the life of the file makes both behave alike.
+const keepAlive = setInterval(() => {}, 1000);
+after(() => clearInterval(keepAlive));
 
 const T = require('../src/shared/tab-mode-rules');
 const {DEFAULT_MAP_VK, VK_MENU} = require('../src/shared/key-codes');
