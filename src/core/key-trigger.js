@@ -329,7 +329,13 @@ class KeyTrigger {
                 rec.done = true;
                 if (rec.timer) clearTimeout(rec.timer);
                 if (self.recording === rec) self.recording = null;
-                if (result.ok) appLog.event('tab-markers', {action: 'map-pad-recorded'});
+                // The outcome and counters only — which button is never logged.
+                appLog.event('tab-markers', {
+                    action: 'map-pad-record',
+                    result: result.ok ? 'ok' : result.reason,
+                    padSeen: rec.seenPad ? 'yes' : 'no',
+                    reads: self.pad.counters.reads
+                });
                 resolve(result);
             };
             rec.cancel = (why) => finish({ok: false, reason: why || 'cancelled'});

@@ -28,8 +28,8 @@ const PAD_SCAN_INTERVAL = 1000;
 /** XInput's `XUSER_MAX_COUNT`: the slots a controller can be in. */
 const PAD_SLOTS = 4;
 
-/** How long *Choose button…* waits for one controller button (ms). */
-const PAD_RECORD_TIMEOUT = 10000;
+/** How long *Choose button…* waits for one controller button (ms): room for an Alt+Tab. */
+const PAD_RECORD_TIMEOUT = 15000;
 
 /** Confirming-capture retries while the key is held, as delays from the last (ms). */
 const CONFIRM_RETRY_DELAYS = [50, 50, 50, 50, 50, 100];

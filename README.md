@@ -389,8 +389,9 @@ either way.
   sticks are — and the app looks at the one button you chose and throws the
   rest away. Nothing about it is written down except that your map button went
   down or came up. With no button set, the controller is never read at all.
-- **Choosing the button is the one time it is read outside the game**: for up
-  to ten seconds after you click *Choose button…*.
+- **Choosing the button is the one time it is read outside the game**: for up to fifteen seconds after you click *Choose button…* — switch back to the game
+  and press it there if the button does nothing on the desktop: Steam shows a
+  PlayStation controller only while the game is in front.
 - **Xbox controllers and generic PC pads** work as they are. **A PlayStation
   controller is seen while Steam is translating it**, which Steam does by
   default for PlayStation pads — but only while a Steam game is open, so choose
@@ -801,7 +802,7 @@ same rules as the key: only while the game is the window in front, in the same
 moment. Windows hands the app the controller's current state and the app looks
 at the one button you chose; the rest is thrown away and never written down.
 Choosing the button is the one time it is read outside the game, for at most
-ten seconds after you click *Choose button…*. With no button set the
+fifteen seconds after you click *Choose button…*. With no button set the
 controller is never read. See [Playing with a controller](#playing-with-a-controller).
 
 **Why are there markers where there is nothing?**

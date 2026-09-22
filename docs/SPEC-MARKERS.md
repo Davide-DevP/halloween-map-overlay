@@ -525,11 +525,19 @@ states").
 
 **Recording** (*Choose button…*) is the one time the pad is read outside the
 game: the renderer cannot see XInput, so main polls all four slots at the key
-cadence for at most `PAD_RECORD_TIMEOUT` (10 s), waits for **exactly one**
+cadence for at most `PAD_RECORD_TIMEOUT` (15 s), waits for **exactly one**
 held button (two at once is a hand on its way somewhere) and answers
 `{ok, code, label}`; `no-controller`, `timeout`, `unavailable` and
-`cancelled`/`replaced` are the refusals, each with its own toast. A click
-elsewhere, Esc, or a second click cancels through `cancel-tab-marker-pad`.
+`cancelled`/`replaced` are the refusals, each with its own toast, and the
+outcome (reason, whether any pad was seen, the read count — never a button)
+goes to `app.log`. Esc or a second click cancels through
+`cancel-tab-marker-pad`; **losing focus does not**, because the first
+PlayStation field test (1.1.0) showed why: Steam Input presents its virtual
+Xbox pad only while the *game* is the foreground window and switches to the
+desktop layout otherwise, so a player who Alt+Tabs to the app to click
+*Choose button…* has no controller at all until they Alt+Tab back — which the
+first version treated as a cancel. The strings now say to switch to the game
+and press there.
 `set-tab-marker-pad` validates the code in main like `set-tab-marker-key`.
 
 **Which pads.** Anything XInput sees: Xbox controllers, generic "XInput" PC

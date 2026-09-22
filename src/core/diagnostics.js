@@ -214,7 +214,9 @@ class Diagnostics {
         // The controller half: the one configured code, never a reading.
         const pad = trigger.pad || {};
         if (tab.mapPad === null || tab.mapPad === undefined) {
-            lines.push('controller button = none (the controller is not read)');
+            lines.push('controller button = none (the controller is not read), '
+                + `xinput ${pad.available === true ? 'available' : (pad.available === false ? 'unavailable' : 'not probed')}, `
+                + `${pad.reads || 0} reads during recording`);
         } else {
             lines.push(`controller button = 0x${Number(tab.mapPad).toString(16).toUpperCase()} `
                 + `(${tab.mapPadLabel || '?'}), available ${pad.available === true ? 'yes'

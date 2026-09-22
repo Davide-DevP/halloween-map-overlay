@@ -592,8 +592,10 @@ class Options {
     /**
      * Arm one button as the controller-button recorder. The renderer cannot
      * see the pad, so the wait happens in **main** (`record-tab-marker-pad`,
-     * bounded there); a click elsewhere cancels it, and a second click on the
-     * armed button cancels too. One recorder for however many buttons.
+     * bounded there). **Losing focus does not cancel**: Steam shows a
+     * PlayStation pad only while the game is in front, so the player is told to
+     * switch to the game and press there. Esc or a second click cancels. One
+     * recorder for however many buttons.
      */
     attachMapPadRecorder(buttonId, valueId) {
         const self = this;
@@ -623,10 +625,6 @@ class Options {
             await self.settings.refresh();
             self.renderMapPad();
             self.refreshTabMarkerMethod();
-        });
-        $(buttonId).on("blur", function () {
-            if (self.recordingMapPad !== buttonId) return;
-            self.cancelMapPadRecording();
         });
         $(buttonId).on("keydown", function (event) {
             if (self.recordingMapPad !== buttonId) return;
