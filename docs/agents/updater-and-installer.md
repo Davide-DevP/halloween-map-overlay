@@ -415,11 +415,12 @@ Wording branches on `${isUpdated}` — the same `--updated` flag
 `spawnInstallerAtLowPriority()` passes — so a first install does not claim to be
 updating. Control 1002 does not wrap: keep a sub-line under ~55 characters.
 
-`build/icon.ico` is electron-builder's own PNG→ICO conversion of
-`build/icon.png`, copied out of `<output>/.icon-ico/icon.ico` from an earlier
-build (7 PNG-compressed entries, 16→256). Regenerate it the same way after
-`npm run prepare-maps` changes the icon; it feeds `nsis.installerIcon`,
-`installerHeaderIcon` and `uninstallerIcon`.
+`build/icon.ico` is written by `npm run prepare-maps` (`encodeIco` in
+`scripts/prepare-maps.js`): 7 PNG-compressed entries, 16 → 256, the same
+shape electron-builder's own PNG→ICO conversion produces (until 1.3.2 the file
+was that conversion, copied by hand out of `<output>/.icon-ico/`). It feeds
+`nsis.installerIcon`, `installerHeaderIcon`, `uninstallerIcon` and the
+helper's `/win32icon`.
 
 **`build.compression: "store"` barely does anything for the NSIS target —
 measured, not assumed.** It was set to kill the several-second 100 % CPU spike

@@ -137,3 +137,25 @@ One thing not to do: do **not** drop a pack's Tab screenshot into
 template set, so the file would become a shipped template and
 `test/map-detector.test.js` would fail. The generators use a pack's own stored
 variants as its frames for exactly that reason.
+
+## The app icon
+
+- **The mark is code, not a file.** `iconSvg({tile})` in
+  `scripts/prepare-maps.js` holds two paths on a 1024 grid — the "Lantern
+  Pin", a map pin whose head is a carved pumpkin, chosen by the owner on
+  2026-09-23 from four directions Claude Design drew to a brief (one
+  silhouette, flat fills, the app's own `#e8853a` / `#14100f`, legible at
+  16 px). The runner-up, a waypoint ring around a pumpkin, was rejected because
+  at 16 px the ring breaks into dashes and at any size it reads as a generic
+  GPS target. Change the paths there and run `npm run prepare-maps --
+  --icons-only`; every consumer below is regenerated and committed.
+- **Two renderings.** The *tile* (mark on the rounded off-black square):
+  `build/icon.png` 512 (electron-builder's app icon), `build/icon.ico` 16 → 256
+  (installer, uninstaller, the helper's `/win32icon`) and `src/images/icon.png`
+  256 (window icon, navbar, loading and updating overlays, Credits, and copied
+  next to `hmo-updater.exe` so both screens show one picture). The *mark alone*
+  on transparent: `src/images/tray.png` 64, for `core/tray.js` — a dark tile on
+  a dark taskbar is a blob at 16 px, the orange pin is not.
+- **`build/icon.ico` is generated, not copied.** `encodeIco()` writes
+  PNG-compressed entries, the shape electron-builder itself produces, so NSIS
+  and the C# compiler take it as before.

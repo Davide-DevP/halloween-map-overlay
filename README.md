@@ -675,7 +675,9 @@ The update check is skipped in dev builds (`app.isPackaged` is false), so
 
 `npm run prepare-maps` only needs re-running when the source images in
 `maps-src/` or the app icon change; its output (`maps/deftyconchgaming/*.png`,
-`build/icon.png`, `src/images/icon.png`) is committed. The same goes for
+`build/icon.png`, `build/icon.ico`, `src/images/icon.png`,
+`src/images/tray.png`) is committed (`--icons-only` for the icons alone). The
+same goes for
 `npm run prepare-detector`, whose output
 (`src/core/map-detector/templates.json`) is built from `detection-fixtures/`
 and is committed too.

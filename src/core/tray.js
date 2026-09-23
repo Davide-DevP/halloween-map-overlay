@@ -22,7 +22,8 @@ class TrayController {
     }
 
     create() {
-        const trayIconPath = path.join(global.dirname, "src", "images", "icon.png");
+        // The mark alone, not the tile: a dark tile on a dark taskbar is a blob at 16 px.
+        const trayIconPath = path.join(global.dirname, "src", "images", "tray.png");
         if (!fs.existsSync(trayIconPath)) {
             console.log("Tray icon not found at path:", trayIconPath);
             return;
