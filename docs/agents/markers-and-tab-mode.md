@@ -3,8 +3,8 @@
 [← AGENTS.md](../../AGENTS.md) · **Read before** touching `src/core/map-markers.js`,
 `src/shared/marker-rules.js`, `marker-geometry.js`, `src/map/markers.js`,
 `src/core/tab-mode.js`, `tab-overlay-window.js`, `src/map/tab-renderer.js`,
-`src/core/key-trigger.js`, `src/shared/key-codes.js`, `src/core/pad-input.js`,
-`src/shared/pad-codes.js`, `src/shared/tab-mode-rules.js`,
+`src/core/key-trigger.js`, `src/shared/key-codes.js`, `src/core/pad-window.js`,
+`src/map/pad-renderer.js`, `src/shared/pad-codes.js`, `src/shared/tab-mode-rules.js`,
 `maps-src/markers.json` or `scripts/build-markers.js`.
 
 Spec: `docs/SPEC-MARKERS.md`. The places the game **may** put a storm cellar, an
@@ -199,7 +199,7 @@ players rebind it). Markers appear ~60 ms after the press instead of up to
     the map). Nothing about any key is logged but the edges of that one key
     (`tab-key state=… reason=…`, plus `source=pad` on a down edge that came
     from the controller — see [The controller button](#the-controller-button),
-    the one other input read in this tick).
+    whose level is pushed in and folded into this tick).
   - **Not** `globalShortcut`/`RegisterHotKey` — it *reserves* the combination,
     so the game would stop seeing its own map key, and there is no key-up at
     all. **Not** a keyboard hook (`SetWindowsHookEx`, `uiohook`) — that puts
@@ -286,60 +286,73 @@ players rebind it). Markers appear ~60 ms after the press instead of up to
 
 ## The controller button
 
-The map key's **second input** (1.1): `tabMarkerPad`, one XInput button read
-by `core/pad-input.js` inside the key trigger's own tick. The spec owns the
-design — `docs/SPEC-MARKERS.md` §5.7.1 — and this section keeps only what an
-agent must not undo:
+The map key's **second input**: `tabMarkerPad`, one controller button, read
+through **Chromium's Gamepad API** in a hidden window (`core/pad-window.js`,
+`map/pad.html` + `pad-renderer.js`) — the only controller path. The spec owns
+the design — `docs/SPEC-MARKERS.md` §5.7.1 — and this section keeps only what
+an agent must not undo.
+
+History, because it explains the shape: 1.1 read the button through koffi →
+`XInputGetState` in the key trigger's own tick, for the key's latency instead
+of the capture path's; 1.2 added the Gamepad API window because a PlayStation
+pad through Steam Input never becomes an XInput device for Halloween. On
+**2026-09-23 the owner retired XInput**: the Gamepad API reads Xbox pads too,
+and two paths cost ~1150 lines (a native binding, a slot scanner, a second
+recorder, a combiner, a probe script, their tests) for one button.
 
   - **It is the one binding in the app that may have two inputs**, and it
     exists because a pad player on the polling path waits ~480 ms for markers
     the keyboard player gets in ~60 ms. The owner rejected "make polling the
     controller path" on exactly that latency. Do not offer a pad binding for
     any hotkey: those go through `globalShortcut`, which has no controller.
-  - **Read order is foreground → key → Alt → pad**, in `KeyTrigger.tick()`.
-    The pad read is gated on the same foreground answer as the key, and
-    `test/key-trigger.test.js` counts `XInputGetState` calls while the game is
-    not in front (zero) and with no button configured (never opened).
+  - **The window exists only while a button is set or being chosen**, and the
+    renderer polls `navigator.getGamepads()` only while main said
+    `pad-watch on` — which `syncPadWatch` (the one place that decides) says
+    on the foreground **edge**, with the same three facts as the key read:
+    trigger running, button set, game in front. `close()` is *not* for good;
+    the button can be set and cleared all day. `backgroundThrottling: false`
+    is load-bearing, see [memory.md](memory.md).
+  - **Edges only cross the boundary.** The renderer sends `pad-edge`
+    (down/up of the one button), `pad-seen` (a count) and, once per
+    recording, `pad-recorded {code, id}`. Main folds the level in through
+    `KeyTrigger.setApiPadDown`; `tick()` counts it **only while the game is
+    in front and a button is set**, after the foreground → key → Alt reads.
   - **`foldMapInputs` is where the two become one.** Alt vetoes the keyboard
-    press only; a pad press with Alt down is a press. Any read that answers
-    `null` (a throw) is "not down".
-  - **The pad's failure is the pad's alone.** `PadInput.fail()` marks it
-    unusable and the tick skips it from then on; it never calls
-    `giveUp()`, never triggers `fallBackToPolling`, never toasts. Settings
-    appends `settings.tabMarkers.method.padUnavailable` when a set button
-    has `pad.available === false`, and `system.txt` prints the reason. Keep
-    those two apart from the key trigger's `available`.
-  - **Anonymous koffi structs.** A named `koffi.struct('X', …)` is process-
-    global and a second `open()` after a `bind` failure would throw on the
-    redefinition. `sizeof` is 16, checked against real `xinput1_4.dll`.
-  - **Slot policy** is "first connected pad, then that slot only". An empty
-    slot costs ~15 µs on XInput 1.4, so the four-slot scan is rate-limited to
-    `PAD_SCAN_INTERVAL` and never runs at the key cadence; the test asserts
-    the call sequence `[0,1,2,3]` then `[2,2]`.
-  - **Recording runs in main** (`record-tab-marker-pad`), because the
-    renderer has no XInput and the Gamepad API needs a focused window with a
-    gesture. It waits for exactly one held button; the renderer's recorder
-    (`Options.attachMapPadRecorder`) is shared with the tutorial like the key
-    recorder, cancels on Esc or a second click — **never on blur**: Steam
-    Input shows a PlayStation pad only while the game is in front, so the
-    player Alt+Tabs back to the game to press (`docs/SPEC-MARKERS.md`
-    §5.7.1) — and stores through `set-tab-marker-pad` so main validates the
-    code. The recorder logs its outcome and counters to `app.log`; the first
-    field report had no line at all for a failed recording.
-  - **PlayStation pads come through the Gamepad API window, not XInput**
-    (`core/pad-window.js`): Halloween talks to Steam Input directly, so
-    Steam never creates a virtual XInput pad for it (`joy.cpl` on the
-    owner's PC, Steam Input on, game open: one physical Xbox pad, nothing
-    virtual). Two rules for that window: it exists only while a button is
-    set or being chosen (`syncPadWatch` is the one place that decides, and
-    `close()` is *not* for good — the button can be set and cleared all
-    day); and the renderer polls only while main said `pad-watch on`, which
-    main says on the foreground **edge** with the same three facts as the key
-    read. `backgroundThrottling: false` is load-bearing there, see
-    [memory.md](memory.md). Do not "fix" a missing pad by reading HID in
-    main: rejected as a broader read than the app should make, and a
-    re-implementation of Chromium's mappings. `scripts/probe-pad.js` checks
-    the XInput path only.
+    press only; a pad press with Alt down is a press.
+  - **Choosing the controller is pressing on it.** *Choose button…* records in
+    the hidden window: exactly one held button on any pad is the answer, and
+    that pad's `Gamepad.id` comes with it. Main keeps the id
+    (`TabMode.recordedPad`) and stores it as `tabMarkerPadId` only when
+    `set-tab-marker-pad` stores *that* code — the renderer is never trusted
+    with it and never sent it; removing the button clears it. No dropdown: the
+    owner's decision, because "press the button on the controller you use" is
+    one sentence a player cannot get wrong.
+  - **One pad connected = no ambiguity, whatever its id** (`padsToRead` in
+    `shared/pad-codes.js`). Steam Input can present the same physical pad
+    under a different id between sessions, so matching the id with one pad
+    would silently stop a working setup. With two or more, only pads whose id
+    equals the stored one are read, and **none** if it is not connected —
+    never a guess. No id stored (a button set before the choice existed) reads
+    every pad, as 1.2 did.
+  - **The id never reaches a log or a report.** It is a device description;
+    `app.log`, `system.txt` and the report's `settings-app.json` show
+    `(set)`/`(none)` ([diagnostics.md](diagnostics.md)). Settings shows a
+    short name (`padDisplayName`: Chromium's `(STANDARD GAMEPAD Vendor: …)`
+    suffix dropped, 40 characters) next to the button.
+  - **"Unavailable" means the window could not be built** (`PadWindow.failed`,
+    set when `new BrowserWindow` throws). Settings then appends
+    `settings.tabMarkers.method.padUnavailable`; it is never the key
+    trigger's failure, never triggers `fallBackToPolling`, and never toasts on
+    its own — only a *Choose button…* attempt says so, through
+    `settings.tabMarkers.pad.error.unavailable`.
+  - **Recording**: the renderer's recorder (`Options.attachMapPadRecorder`) is
+    shared with the tutorial through the borrowed `#mapPadControls`, cancels
+    on Esc or a second click — **never on blur**: the player may Alt+Tab to
+    the game to press (`docs/SPEC-MARKERS.md` §5.7.1) — and the outcome goes
+    to `app.log` with a pad **count**, never a button or an id.
+  - Do not "fix" a missing pad by reading HID in main: rejected as a broader
+    read than the app should make, and a re-implementation of Chromium's
+    mappings.
 
 ## Measured constants
 
@@ -357,7 +370,6 @@ the dev machine in plain node against a real 1920x1032 window
 | `DETECT_INTERVAL` | 450 ms | the detector's cadence *only while this mode runs on the polling path*, i.e. how long markers take to **appear** | a full detector tick is 17.6 ms capture + 2.6 ms `toRaw` + 5.5 ms blocking JS = 26.8 ms wall. A 1 s press fits one tick at 700 ms and two at 450, so the worst case drops ~730 → ~480 ms, for 0.8 % → 1.2 % of a core |
 | `HIDE_AFTER_NEGATIVE` | 1 | consecutive negative gates before the markers come down | the Tab gate separates 0.99 from 0.27–0.65 on the dark fraction and 0.09–0.11 from 0.000 on the name box (`matcher.js`), and the four killer-view reference frames *with the game's own discovered-exit icons on them* still pass at 0.986–0.995 / 0.084–0.115. A false negative costs one tick of missing markers the player has stopped looking at; a false positive costs 150 ms — at two, 300 ms — of brackets over live gameplay. **2 was rejected on that asymmetry.** Non-arithmetic failures (empty capture, vanished window) are `lost`, not a negative gate, so they do not depend on this number |
 | `KEY_POLL_INTERVAL` | 30 ms | how often the map key's state is read while the trigger runs | one `GetAsyncKeyState` through koffi is **28 ns**, so this is 0.00009 % of one core — four orders of magnitude under the capture path it replaces. Checked end to end against a synthesised 400 ms press: the down edge was seen 15 ms late and the up edge 8 ms late, so a realistic 1–3 s hold cannot be missed. **Not lower**: a 1 ms timer in an Electron main process costs more in timer bookkeeping than the call it would make |
-| `PAD_SCAN_INTERVAL` | 1000 ms | how often the four XInput slots are scanned while **no** controller is connected (with one connected, its slot alone is read every `KEY_POLL_INTERVAL`) | `XInputGetState` on an empty slot is **~15 µs** on `xinput1_4.dll` (200-call average, dev machine), so a scan is 60 µs; at the key cadence it would be 0.2 % of a core for a pad that is not there, at 1 s it is 0.006 %. A pad plugged in is noticed within a second, which is far under the time it takes to reach the game's map screen |
 | `PAD_RECORD_TIMEOUT` | 15 s | how long *Choose button…* waits for one held controller button | long enough to Alt+Tab back to the game and press (Steam shows a PlayStation pad only with the game in front), short enough that a pad that is not there answers *no controller* rather than a hung button. **10 s was the first value** and left no room for the Alt+Tab |
 | `SAFETY_INTERVAL` | 500 ms | the periodic capture once the trigger is healthy, and `confirm()`'s own grab deadline | the trigger normally gets there first (within 30 ms), so this costs 1.4 ms of blocking JS twice a second — 0.3 % of one core — and bounds a key-up this process never saw at half a second instead of a whole match. 150 ms would be the polling figure and is pure cost here |
 | `CONFIRM_RETRY_DELAYS` | 50 ms × 5, then 100 ms | retries of the confirming capture while the key is still held | each delay plus the ~45 ms a capture takes puts the looks at roughly 0 / 95 / 190 / 285 / 380 / 475 ms. **60 / 90 / 150 was the first schedule and was rejected**: the owner's field log (39 presses) showed the game's fade takes **250–330 ms**, so the first two looks always came too early and the third sat right on the edge — markers appeared 320–530 ms after the press, median 353. Evenly spaced looks catch the first frame that passes instead of the first one the schedule happens to land on |

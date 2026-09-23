@@ -462,13 +462,16 @@
                             </div>
                             <small class="help-text d-block mb-3" data-i18n-html="settings.tabMarkers.mapKey.help">If you changed the key that
                                 opens the map inside the game, set the same one here.</small>
-                            <!-- The map key's second input: one controller button, an XInput code read
-                                 by main (the renderer cannot see the pad). Same rules as the key above:
+                            <!-- The map key's second input: one controller button, a standard gamepad
+                                 index read by main's hidden pad window. Same rules as the key above:
                                  never an accelerator, never the hotkey tables. -->
                             <div id="mapPadControls">
                                 <div class="setting-head">
                                     <label for="tabMarkerPadBtn" class="form-label" data-i18n="settings.tabMarkers.pad">Controller button</label>
-                                    <kbd class="num" id="tabMarkerPadValue"></kbd>
+                                    <span class="pad-value">
+                                        <small class="pad-name" id="tabMarkerPadName"></small>
+                                        <kbd class="num" id="tabMarkerPadValue"></kbd>
+                                    </span>
                                 </div>
                                 <div class="setting-actions">
                                     <button type="button" class="btn btn-secondary btn-sm" id="tabMarkerPadBtn" data-i18n="settings.tabMarkers.pad.change">Choose button…</button>
@@ -477,6 +480,8 @@
                                 <small class="help-text d-block mb-1" data-i18n-html="settings.tabMarkers.pad.help">Playing with a controller? Set the
                                     button that opens the map in the game: normally View, which is the touchpad
                                     on a PlayStation controller. The key above keeps working too.</small>
+                                <small class="help-text d-block mb-1" data-i18n="settings.tabMarkers.pad.which">If you have more than one
+                                    controller, press the button on the one you want to use.</small>
                                 <button type="button" class="btn btn-link btn-sm p-0 linkish faq-link"
                                         data-faq="faqReads" data-i18n="settings.whatDoesItRead">What does the app read?</button>
                             </div>
@@ -719,11 +724,12 @@
                         <code>GetAsyncKeyState</code> call, with no keyboard hook, and the key is
                         not reserved, so the game still gets every press.</p>
                     <p data-i18n-html="faq.reads.a3"><strong>One controller button</strong>, only if you set one. In the same
-                        moment, and again only while the game is the window in front, it asks
-                        Windows for your controller's current state and looks at that one button.
-                        The rest of that reading, the other buttons and the sticks, is thrown away
-                        and never written down. With no button set, the controller is not read at
-                        all. Choosing the button is the one time it is read outside the game: for up
+                        moment, and again only while the game is the window in front, a hidden part
+                        of the app reads your controller the way a web browser does (the standard
+                        Gamepad API) and looks at that one button. The rest of that reading, the
+                        other buttons and the sticks, is thrown away and never written down. With
+                        no button set, the controller is not read at all. With more than one
+                        controller plugged in, only the one you chose the button on is read. Choosing the button is the one time it is read outside the game: for up
                         to fifteen seconds after you click <em>Choose button…</em>. Xbox, PlayStation
                         and other PC controllers are all read the same way, with nothing to
                         install.</p>

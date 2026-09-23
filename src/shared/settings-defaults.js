@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS = {
     tabMarkerKey: 9,            // a Windows virtual-key code (9 = Tab)
     tabMarkerKeyLabel: 'Tab',   // what the browser called that key
     tabMarkerPad: null,         // a controller button code (shared/pad-codes.js); null = none
+    tabMarkerPadId: null,       // the chosen pad's Gamepad.id; null = any pad. Never logged
     markerTrigger: 'auto',      // 'auto' (key trigger) | 'polling'
     markerOpacity: 0.9,         // brackets, 0.1..1.0; not the map's opacity
     language: 'system',         // 'system' (OS locale) | a catalogue code

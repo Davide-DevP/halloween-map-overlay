@@ -10,7 +10,9 @@ const {
     crashFileName, formatCrashReport, listCrashFiles, pruneCrashFiles,
     writeCrashReport, pendingCrash, MAX_CRASH_FILES
 } = require('../src/core/diagnostics/crash');
-const {redactHome, redactCustomMapKeys} = require('../src/shared/redact');
+const {
+    redactHome, redactCustomMapKeys, DEVICE_SETTING_KEYS, redactSettingValue, redactSettings, redactSettingsText
+} = require('../src/shared/redact');
 const {CUSTOM_CREATOR} = require('../src/core/map-catalog');
 
 function tempDir() {
@@ -336,4 +338,40 @@ test('the reserved creator the redaction keys on is the catalogue\'s own', () =>
     // If `CUSTOM_CREATOR` is ever renamed, this redaction must follow it
     // rather than keep matching a string nothing produces any more.
     assert.strictEqual(CUSTOM_CREATOR, 'Custom');
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * A controller's id names a device on the user's PC: never verbatim
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const PAD_ID = 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)';
+
+test('redactSettingValue: the chosen controller is (set) or (none), every other key untouched', () => {
+    assert.deepStrictEqual([...DEVICE_SETTING_KEYS], ['tabMarkerPadId']);
+    assert.strictEqual(redactSettingValue('tabMarkerPadId', PAD_ID), '(set)');
+    for (const none of [null, undefined, '']) {
+        assert.strictEqual(redactSettingValue('tabMarkerPadId', none), '(none)');
+    }
+    assert.strictEqual(redactSettingValue('tabMarkerPad', 8), 8);
+    assert.strictEqual(redactSettingValue('opacity', 0.5), 0.5);
+});
+
+test('redactSettings: a copy, redacted, with the original left alone', () => {
+    const settings = {opacity: 0.5, tabMarkerPad: 8, tabMarkerPadId: PAD_ID};
+    const out = redactSettings(settings);
+    assert.deepStrictEqual(out, {opacity: 0.5, tabMarkerPad: 8, tabMarkerPadId: '(set)'});
+    assert.strictEqual(settings.tabMarkerPadId, PAD_ID);
+    assert.deepStrictEqual(redactSettings(null), {});
+});
+
+test('redactSettingsText: textual, so a file that will not parse is redacted too', () => {
+    const file = JSON.stringify({opacity: 0.5, tabMarkerPadId: `${PAD_ID} "quoted"`}, null, 2);
+    const out = redactSettingsText(file);
+    assert.ok(!out.includes('DualSense'), out);
+    assert.deepStrictEqual(JSON.parse(out), {opacity: 0.5, tabMarkerPadId: '(set)'});
+    // `null` already says "none" and stays as it is.
+    assert.strictEqual(redactSettingsText('{"tabMarkerPadId": null}'), '{"tabMarkerPadId": null}');
+    const broken = `{"tabMarkerPadId":"${PAD_ID}"`;
+    assert.ok(!redactSettingsText(broken).includes('054c'));
+    assert.strictEqual(redactSettingsText(null), '');
 });

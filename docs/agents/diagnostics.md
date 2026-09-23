@@ -34,6 +34,19 @@ local file, and the user decides whether to send it.
   a *shipped* map; a custom map is `(custom)`, because its key is a name the
   user typed. Custom maps appear as a **count** in the startup snapshot and
   nowhere else. The detector's "no frames, no pixels" rule is unchanged.
+- **A device id is logged as `(set)` or `(none)`, never verbatim.** Since
+  2026-09-23 the settings hold one: `tabMarkerPadId`, the `Gamepad.id` of the
+  controller the player chose (`Wireless Controller (STANDARD GAMEPAD Vendor:
+  054c Product: 09cc)`) — not a path, not text they typed, but a description
+  of hardware on their PC that a report has no use for. `DEVICE_SETTING_KEYS`
+  in `shared/redact.js` lists such keys, and the three places a settings
+  value leaves memory all go through it: `Settings.set()`'s `setting` line
+  (`redactSettingValue`), `appLog.collect()` — which is both the
+  `startup-settings` line and `system.txt`'s `[settings]` block
+  (`redactSettings`) — and the report's copy of `settings-app.json`
+  (`redactSettingsText`, textual like the hotkeys redaction, so a file that
+  will not parse is redacted too). A new setting that names a device goes in
+  that list, and `test/diagnostics.test.js` fails if an id reaches the zip.
 - **`appLog` is a singleton, not an injected dependency.** Nearly every module
   in `src/core` logs something and several are built before the one that would
   own the logger. `require('./app-log')` and call `event()`/`warn()`/`error()`.
@@ -90,8 +103,9 @@ local file, and the user decides whether to send it.
   writes are, and a new one must be. `ipcMain.handle` bodies are safe — a throw
   there is a rejected invoke — which is why `user-data.js` needs nothing.
 - **The report is a file list, not a directory walk.** `LOG_FILES` in
-  `diagnostics.js` plus the `crash-*.txt` plus two generated texts
-  (`system.txt` and a redacted `hotkeys.json`) — so "no screenshots, no maps"
+  `diagnostics.js` plus the `crash-*.txt` plus three generated texts
+  (`system.txt`, a redacted `hotkeys.json` and a redacted
+  `settings-app.json`) — so "no screenshots, no maps"
   is checkable by reading one constant. `updater.log` is in that list although
   the app never writes it: `hmo-updater.exe` does, and only once an update has
   actually installed, so it is usually a skipped entry — it carries the step

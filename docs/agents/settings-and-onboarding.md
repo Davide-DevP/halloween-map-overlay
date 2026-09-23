@@ -181,9 +181,15 @@ or user text, which is why `core/settings.js` may log every change.
   because a virtual-key code cannot be turned back into a name on anything but a
   US layout. `tabMarkerPad` (1.1) is the map key's optional **second input**,
   a controller button as a **standard gamepad index** from
-  `shared/pad-codes.js` (1.1.x stored the XInput bit; `resolveMapPad`
+  `shared/pad-codes.js` (1.1.x stored a different button bit; `resolveMapPad`
   migrates it), `null` = none — the only binding with two inputs, and never a hotkey
   ([markers-and-tab-mode.md § The controller button](markers-and-tab-mode.md#the-controller-button)).
+  `tabMarkerPadId` (2026-09-23) is the `Gamepad.id` of the controller that
+  button was pressed on in *Choose button…*, `null` = none chosen (any pad is
+  read). Main stores it from the recording itself, never from the renderer, and
+  clears it with the button; it only matters with two or more pads connected.
+  It names a device, so it never reaches a log or a report verbatim: `(set)` /
+  `(none)` ([diagnostics.md](diagnostics.md), "a device id").
   `markerTrigger` picks `auto` (the key trigger, falling back to
   polling) or `polling`. `markerOpacity` is separate from the overlay's own
   `opacity`: the map is a backdrop, the markers are the thing being read.

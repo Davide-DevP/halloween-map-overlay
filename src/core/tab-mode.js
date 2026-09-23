@@ -12,13 +12,13 @@ const {msg} = require('../shared/i18n');
 const {errorMessage} = require('../shared/errors');
 const {clearTimer, unrefTimer} = require('../shared/timers');
 const {resolveMapVk} = require('../shared/key-codes');
-const {resolveMapPad, padLabel} = require('../shared/pad-codes');
+const {resolveMapPad, resolvePadId, padLabel} = require('../shared/pad-codes');
 const {
     FAST_INTERVAL, DETECT_INTERVAL, HIDE_AFTER_NEGATIVE, KEY_POLL_INTERVAL, SAFETY_INTERVAL,
     PROVISIONAL_DEADLINE_MS, CONFIRMED_MEMORY_MS, PAD_RECORD_TIMEOUT,
     initialTabModeState, reduceTabMode, gameRectToDip, rectChanged, confirmRetryDelay,
     resolveTriggerMethod, triggerMode, checkInterval, detectIntervalFor,
-    shouldShowProvisionally, forgetConfirmedMap, confirmedMemoryFresh, combineRecordings
+    shouldShowProvisionally, forgetConfirmedMap, confirmedMemoryFresh
 } = require('../shared/tab-mode-rules');
 
 /** Settings that change what is on screen *right now*, so they re-place it. */
@@ -152,14 +152,16 @@ class TabMode {
         // Fall back mid-session rather than stop reacting to the key.
         this.trigger.onUnavailable = (why) => this.fallBackToPolling(why);
         /**
-         * The Gamepad API half of the controller button: a hidden window that
-         * exists only while a button is set, reads only while the game is in
-         * front, and pushes edges into the trigger. Injectable, like the rest.
+         * The controller button: a hidden window that exists only while a
+         * button is set, reads the Gamepad API only while the game is in front,
+         * and pushes edges into the trigger. Injectable, like the rest.
          */
         this.padWindow = d.padWindow || new PadWindow();
         this.padWindow.onEdge = (down) => {
             if (typeof this.trigger.setApiPadDown === 'function') this.trigger.setApiPadDown(down);
         };
+        /** The last *Choose button…* answer, until `set-tab-marker-pad` stores it. */
+        this.recordedPad = null;
         // The same gate as the key read, on the foreground **edge**.
         this.trigger.onForeground = () => this.syncPadWatch();
 
@@ -206,9 +208,17 @@ class TabMode {
         return this.status();
     }
 
-    /** The controller button, validated for the same reason; `null` clears it. */
+    /**
+     * The controller button, validated for the same reason; `null` clears it
+     * and the chosen pad with it. The pad's id comes from the recording, never
+     * from the renderer.
+     */
     setMapPadButton(code) {
         const resolved = resolveMapPad(code);
+        const recorded = this.recordedPad;
+        this.recordedPad = null;
+        if (resolved === null) this.settings.set('tabMarkerPadId', null);
+        else if (recorded && recorded.code === resolved) this.settings.set('tabMarkerPadId', recorded.id);
         this.settings.set('tabMarkerPad', resolved);
         this.trigger.setMapPad(resolved);
         this.invalidate();
@@ -219,7 +229,6 @@ class TabMode {
     }
 
     cancelPadRecord() {
-        if (typeof this.trigger.cancelPadRecording === 'function') this.trigger.cancelPadRecording('cancelled');
         this.padWindow.cancelRecord('cancelled');
         return true;
     }
@@ -295,6 +304,11 @@ class TabMode {
         return resolveMapPad(this.settings.get('tabMarkerPad'));
     }
 
+    /** @returns {?string} the chosen controller's `Gamepad.id`, null = any pad. */
+    padId() {
+        return resolvePadId(this.settings.get('tabMarkerPadId'));
+    }
+
     /**
      * The one place that decides whether the Gamepad API window reads: the
      * trigger runs, a button is set, the game is in front — the key read's
@@ -310,37 +324,33 @@ class TabMode {
             return;
         }
         this.padWindow.ensure();
-        this.padWindow.setWatch(this.trigger.foreground === true, code);
+        this.padWindow.setWatch(this.trigger.foreground === true, code, this.padId());
     }
 
     /**
-     * *Choose button…* on both paths at once — XInput sees Xbox pads without
-     * Steam, the Gamepad API sees the rest — and `combineRecordings` picks the
-     * answer. The window is built for it if need be and closed again by
-     * `syncPadWatch` when no button comes of it.
+     * *Choose button…* in the hidden window, built for it if need be and closed
+     * again by `syncPadWatch` when no button comes of it. The pad pressed on is
+     * the chosen controller; its id stays in main (`recordedPad`).
      */
     async recordPad() {
-        const viaXInput = typeof this.trigger.recordPad === 'function'
-            ? this.trigger.recordPad({timeoutMs: PAD_RECORD_TIMEOUT})
-            : Promise.resolve({ok: false, reason: 'unavailable'});
-        const viaApi = this.padWindow.record({timeoutMs: PAD_RECORD_TIMEOUT});
-        // The first `ok` ends the other; a refusal waits for its partner.
-        const first = await new Promise((resolve) => {
-            let pending = 2;
-            const results = [];
-            const settle = (result) => {
-                results.push(result);
-                if (result && result.ok) return resolve(combineRecordings(results));
-                if (--pending === 0) resolve(combineRecordings(results));
-            };
-            viaXInput.then(settle, () => settle({ok: false, reason: 'unavailable'}));
-            viaApi.then(settle, () => settle({ok: false, reason: 'unavailable'}));
+        this.recordedPad = null;
+        let result;
+        try {
+            result = await this.padWindow.record({timeoutMs: PAD_RECORD_TIMEOUT});
+        } catch (err) {
+            result = null;
+        }
+        if (!result || typeof result !== 'object') result = {ok: false, reason: 'unavailable'};
+        // The outcome and a count only: which button, and which pad, never.
+        appLog.event('tab-markers', {
+            action: 'map-pad-record',
+            result: result.ok ? 'ok' : result.reason,
+            padsSeen: this.padWindow.status().padsSeen || 0
         });
-        if (typeof this.trigger.cancelPadRecording === 'function') this.trigger.cancelPadRecording('replaced');
-        this.padWindow.cancelRecord('replaced');
-        appLog.event('tab-markers', {action: 'map-pad-record', result: first.ok ? 'ok' : first.reason});
         this.syncPadWatch();
-        return first;
+        if (!result.ok) return {ok: false, reason: result.reason || 'unavailable'};
+        this.recordedPad = {code: result.code, id: resolvePadId(result.id)};
+        return {ok: true, code: result.code, label: result.label};
     }
 
     triggerMode() {
@@ -1207,6 +1217,8 @@ class TabMode {
             mapKeyLabel: this.keyLabel(),
             mapPad: this.mapPad(),
             mapPadLabel: padLabel(this.mapPad()),
+            // Whether a controller was chosen, never which one.
+            mapPadChosen: this.padId() !== null,
             gameWindow: this.gameWindowPresent,
             sizeMismatch: this.sizeMismatch,
             keyMs: KEY_POLL_INTERVAL,

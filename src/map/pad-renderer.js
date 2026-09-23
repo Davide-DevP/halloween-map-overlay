@@ -1,12 +1,12 @@
 'use strict';
 
 const {ipcRenderer} = require('electron');
-const {standardButtonDown, heldStandardButtons} = require('../shared/pad-codes');
+const {standardButtonDown, heldStandardButtons, padsToRead} = require('../shared/pad-codes');
 const {KEY_POLL_INTERVAL} = require('../shared/tab-mode-rules');
 
 /**
- * RENDERER tier: the Gamepad API half of the map key's controller input. Main
- * says when to read (`pad-watch`), for which button, and this loop answers
+ * RENDERER tier: the map key's controller input, through the Gamepad API. Main
+ * says when to read (`pad-watch`), which button on which pad, and this loop answers
  * with **edges only** — `down`/`up` of that one button — never a reading.
  * Nothing runs unless main asked, and `pad-watch off` stops it at once. Every
  * pad Chromium knows (Xbox, DualShock, DualSense, generic) arrives here through
@@ -15,6 +15,8 @@ const {KEY_POLL_INTERVAL} = require('../shared/tab-mode-rules');
 
 let watching = false;
 let watchCode = null;
+/** The chosen pad's `Gamepad.id`; `padsToRead` decides what it means. */
+let watchId = null;
 let wasDown = false;
 let watchTimer = null;
 
@@ -46,7 +48,7 @@ function watchTick() {
     if (!watching) return;
     const list = pads();
     reportPadCount(list);
-    const down = list.some(pad => standardButtonDown(pad.buttons, watchCode));
+    const down = padsToRead(list, watchId).some(pad => standardButtonDown(pad.buttons, watchCode));
     if (down !== wasDown) {
         wasDown = down;
         ipcRenderer.send('pad-edge', down);
@@ -71,16 +73,19 @@ ipcRenderer.on('pad-watch', (event, request) => {
         stopWatch();
         return;
     }
-    if (watching && watchCode === r.code) return;
+    const id = typeof r.id === 'string' ? r.id : null;
+    if (watching && watchCode === r.code && watchId === id) return;
     stopWatch();
     watching = true;
     watchCode = r.code;
+    watchId = id;
     watchTick();
 });
 
 /**
- * *Choose button…*: exactly one held button on any pad is the answer; two at
- * once is a hand on its way somewhere. Main bounds the wait and cancels.
+ * *Choose button…*: exactly one held button on any pad is the answer, with
+ * that pad's id — pressing is how the player picks the controller. Two at once
+ * is a hand on its way somewhere. Main bounds the wait and cancels.
  */
 function recordTick() {
     recordTimer = null;
@@ -91,7 +96,7 @@ function recordTick() {
         const held = heldStandardButtons(pad.buttons);
         if (held.length === 1) {
             recording = false;
-            ipcRenderer.send('pad-recorded', held[0]);
+            ipcRenderer.send('pad-recorded', {code: held[0], id: typeof pad.id === 'string' ? pad.id : null});
             return;
         }
     }

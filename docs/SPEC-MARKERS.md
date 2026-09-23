@@ -491,100 +491,87 @@ against a synthesised 400 ms Tab press: the down edge was seen 15 ms late and
 the up edge 8 ms late, and 194 idle ticks cost a worst single tick of 0.54 ms
 (timer noise, not the call). Heap flat.
 
-#### 5.7.1 The controller button (1.1)
+#### 5.7.1 The controller button (1.1; one path since 2026-09-23)
 
-Implemented. `src/core/pad-input.js` + the pure `shared/pad-codes.js` and
-`foldMapInputs`. The map key gets **one optional second input**: a controller
-button (`tabMarkerPad`, default `null` = none), read through koffi →
-`XInputGetState` — the only input in the app that may have two bindings, and
-the second one is *only* for players on a pad. A pad player gets the same
-~60 ms path as a keyboard player; the polling fallback (~480 ms) was rejected
-for them as "waiting for the markers".
+Implemented. `src/core/pad-window.js` + `src/map/pad.html` / `pad-renderer.js`,
+the pure `shared/pad-codes.js` and `foldMapInputs`. The map key gets **one
+optional second input**: a controller button (`tabMarkerPad`, default `null` =
+none), read through **Chromium's Gamepad API** in a hidden window — the only
+input in the app that may have two bindings, and the second one is *only* for
+players on a pad. A pad player gets the same ~60 ms path as a keyboard player;
+the polling fallback (~480 ms) was rejected for them as "waiting for the
+markers".
 
-**What is read.** In the *same* tick as the key, **after** it, and again only
-while the game is the foreground window: one `XInputGetState(slot)` for the
-slot a pad was last seen in. XInput has no per-button call — the reading is the
-pad's whole state (buttons word, two triggers, four stick axes); `padButtonDown`
-looks at the one configured bit (or one trigger against XInput's own threshold
-of 30) and nothing else is kept, logged or crosses any boundary. With no button
-set the pad is never opened at all. With no pad connected the four slots are
-scanned at `PAD_SCAN_INTERVAL` (1 s), not every tick; the first connected pad is
-kept and read alone until it answers `ERROR_DEVICE_NOT_CONNECTED`, which reads
-as "up" and restarts the scan.
+**History.** 1.1 read the button through koffi → `XInputGetState` inside the
+key trigger's tick. The first field test (a DualShock 4 player, 1.1.0–1.1.2)
+showed a PlayStation pad through Steam Input never becomes an XInput device for
+Halloween — `joy.cpl` with the game open listed only the physical Xbox pad —
+so 1.2 added the Gamepad API window as a second path. On 2026-09-23 the owner
+retired XInput: the Gamepad API reads Xbox pads as well, and keeping two paths
+cost ~1150 lines for one button.
+
+**What is read.** Chromium reads every pad it knows — DualShock 4, DualSense,
+Xbox, generic — through Raw Input with `RIDEV_INPUTSINK`, i.e. without focus,
+and the "user gesture" it wants before exposing gamepads is a button press *on
+the pad*, not on the page. The window is built only while a button is set (or
+being chosen) and closed again otherwise, with `backgroundThrottling: false`
+because Chromium samples gamepads only for a visible page and Electron reports
+a hidden window's page as hidden unless throttling is off (the one deviation
+from `shared/web-preferences.js`'s default; `docs/agents/memory.md`). The
+renderer polls `navigator.getGamepads()` at `KEY_POLL_INTERVAL` **only while
+main says so** (`pad-watch {on, code, id}`: trigger running, button set, game
+in front — sent on the foreground *edge* from `KeyTrigger.noteForeground`) and
+sends **edges** of the one button (`pad-edge`), never a reading. Main folds
+that level into the key trigger's tick (`KeyTrigger.setApiPadDown`), where it
+counts only while the game is the foreground window. With no button set the
+controller is never read and the window does not exist.
+
+**Which controller.** *Choose button…* answers with the button **and the pad it
+was pressed on** (`pad-recorded {code, id}`, `id` = `Gamepad.id`); main keeps
+the id and stores it as `tabMarkerPadId` when it stores that button, and clears
+it with the button. The watch then reads (`padsToRead`): with **one** pad
+connected, that pad whatever its id — Steam Input can change an id between
+sessions, and one pad is no ambiguity; with **two or more**, only the pads
+whose id matches, and **none** if the chosen one is not connected; with no id
+stored (a button set before this existed), every pad. There is no dropdown:
+pressing the button on the controller you play with *is* the choice, and
+Settings shows that controller's short name beside the button. The id is a
+device description, so it never reaches a log or a report verbatim — `(set)`
+or `(none)` (`docs/agents/diagnostics.md`).
 
 **Either input held is "down"** (`foldMapInputs`): a key released while the
 button is still held is not an edge, and vice versa. **Alt vetoes only the
 keyboard** — Alt+Tab is a keyboard gesture, and a pad button held while Alt
 happens to be down is still the player opening the map.
 
-**The pad's failure is its own.** `PadInput` has the same lazy load, tri-state
-`available` and `load`/`bind`/`call` reasons as the key trigger, but a failure
-never stops the loop or triggers the polling fallback: the keyboard half carries
-on, Settings appends *"The controller button cannot be used …"* and
-`system.txt` prints the reason. A probe runs the moment a button is set, game
-or no game, for the same reason the key trigger's does (§5.7 "three method
-states").
+**The pad's failure is its own.** If the hidden window cannot be built
+(`PadWindow.failed`), the keyboard half carries on untouched, nothing falls
+back to polling, Settings appends *"The controller button cannot be used …"*
+and `system.txt` says the window could not be created.
 
 **Recording** (*Choose button…*) is the one time the pad is read outside the
-game: the renderer cannot see XInput, so main polls all four slots at the key
-cadence for at most `PAD_RECORD_TIMEOUT` (15 s), waits for **exactly one**
-held button (two at once is a hand on its way somewhere) and answers
-`{ok, code, label}`; `no-controller`, `timeout`, `unavailable` and
-`cancelled`/`replaced` are the refusals, each with its own toast, and the
-outcome (reason, whether any pad was seen, the read count — never a button)
-goes to `app.log`. Esc or a second click cancels through
-`cancel-tab-marker-pad`; **losing focus does not**, because the first
-PlayStation field test (1.1.0) showed why: Steam Input presents its virtual
-Xbox pad only while the *game* is the foreground window and switches to the
-desktop layout otherwise, so a player who Alt+Tabs to the app to click
-*Choose button…* has no controller at all until they Alt+Tab back — which the
-first version treated as a cancel. The strings now say to switch to the game
-and press there.
-`set-tab-marker-pad` validates the code in main like `set-tab-marker-key`.
+game: for at most `PAD_RECORD_TIMEOUT` (15 s) the renderer waits for **exactly
+one** held button (two at once is a hand on its way somewhere) and main answers
+the Settings renderer `{ok, code, label}` — never the id; `no-controller`,
+`timeout`, `unavailable` and `cancelled`/`replaced` are the refusals, each
+with its own toast, and the outcome (reason and a pad count — never a button or
+a pad) goes to `app.log`. Esc or a second click cancels through
+`cancel-tab-marker-pad`; **losing focus does not**, so a player can Alt+Tab to
+the game and press there (1.1.2's reason for this — that Steam's virtual pad
+comes and goes with the foreground — turned out wrong, but the no-blur cancel
+and the 15 s cost nothing). `set-tab-marker-pad` validates the code in main
+like `set-tab-marker-key`.
 
-**Two paths, one button (1.2).** XInput above is the Xbox path. The field
-test that shipped 1.1.0–1.1.2 to a DualShock 4 player found the rest: with a
-Steam game open, `joy.cpl` on the owner's PC listed only the physical Xbox
-pad even with Steam Input switched on for it — Halloween talks to the Steam
-Input API directly and Steam creates **no** virtual XInput pad for it, so a
-PlayStation pad never becomes XInput, game in front or not. (The 1.1.2 theory
-that Steam's virtual pad comes and goes with the foreground was wrong; the
-no-blur-cancel and the 15 s stay because they cost nothing.) So the second
-path is **Chromium's Gamepad API**, in a hidden window of its own
-(`core/pad-window.js`, `map/pad.html` + `pad-renderer.js`): Chromium reads
-every pad it knows — DualShock 4, DualSense, Xbox, generic — through Raw Input
-with `RIDEV_INPUTSINK`, i.e. without focus, and the "user gesture" it wants
-before exposing gamepads is a button press *on the pad*, not on the page. The
-window is built only while a button is set (or being chosen), closed again
-otherwise, `backgroundThrottling: false` because Chromium samples gamepads
-only for a visible page and Electron reports a hidden window's page as hidden
-unless throttling is off (the one deviation from `shared/web-preferences.js`'s
-default; `docs/agents/memory.md`). The renderer polls
-`navigator.getGamepads()` at `KEY_POLL_INTERVAL` **only while main says so**
-(`pad-watch`: trigger running, button set, game in front — sent on the
-foreground *edge* from `KeyTrigger.noteForeground`) and sends **edges** of the
-one button (`pad-edge`), never a reading and never a pad's id; main folds that
-level in beside the XInput one (`KeyTrigger.setApiPadDown`). A stored code is
-now the **standard-mapping index** (0 = A/✕ … 8 = View/Share, 17 = Touchpad),
-with the XInput bit kept beside it and 1.1.x's stored bits migrated
-(`LEGACY_XINPUT`). *Choose button…* runs on **both** paths at once and
-`combineRecordings` picks the answer. Not yet measured on a real PlayStation
-pad at the time of writing: the DualShock field tester is the first test.
-Reading raw HID reports in main was rejected as a far broader statement about
-what the app reads, and it would have re-implemented Chromium's mappings.
-
-**Labels** name both faces — `A / ✕`, `View / Share`, `LB / L1` — because
-neither path can say which pad is plugged in; the touchpad is its own button
-(standard index 17, Gamepad API only). The Guide button is not offered:
-`XInputGetState` does not report it and it is the platform overlay's key.
+A stored code is the **standard-mapping index** (0 = A/✕ … 8 = View/Share,
+17 = Touchpad); 1.1.x's stored bits are migrated (`LEGACY_PAD_BITS`).
+**Labels** name both faces — `A / ✕`, `View / Share`, `LB / L1` — because the
+standard mapping cannot say which pad is plugged in; the touchpad is its own
+button. The Guide button is not offered: it is the platform overlay's key.
 Labels are never translated (they name physical buttons); only *None* is.
 
-Measured (plain node, dev machine, no pad connected): `xinput1_4.dll` bind
-3.0 ms once; `XInputGetState` on an empty slot **~15 µs**, so a full four-slot
-scan is 60 µs once a second and one connected-slot read is 0.05 % of a core at
-30 ms — three orders of magnitude over `GetAsyncKeyState`, three under the
-capture it sits beside. `scripts/probe-pad.js` is the same binding in plain
-node, to check a PC's pad before trusting the app with it.
+Reading raw HID reports in main was rejected as a far broader statement about
+what the app reads, and it would have re-implemented Chromium's mappings. The
+hidden window's memory cost has not been measured.
 
 #### "Is the game in front?"
 
@@ -752,8 +739,8 @@ and it validates the virtual-key code the renderer sends — with
 `nodeIntegration: true` the renderer is not a trust boundary, and
 `GetAsyncKeyState` would answer for a mouse button. Since 1.1 the same group
 holds **Controller button** (§5.7.1): `set-tab-marker-pad` (a code or `null`),
-`record-tab-marker-pad` (main waits for the press, since the renderer cannot
-see XInput) and `cancel-tab-marker-pad`. Both rows appear in Settings › Map
+`record-tab-marker-pad` (main's hidden pad window waits for the press; the pad
+pressed on becomes the chosen controller) and `cancel-tab-marker-pad`. Both rows appear in Settings › Map
 and in the setup tutorial's key step, through the same recorders.
 
 System hotkey **Show / hide markers**, default `CommandOrControl+Alt+M`,

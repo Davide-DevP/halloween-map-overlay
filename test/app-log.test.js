@@ -170,3 +170,13 @@ test('logStartup() writes three greppable events and flushes them', async () => 
     const events = readLog(dir).trim().split('\n').map(l => l.split(' ')[2]);
     assert.deepStrictEqual(events, ['startup', 'startup-settings', 'startup-gpu']);
 });
+
+test('collect() reports a chosen controller as (set), never by its id', async () => {
+    const {log} = fresh();
+    const id = 'Private Pad (STANDARD GAMEPAD Vendor: 054c Product: 09cc)';
+    const settings = {tabMarkerPad: 8, tabMarkerPadId: id};
+    log.setContext({settings: {get: () => null, settings}});
+    const info = await log.collect();
+    assert.deepStrictEqual(info.settings, {tabMarkerPad: 8, tabMarkerPadId: '(set)'});
+    assert.strictEqual(settings.tabMarkerPadId, id, 'the live settings object is not touched');
+});

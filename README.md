@@ -383,23 +383,24 @@ The map key can have a **second input**: one controller button, under
 keyboard key keeps working alongside it, and the markers appear just as fast
 either way.
 
-- **It is read in the same moment as the key, and under the same rules**: only
-  while the game is the window in front, only with a button set. Windows hands
-  the app the controller's current state — which buttons are down, where the
-  sticks are — and the app looks at the one button you chose and throws the
-  rest away. Nothing about it is written down except that your map button went
-  down or came up. With no button set, the controller is never read at all.
+- **It is read under the same rules as the key**: only while the game is the
+  window in front, only with a button set. A hidden part of the app reads the
+  controller the way a web browser does — the standard Gamepad API, the same
+  one a browser game uses — and looks at the one button you chose; the other
+  buttons and the sticks are thrown away. Nothing is sent anywhere, and nothing
+  about it is written down except that your map button went down or came up.
+  With no button set, the controller is never read at all, and that hidden
+  part of the app does not even exist.
+- **More than one controller plugged in?** Press the button on the one you
+  play with when you choose it: that is the controller the app reads from then
+  on. With only one plugged in, it is simply that one.
 - **Choosing the button is the one time it is read outside the game**: for up to fifteen seconds after you click *Choose button…* — long enough to switch
   back to the game and press it there, should the button do nothing on the
   desktop.
 - **Xbox, PlayStation and other PC controllers all work as they are**, with
-  nothing to install: the app reads them the way a browser does (the Gamepad
-  API, which knows the DualShock 4, the DualSense and the Xbox pads by name)
-  and, for the Xbox-shaped ones, through Windows' own XInput as well. On a
-  PlayStation pad the touchpad click is a button like any other.
-- To check a PC before trusting the app with it, `npm run probe-pad` prints the
-  button XInput sees — the Xbox path only; a PlayStation pad shows up in the
-  app, not there.
+  nothing to install: the Gamepad API knows the DualShock 4, the DualSense and
+  the Xbox pads by name. On a PlayStation pad the touchpad click is a button
+  like any other.
 
 If reading the key state does not work on your PC — some security software
 blocks it — the app says so once and falls back to the slower method below, all
@@ -582,7 +583,7 @@ text:
 - `settings-app.json`, `hotkeys.json`: your settings and key bindings. A
   hotkey bound to one of your own imported images shows as
   `Custom/(custom)` — the binding is in there, the name you gave the image is
-  not.
+  not. The controller you chose for the map shows as `(set)`, not by its name.
 - `crash-*.txt`: any crash the app recorded, with the last 200 log lines.
 - `system.txt`: Windows version, screens, graphics card, app version, plus the
   marker switches and what *on the game’s own map* was doing (whether it
@@ -591,7 +592,8 @@ text:
 
 **What is *not* in it**: no screenshots, no map images, no file paths from your
 user folder (they are written as `~`), no names you gave your own imported
-images (a hotkey bound to one says `Custom/(custom)`), no account of any kind.
+images (a hotkey bound to one says `Custom/(custom)`), no controller names, no
+account of any kind.
 Nothing is uploaded — the button writes a file, and you decide whether to send
 it. The app's network use is still only the two requests described below.
 
@@ -799,9 +801,11 @@ choose and can unbind.
 
 **Does it read my controller?**
 Only if you set a controller button under *Settings → Map*, and then under the
-same rules as the key: only while the game is the window in front, in the same
-moment. Windows hands the app the controller's current state and the app looks
-at the one button you chose; the rest is thrown away and never written down.
+same rules as the key: only while the game is the window in front. A hidden
+part of the app reads the controller the way a web browser does (the standard
+Gamepad API) and looks at the one button you chose; the rest is thrown away,
+never written down and never sent. With more than one controller plugged in,
+only the one you pressed the button on when you chose it is read.
 Choosing the button is the one time it is read outside the game, for at most
 fifteen seconds after you click *Choose button…*. With no button set the
 controller is never read. See [Playing with a controller](#playing-with-a-controller).

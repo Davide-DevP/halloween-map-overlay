@@ -8,7 +8,7 @@ const {buildPreviewImage} = require('./overlay-preview');
 const {presetToGlide} = require('../core/overlay-position');
 const {mapLabelMode, newsCheckState, settingsForNewsCheck} = require('../shared/settings-defaults');
 const {keyEventToVk, vkLabel, resolveMapVk, DEFAULT_MAP_VK} = require('../shared/key-codes');
-const {resolveMapPad, padLabel} = require('../shared/pad-codes');
+const {resolveMapPad, resolvePadId, padLabel, padDisplayName} = require('../shared/pad-codes');
 const {manualCheckView} = require('../shared/update-message');
 const {
     normalisePlacement, placementFromSettings, settingsForPlacement, placementSections,
@@ -353,7 +353,7 @@ class Options {
         this.attachMapKeyRecorder('#tabMarkerKeyBtn', '#tabMarkerKeyValue');
         this.attachMapKeyReset('#tabMarkerKeyReset');
         this.renderMapKey();
-        this.attachMapPadRecorder('#tabMarkerPadBtn', '#tabMarkerPadValue');
+        this.attachMapPadRecorder('#tabMarkerPadBtn', '#tabMarkerPadValue', '#tabMarkerPadName');
         this.attachMapPadRemove('#tabMarkerPadReset');
         this.renderMapPad();
 
@@ -665,17 +665,16 @@ class Options {
     /* ── The controller button ──────────────────────────────────────────── */
 
     /**
-     * Arm one button as the controller-button recorder. The renderer cannot
-     * see the pad, so the wait happens in **main** (`record-tab-marker-pad`,
-     * bounded there). **Losing focus does not cancel**: Steam shows a
-     * PlayStation pad only while the game is in front, so the player is told to
-     * switch to the game and press there. Esc or a second click cancels. One
-     * recorder for however many buttons.
+     * Arm one button as the controller-button recorder. The wait happens in
+     * main's hidden pad window (`record-tab-marker-pad`, bounded there), and
+     * the pad pressed on becomes the chosen controller. **Losing focus does
+     * not cancel**: the player may switch to the game to press. Esc or a
+     * second click cancels. One recorder for however many buttons.
      */
-    attachMapPadRecorder(buttonId, valueId) {
+    attachMapPadRecorder(buttonId, valueId, nameId) {
         const self = this;
         if (!$(buttonId).length) return;
-        this.mapPadTargets.push({buttonId, valueId});
+        this.mapPadTargets.push({buttonId, valueId, nameId});
         $(buttonId).on("click", async function () {
             if (self.recordingMapPad === buttonId) {
                 await self.cancelMapPadRecording();
@@ -729,11 +728,18 @@ class Options {
         });
     }
 
-    /** The label names a physical button, so only "None" is translated. */
+    /**
+     * The label names a physical button, so only "None" is translated; the
+     * controller's name is the pad's own, shown only once one was chosen.
+     */
     renderMapPad() {
         const code = resolveMapPad(this.settings.raw('tabMarkerPad'));
         const label = code === null ? t('settings.tabMarkers.pad.none') : padLabel(code);
-        for (const {buttonId, valueId} of this.mapPadTargets) {
+        const id = code === null ? null : resolvePadId(this.settings.raw('tabMarkerPadId'));
+        const name = id === null ? '' : padDisplayName(id, t('settings.tabMarkers.pad.controller'));
+        for (const {buttonId, valueId, nameId} of this.mapPadTargets) {
+            // `.text()`: the name comes from the device, not from this app.
+            if (nameId) $(nameId).text(name).attr('title', name || null);
             $(valueId).text(label).toggleClass('is-unset', code === null);
             $(buttonId).text(t('settings.tabMarkers.pad.change')).removeClass('active');
         }
@@ -764,10 +770,9 @@ class Options {
         this.tabMarkerInfo = info;
         let text = '';
         // With a controller button set the line names both inputs — unless the
-        // pad path failed its probe, which is its own sentence.
-        const pad = (info.trigger && info.trigger.pad) || {};
+        // hidden pad window could not be built, which is its own sentence.
         const padSet = info.mapPad !== null && info.mapPad !== undefined;
-        const padBroken = padSet && pad.available === false;
+        const padBroken = padSet && !!(info.padWindow && info.padWindow.failed);
         const params = {key: this.mapKeyLabel(info), button: info.mapPadLabel || ''};
         const both = padSet && !padBroken;
         if (!info.setting) text = '';

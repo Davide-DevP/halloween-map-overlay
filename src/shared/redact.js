@@ -44,4 +44,46 @@ function redactCustomMapKeys(text, creator = 'Custom') {
     return String(text).replace(pattern, `${creator}/(custom)`);
 }
 
-module.exports = {redactHome, redactCustomMapKeys, escapeRegExp};
+/**
+ * Settings whose value names a device on the user's PC (a controller's
+ * `Gamepad.id`): logged and reported as `(set)` or `(none)`, never verbatim.
+ * Why: docs/agents/diagnostics.md ("a device id").
+ */
+const DEVICE_SETTING_KEYS = Object.freeze(['tabMarkerPadId']);
+
+/** One setting's value as it may be logged. */
+function redactSettingValue(key, value) {
+    if (!DEVICE_SETTING_KEYS.includes(key)) return value;
+    return value === null || value === undefined || value === '' ? '(none)' : '(set)';
+}
+
+/** A shallow copy of a settings object with every device setting redacted. */
+function redactSettings(settings) {
+    const out = {};
+    for (const [key, value] of Object.entries(settings || {})) out[key] = redactSettingValue(key, value);
+    return out;
+}
+
+/**
+ * The same over a settings file's raw text — textual, like
+ * `redactCustomMapKeys`, so a file that will not parse is redacted too.
+ */
+function redactSettingsText(text) {
+    if (text === null || text === undefined) return '';
+    let out = String(text);
+    for (const key of DEVICE_SETTING_KEYS) {
+        const pattern = new RegExp(`("${escapeRegExp(key)}"\\s*:\\s*)"(?:\\\\.|[^"\\\\])*"`, 'g');
+        out = out.replace(pattern, '$1"(set)"');
+    }
+    return out;
+}
+
+module.exports = {
+    redactHome,
+    redactCustomMapKeys,
+    escapeRegExp,
+    DEVICE_SETTING_KEYS,
+    redactSettingValue,
+    redactSettings,
+    redactSettingsText
+};

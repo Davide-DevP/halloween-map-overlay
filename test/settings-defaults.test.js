@@ -129,3 +129,9 @@ test('useHardwareAcceleration: a boolean is honoured, anything else is the defau
             String(bad));
     }
 });
+
+test('no controller is chosen in a new file: with one pad, any pad is read', () => {
+    // docs/agents/markers-and-tab-mode.md § The controller button.
+    assert.strictEqual(DEFAULT_SETTINGS.tabMarkerPad, null);
+    assert.strictEqual(DEFAULT_SETTINGS.tabMarkerPadId, null);
+});

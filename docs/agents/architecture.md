@@ -13,7 +13,7 @@ renderer, touching `map-library.js`/`map-catalog.js`, or changing the
 | Fonts | `@fontsource-variable/geist` + `-geist-mono` (local, runtime deps) |
 | Image sizing | `image-size` (runtime), `sharp` (dev only, map prep) |
 | Screen capture | `node-screenshots` (runtime, prebuilt NAPI, asarUnpacked) — loaded **in the detector's `utilityProcess`**, not in main |
-| Key state | `koffi` (runtime, prebuilt NAPI, asarUnpacked, MIT) — **one** `user32` call (plus one `XInputGetState`, only with a controller button set), Tab-map mode only, loaded lazily |
+| Key state | `koffi` (runtime, prebuilt NAPI, asarUnpacked, MIT) — **one** `user32` call, Tab-map mode only, loaded lazily. The controller button is read by Chromium's Gamepad API in a hidden window, no native module |
 | Build/packaging | electron-builder (NSIS + portable) |
 | Package manager | npm |
 
@@ -134,15 +134,15 @@ src/core/key-trigger.js         → Tab-mode's **key-state trigger** (what it
                                   proves the native path without reading a key;
                                   lazy, injectable loader, falls back to
                                   polling on any failure. Tested.
-src/core/pad-input.js           → koffi → `XInputGetState`: the controller
-                                  button, Xbox path. Lazy, like key-trigger.
-src/core/pad-window.js          → Hidden window for the Gamepad API (every
-                                  other pad). Exists only while a controller
-                                  button is set; `backgroundThrottling: false`.
+src/core/pad-window.js          → Hidden window for the Gamepad API: the one
+                                  controller path. Exists only while a
+                                  controller button is set (or being chosen);
+                                  `backgroundThrottling: false`.
 src/map/pad.html, pad-renderer.js → That window's renderer: polls only when
                                   told, sends edges only.
-src/shared/pad-codes.js         → PURE standard-mapping codes, XInput bits,
-                                  labels, "is this button down". Tested.
+src/shared/pad-codes.js         → PURE standard-mapping codes, labels, "is
+                                  this button down", `padsToRead` (which pad
+                                  of several) and `padDisplayName`. Tested.
 src/shared/key-codes.js         → PURE `KeyboardEvent.code`/`key` → Windows
                                   virtual-key code, plus `vkLabel` and
                                   `resolveMapVk`. **Not** an accelerator — it

@@ -4,7 +4,7 @@ const {app, ipcMain, shell} = require('electron');
 const appLog = require('./app-log');
 const {buildDiagnosticReport} = require('./diagnostics/report');
 const {listCrashFiles, pendingCrash} = require('./diagnostics/crash');
-const {redactCustomMapKeys} = require('../shared/redact');
+const {redactCustomMapKeys, redactSettingsText} = require('../shared/redact');
 const {CUSTOM_CREATOR} = require('./map-catalog');
 const {msg} = require('../shared/i18n');
 const {isUnbound} = require('../shared/hotkeys-constants');
@@ -19,9 +19,9 @@ const {vkLabel: markerKeyLabel} = require('../shared/key-codes');
  */
 
 /**
- * Collected from userData verbatim, in archive order. `hotkeys.json` is
- * deliberately **not** here — it goes in as generated text so the custom map
- * names in it can be redacted first (`redactedHotkeys`).
+ * Collected from userData verbatim, in archive order. `hotkeys.json` and
+ * `settings-app.json` are deliberately **not** here — they go in as generated
+ * text, redacted first (`redactedHotkeys`, `redactedSettings`).
  */
 const LOG_FILES = [
     'app.log',
@@ -29,8 +29,7 @@ const LOG_FILES = [
     'detector.log',
     'detector.log.1',
     // Written by `hmo-updater.exe`, not by the app, so usually absent.
-    'updater.log',
-    'settings-app.json'
+    'updater.log'
 ];
 
 class Diagnostics {
@@ -211,22 +210,17 @@ class Diagnostics {
             + `every ${trigger.intervalMs || 0} ms`);
         lines.push(`key trigger counters = ${trigger.polls || 0} polls, ${trigger.downs || 0} down, `
             + `${trigger.ups || 0} up, ${trigger.errors || 0} errors`);
-        // The controller half: the one configured code, never a reading.
-        const pad = trigger.pad || {};
+        // The controller: the one configured code and whether a pad was chosen —
+        // never which pad, never a reading.
         if (tab.mapPad === null || tab.mapPad === undefined) {
-            lines.push('controller button = none (the controller is not read), '
-                + `xinput ${pad.available === true ? 'available' : (pad.available === false ? 'unavailable' : 'not probed')}, `
-                + `${pad.reads || 0} reads during recording`);
+            lines.push('controller button = none (the controller is not read)');
         } else {
-            lines.push(`controller button = 0x${Number(tab.mapPad).toString(16).toUpperCase()} `
-                + `(${tab.mapPadLabel || '?'}), available ${pad.available === true ? 'yes'
-                    : (pad.available === false ? 'no' : 'not probed')}`
-                + `${pad.reason ? ` (${pad.reason})` : ''}, slot ${pad.slot === null || pad.slot === undefined ? '-' : pad.slot}, `
-                + `${pad.reads || 0} reads, ${pad.scans || 0} scans, ${pad.errors || 0} errors`);
+            lines.push(`controller button = standard index ${Number(tab.mapPad)} (${tab.mapPadLabel || '?'}), `
+                + `chosen controller ${tab.mapPadChosen ? 'set' : 'none (any pad)'}`);
         }
-        // The Gamepad API half: a hidden window, a count of pads, edges. Never a reading.
         const pw = tab.padWindow || {};
-        lines.push(`controller window = ${pw.exists ? 'open' : 'closed'}${pw.exists && !pw.ready ? ' (loading)' : ''}, `
+        lines.push(`controller window = ${pw.exists ? 'open' : 'closed'}${pw.exists && !pw.ready ? ' (loading)' : ''}`
+            + `${pw.failed ? ' (could not be created)' : ''}, `
             + `watching ${pw.watching ? 'yes' : 'no'}, ${pw.padsSeen || 0} pad(s) seen, ${pw.edges || 0} edges, `
             + `created ${pw.created || 0} time(s)`);
         lines.push(`tab mode cadence = check ${tab.checkMs || 0} ms `
@@ -273,6 +267,23 @@ class Diagnostics {
     }
 
     /**
+     * `settings-app.json` with the chosen controller's id taken out — which is
+     * why the file is **not** in `LOG_FILES`. Null when there is none.
+     */
+    redactedSettings() {
+        const file = path.join(this.dir || '', 'settings-app.json');
+        try {
+            if (!this.dir || !fs.existsSync(file)) return null;
+            return redactSettingsText(fs.readFileSync(file, 'utf-8'));
+        } catch (err) {
+            console.error('settings-app.json could not be read for the report:', err && err.message);
+            // The code only: an fs error message carries the full path (rule 3).
+            return `(settings-app.json could not be read: ${(err && err.code) || 'error'})
+`;
+        }
+    }
+
+    /**
      * Build the zip and show it in the file manager. The Desktop, because that
      * is where a user can find it again without being told a path.
      */
@@ -300,6 +311,8 @@ class Diagnostics {
         const texts = [{name: 'system.txt', text: system}];
         const hotkeys = this.redactedHotkeys();
         if (hotkeys !== null) texts.push({name: 'hotkeys.json', text: hotkeys});
+        const settingsText = this.redactedSettings();
+        if (settingsText !== null) texts.push({name: 'settings-app.json', text: settingsText});
 
         let result = buildDiagnosticReport({files, texts, outDir});
         const desktop = outDir;

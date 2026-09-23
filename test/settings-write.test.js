@@ -163,3 +163,17 @@ test('parseFile: malformed JSON still throws, so the caller can log it', () => {
     // able from a fresh install.
     assert.throws(() => Settings.parseFile('{"size":'), SyntaxError);
 });
+
+test('set: the chosen controller reaches app.log as (set) or (none), never its id', () => {
+    const appLog = require('../src/core/app-log');
+    const s = harness({tabMarkerPadId: null}, true);
+    s.set('tabMarkerPadId', 'Private Pad (STANDARD GAMEPAD Vendor: 054c Product: 09cc)');
+    s.set('tabMarkerPadId', null);
+    const lines = appLog.recent().filter(l => l.includes('key=tabMarkerPadId'));
+    assert.strictEqual(lines.length, 2, lines.join('\n'));
+    assert.match(lines[0], /value=\(set\)/);
+    assert.match(lines[1], /value=\(none\)/);
+    assert.ok(!lines.join('').includes('Private Pad'));
+    // The stored value is the real one: only the log is redacted.
+    assert.strictEqual(s.get('tabMarkerPadId'), null);
+});

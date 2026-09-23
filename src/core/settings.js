@@ -11,6 +11,7 @@ const {TOUR_VERSION} = require("../shared/onboarding-rules");
 const {msg} = require("../shared/i18n");
 const appLog = require("./app-log");
 const {errorMessage} = require("../shared/errors");
+const {redactSettingValue} = require("../shared/redact");
 
 /** Write-failure warnings, ms between them. Why: the doc § Writing settings. */
 const WRITE_WARN_INTERVAL = 30000;
@@ -142,9 +143,10 @@ class Settings {
             return false;
         }
         // Every change is logged (the file only shows the *current* value).
-        // Safe: no setting is a path or user text (settings-defaults.js).
+        // No setting is a path or user text; a device id goes in as (set)/(none).
         if (before !== value) {
-            appLog.event('setting', {key, value: value === null ? 'null' : value});
+            const logged = redactSettingValue(key, value);
+            appLog.event('setting', {key, value: logged === null ? 'null' : logged});
             this.notifyChange([key]);
         }
         return ok;

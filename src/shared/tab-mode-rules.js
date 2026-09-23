@@ -22,12 +22,6 @@ const KEY_POLL_INTERVAL = 30;
 /** Periodic-check cadence once the key trigger is healthy (ms). */
 const SAFETY_INTERVAL = 500;
 
-/** With no controller found, how often the four XInput slots are scanned (ms). */
-const PAD_SCAN_INTERVAL = 1000;
-
-/** XInput's `XUSER_MAX_COUNT`: the slots a controller can be in. */
-const PAD_SLOTS = 4;
-
 /** How long *Choose button…* waits for one controller button (ms): room for an Alt+Tab. */
 const PAD_RECORD_TIMEOUT = 15000;
 
@@ -123,26 +117,6 @@ function foldMapInputs(inputs) {
     // Only the vetoed keyboard press is left: `keyHintFor` turns it into "up".
     if (key) return {down: true, alt: true, source: 'key'};
     return {down: false, alt: false, source: null};
-}
-
-/**
- * *Choose button…* runs on both controller paths at once (XInput in main, the
- * Gamepad API in its window) and one answer comes back: the first `ok`; else
- * the more informative refusal — a pad that was seen but not pressed beats
- * "no controller", which beats "unavailable". Pure, so the order is testable.
- * @param {Array<{ok: boolean, code?: number, label?: string, reason?: string}>} results
- */
-function combineRecordings(results) {
-    const list = (results || []).filter(r => r && typeof r === 'object');
-    const winner = list.find(r => r.ok === true);
-    if (winner) return winner;
-    const rank = {timeout: 3, 'no-controller': 2, cancelled: 1, replaced: 1, unavailable: 0};
-    let best = null;
-    for (const r of list) {
-        const score = rank[r.reason] === undefined ? 0 : rank[r.reason];
-        if (!best || score > best.score) best = {score, reason: r.reason || 'unavailable'};
-    }
-    return {ok: false, reason: best ? best.reason : 'unavailable'};
 }
 
 /** No timers, no handles. `confirmedKey` is the only map showable unseen. */
@@ -398,8 +372,6 @@ module.exports = {
     HIDE_AFTER_NEGATIVE,
     KEY_POLL_INTERVAL,
     SAFETY_INTERVAL,
-    PAD_SCAN_INTERVAL,
-    PAD_SLOTS,
     PAD_RECORD_TIMEOUT,
     CONFIRM_RETRY_DELAYS,
     confirmRetryDelay,
@@ -416,7 +388,6 @@ module.exports = {
     detectIntervalFor,
     keyHintFor,
     foldMapInputs,
-    combineRecordings,
     initialTabModeState,
     reduceTabMode,
     displayForRect,

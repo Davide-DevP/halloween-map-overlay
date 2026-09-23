@@ -16,6 +16,8 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'hmo-diagnostics-'));
 after(() => fs.rmSync(HOME, {recursive: true, force: true}));
 
 const SECRET = 'Jane Private Map';
+// A controller's `Gamepad.id` names a device on the user's PC.
+const PAD_SECRET = 'Janes Pad (STANDARD GAMEPAD Vendor: 054c Product: 09cc)';
 const paths = {userData: HOME, desktop: HOME};
 const shown = [];
 const stub = installElectronStub({
@@ -39,7 +41,7 @@ function build(over) {
     appLog.event('open-failed', {message: `ENOENT: open '${path.join(dir, 'custom', 'x.png')}'`});
     appLog.flush();
     fs.writeFileSync(path.join(dir, 'detector.log'), 'decision=none\n');
-    fs.writeFileSync(path.join(dir, 'settings-app.json'), JSON.stringify({opacity: 0.5}));
+    fs.writeFileSync(path.join(dir, 'settings-app.json'), JSON.stringify({opacity: 0.5, tabMarkerPadId: PAD_SECRET}));
     fs.writeFileSync(path.join(dir, 'hotkeys.json'), JSON.stringify({
         'CommandOrControl+Alt+1': 'deftyconchgaming/Smiths Grove',
         'CommandOrControl+Alt+2': `Custom/${SECRET}`
@@ -51,7 +53,7 @@ function build(over) {
     writeCrashReport(dir, {at: Date.UTC(2026, 0, 1), message: `boom in ${dir}`, stack: 'at x', home: HOME});
     writeCrashReport(dir, {at: Date.UTC(2026, 0, 2), message: 'boom', stack: 'at y', home: HOME});
     const toasts = [];
-    const settings = fakeSettings(Object.assign({hotkeyRotateMap: ''}, over));
+    const settings = fakeSettings(Object.assign({hotkeyRotateMap: '', tabMarkerPadId: PAD_SECRET}, over));
     // system.txt reads the settings through the log's startup context.
     appLog.setContext({settings});
     const diagnostics = new Diagnostics({sendUpdate: (m) => toasts.push(m)}, settings);
@@ -86,19 +88,31 @@ test('the zip holds the named list and nothing else: no images, no custom folder
     const names = zipOf(answer.name).map(e => e.name).sort();
     const crashes = fs.readdirSync(dir).filter(n => n.startsWith('crash-'));
     const present = LOG_FILES.filter(n => fs.existsSync(path.join(dir, n)));
-    assert.deepStrictEqual(names, [...present, ...crashes, 'system.txt', 'hotkeys.json'].sort());
+    assert.deepStrictEqual(names, [...present, ...crashes, 'system.txt', 'hotkeys.json', 'settings-app.json'].sort());
+    assert.ok(!LOG_FILES.includes('settings-app.json'), 'settings-app.json must go in redacted, not verbatim');
     assert.ok(!names.some(n => /\.png$/i.test(n)));
     assert.strictEqual(answer.entries, names.length);
 });
 
-test('rule 3: no entry carries a path under home or a custom map name', async () => {
+test('rule 3: no entry carries a path under home, a custom map name or a controller id', async () => {
     const {diagnostics} = build();
+    // The startup settings line is where the whole settings object reaches app.log.
+    await appLog.logStartup();
     const answer = await diagnostics.create();
     for (const entry of zipOf(answer.name)) {
         const text = entry.data.toString('utf-8');
         assert.strictEqual(redactHome(text, HOME), text, `${entry.name} leaks a home path`);
         assert.ok(!text.includes(SECRET), `${entry.name} names a custom map`);
+        assert.ok(!text.includes('Janes Pad'), `${entry.name} names a controller`);
     }
+});
+
+test('settings-app.json goes in with the chosen controller as (set)', async () => {
+    const {diagnostics} = build();
+    const text = diagnostics.redactedSettings();
+    assert.deepStrictEqual(JSON.parse(text), {opacity: 0.5, tabMarkerPadId: '(set)'});
+    const system = await diagnostics.systemText();
+    assert.match(system, /^tabMarkerPadId = "\(set\)"$/m);
 });
 
 test('hotkeys.json goes in redacted, keeping the shipped map keys', async () => {

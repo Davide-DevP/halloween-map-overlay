@@ -1,7 +1,7 @@
 const os = require('os');
 const {app, ipcMain} = require('electron');
 const RotatingLog = require('./rotating-log');
-const {redactHome} = require('../shared/redact');
+const {redactHome, redactSettings} = require('../shared/redact');
 const {writeCrashReport} = require('./diagnostics/crash');
 
 /**
@@ -223,8 +223,8 @@ class AppLog {
                 gc
             },
             displays,
-            // Safe whole: the settings hold no paths (`settings-defaults.js`).
-            settings: settings && typeof settings.get === 'function' ? {...settings.settings} : {},
+            // No paths (`settings-defaults.js`); a device id becomes (set)/(none).
+            settings: settings && typeof settings.get === 'function' ? redactSettings(settings.settings) : {},
             gpu
         };
     }
