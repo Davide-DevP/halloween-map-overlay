@@ -77,8 +77,23 @@ class AppLog {
         if (!fields) return fields;
         const out = {};
         for (const [key, value] of Object.entries(fields)) {
-            out[key] = typeof value === 'string' ? redactHome(value, this.home) : value;
+            const clean = this.scrubValue(value, 0);
+            // The writer prints one token per field: a structure becomes JSON
+            // *after* every string inside it was redacted.
+            out[key] = clean !== null && typeof clean === 'object' ? JSON.stringify(clean) : clean;
         }
+        return out;
+    }
+
+    // Strings anywhere in a field: an Error's message, an array, a nested
+    // object. Rule 3 holds for whatever a caller passes, not only strings.
+    scrubValue(value, depth) {
+        if (typeof value === 'string') return redactHome(value, this.home);
+        if (value instanceof Error) return redactHome(`${value.name}: ${value.message}`, this.home);
+        if (depth >= 4 || value === null || typeof value !== 'object') return value;
+        if (Array.isArray(value)) return value.map(v => this.scrubValue(v, depth + 1));
+        const out = {};
+        for (const [k, v] of Object.entries(value)) out[k] = this.scrubValue(v, depth + 1);
         return out;
     }
 

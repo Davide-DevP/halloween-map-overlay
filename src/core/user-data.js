@@ -16,8 +16,17 @@ class UserData {
             if (this.mapLibrary) this.mapLibrary.invalidate();
         };
 
+        // The file inside custom/, or null: a bare name, `.` or `..` would
+        // resolve to the folder itself and a write would replace it with a file.
+        const customFile = (fileName) => {
+            const base = path.basename(String(fileName || ''));
+            if (!base || base === '.' || base === '..') return null;
+            return path.join(customDir(), base);
+        };
+
         ipcMain.handle('read-custom-data', async (event, fileName) => {
-            const fileDir = path.join(customDir(), path.basename(String(fileName || '')))
+            const fileDir = customFile(fileName);
+            if (!fileDir) return Buffer.from("");
             ensureDirectoryExistence(fileDir)
             if (!fs.existsSync(fileDir)) {
                 return Buffer.from("")
@@ -25,13 +34,16 @@ class UserData {
             return await fs.promises.readFile(fileDir);
         })
         ipcMain.handle('write-custom-data', async (event, fileName, data) => {
-            const fileDir = path.join(customDir(), path.basename(String(fileName || '')))
+            const fileDir = customFile(fileName);
+            if (!fileDir) return false;
             ensureDirectoryExistence(fileDir)
             fs.writeFileSync(fileDir, Buffer.from(data));
             invalidate();
+            return true;
         })
         ipcMain.handle('delete-custom-data', async (event, fileName) => {
-            const fileDir = path.join(customDir(), path.basename(String(fileName || '')))
+            const fileDir = customFile(fileName);
+            if (!fileDir) return;
             if (fs.existsSync(fileDir)) fs.unlinkSync(fileDir);
             invalidate();
         })

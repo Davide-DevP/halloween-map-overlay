@@ -3,7 +3,8 @@ const assert = require('node:assert');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const Module = require('module');
+const {installElectronStub} = require('./helpers/electron-stub');
+const {fakeSettings: makeFakeSettings} = require('./helpers/fake-settings');
 
 /*
  * The whole in-match path, with **no main window and no way to build one**.
@@ -16,14 +17,14 @@ const Module = require('module');
  * `MapMarkers`, with `MainWindow.window === null` and a `BrowserWindow`
  * constructor that throws if anything so much as tries.
  *
- * That is the state the app is in for the length of a match once the window
- * has been unloaded in the tray (`unloadWindowInTray`, 0.7), and the claim
- * this batch of work rests on is that everything a player uses still works
- * there. Only the two overlay-facing windows are doubles, because they are the
+ * That is the state the app is in for the length of a match once it has
+ * unloaded the window in the tray, which it decides for itself (no setting
+ * since 1.0; `shared/window-unload.js`, docs/agents/memory.md, the tray
+ * unload), and the claim is that everything a player uses still works there. Only the two overlay-facing windows are doubles, because they are the
  * things being asserted about.
  *
  * `require('electron')` outside Electron is a path string, so it is stubbed
- * before anything is loaded — the same shape `test/tab-mode.test.js` uses.
+ * before anything is loaded (`test/helpers/electron-stub.js`).
  */
 
 const ROOT = path.join(__dirname, '..');
@@ -31,6 +32,7 @@ const ROOT = path.join(__dirname, '..');
 global.dirname = ROOT;
 
 const USER_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'hmo-windowless-'));
+process.on('exit', () => fs.rmSync(USER_DATA, {recursive: true, force: true}));
 
 /** Every display the stub knows about: one 1920x1080 at 100 %. */
 const DISPLAY = {
@@ -42,42 +44,24 @@ const DISPLAY = {
     workArea: {x: 0, y: 0, width: 1920, height: 1040}
 };
 
-const IPC = {handlers: new Map(), listeners: new Map()};
 let browserWindowAttempts = 0;
 
-const realLoad = Module._load;
-Module._load = function (request) {
-    if (request === 'electron') {
-        return {
-            app: {
-                getPath: (name) => (name === 'userData' ? USER_DATA : USER_DATA),
-                getName: () => 'Halloween Map Overlay',
-                getVersion: () => '0.7.0',
-                getLocale: () => 'en-GB',
-                isPackaged: false,
-                on() {},
-                quit() {}
-            },
-            // **The point of the file.** Nothing in a match may build a window.
-            BrowserWindow: function () {
-                browserWindowAttempts += 1;
-                throw new Error('a window was created during a match');
-            },
-            ipcMain: {
-                handle(channel, fn) { IPC.handlers.set(channel, fn); },
-                on(channel, fn) { IPC.listeners.set(channel, fn); }
-            },
-            screen: {
-                getAllDisplays: () => [DISPLAY],
-                getPrimaryDisplay: () => DISPLAY,
-                dipToScreenRect: (win, rect) => rect
-            },
-            shell: {openPath: async () => '', openExternal() {}, showItemInFolder() {}}
-        };
+const {ipc: IPC} = installElectronStub({
+    userData: USER_DATA,
+    version: '0.7.0',
+    electron: {
+        // **The point of the file.** Nothing in a match may build a window.
+        BrowserWindow: function () {
+            browserWindowAttempts += 1;
+            throw new Error('a window was created during a match');
+        },
+        screen: {
+            getAllDisplays: () => [DISPLAY],
+            getPrimaryDisplay: () => DISPLAY,
+            dipToScreenRect: (win, rect) => rect
+        }
     }
-    return realLoad.apply(this, arguments);
-};
-
+});
 const MainWindow = require(path.join(ROOT, 'src/core/main-window'));
 const MapController = require(path.join(ROOT, 'src/core/map-controller'));
 const MapLibrary = require(path.join(ROOT, 'src/core/map-library'));
@@ -108,18 +92,7 @@ function recordingWindow() {
     };
 }
 
-/** A settings object with the real `get`/`all`/`set` contract, no file. */
-function fakeSettings(over) {
-    const values = Object.assign({}, DEFAULT_SETTINGS, over || {});
-    return {
-        values,
-        written: [],
-        get: (key) => values[key],
-        all: () => values,
-        set(key, value) { values[key] = value; this.written.push({key, value}); return true; },
-        settings: values
-    };
-}
+const fakeSettings = makeFakeSettings;
 
 let overlay;
 let obs;

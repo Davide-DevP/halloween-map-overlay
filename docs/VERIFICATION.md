@@ -1,5 +1,8 @@
 # Independent verification — Halloween Map Overlay 0.1.0
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Reviewer: independent, no stake in the outcome. Every claim in `docs/DEV-REPORT.md`
 was re-run or re-read; nothing below is taken from that report.
 Environment: Windows 11 Pro 10.0.26200, Node 24, Electron 40 (`node_modules/electron`),

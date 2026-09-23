@@ -645,7 +645,7 @@ function preparedVariants(entry, size) {
 /**
  * Is this (score, margin) pair good enough to switch the overlay? Either
  * branch suffices: `score` >= 0.80 with a 0.10 lead (a solo Tab screen measures
- * 0.99 / 0.49), or `margin` >= 0.60 with a 0.15 lead (a party one, 0.70 / 0.29).
+ * 0.99 / 0.49), or `score` >= 0.60 with a 0.15 lead (a party one, 0.70 / 0.29).
  * The branch's *name* comes back, not `true`, so the caller can log which fired.
  * @param {number} margin best minus runner-up
  * @param {object} [opts] the four thresholds, defaulting to the constants above

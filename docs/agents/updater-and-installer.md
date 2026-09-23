@@ -1,32 +1,46 @@
 # The updater and the installer
 
-[← AGENTS.md](../../AGENTS.md) · **Read before** touching `src/core/main-window.js`'s update code,
+[← AGENTS.md](../../AGENTS.md) · **Read before** touching `src/core/updater.js`,
 `src/core/update-helper.js`, `src/shared/update-message.js`, anything in
 `updater/`, `build/installer.nsh`, `scripts/build-updater.js` or the
 `build.nsis` block of `package.json`.
 
 Specs: `docs/SPEC-UPDATER.md`, `docs/BUILD.md`.
 
+**Where the code lives (since the 2026-09-23 refactor).** The whole flow — the
+check, its watchdog, the download, the three install tiers, the helper hand-off
+— is the `Updater` class in `src/core/updater.js`. Everything window-shaped is
+injected (`send`, `sendUpdate`, `getWindow`, `getTray`, `runShutdownHooks`),
+because the main window may not exist when an update lands. `MainWindow` keeps
+only the IPC wiring (`install-update`, `get-pending-update`,
+`check-for-updates-now`, `get-update-check-state`, `update-banner-*`) and a
+one-line `installUpdate()` the tray calls. The method names below are
+`Updater`'s unless a class is named.
+
 ## Checking and downloading
 
 - **Auto-update**: `electron-updater` against GitHub Releases
-  (`Davide-DevP/halloween-map-overlay`), started from `MainWindow.checkUpdates()`
-  4 s after the window shows and reported through the `update-message` toast.
+  (`Davide-DevP/halloween-map-overlay`), started from `checkUpdates()`
+  4 s (`STARTUP_CHECK_DELAY_MS`) after the window first shows and reported
+  through the `update-message` toast.
   **It downloads on its own and installs only on request.** `autoDownload` and
-  `autoInstallOnAppQuit` are both set explicitly in `checkUpdates()`, the second
+  `autoInstallOnAppQuit` are both set explicitly in `prepareUpdater()`, the second
   to `false`: 0.1.0 → 0.2.0 shipped with electron-updater's default quit
   handler and the silent NSIS run froze the machine for several seconds at the
   moment the owner closed the app. `update-downloaded` now stores
   `this.pendingUpdateVersion`, sends the `update-ready` `{version}` IPC (the
   renderer's persistent green banner, `#updateReady` in `src/index.html`) and
   tells the tray to grow a "Restart and update" item. The banner's button and
-  that item both reach `MainWindow.installUpdate()` — the single installer
-  trigger — via `ipcMain.handle('install-update')`. A renderer that loads after
+  that item both reach `Updater.installUpdate()` — the single installer
+  trigger — the banner via `ipcMain.handle('install-update')`, the tray via
+  `MainWindow.installUpdate()`. A renderer that loads after
   the download (reopened from the tray) asks with `get-pending-update` instead
-  of waiting for the push. `installUpdate()` sets `app.isQuiting = true` first,
-  or the window's `close` handler hides the window and `app.quit()` never
-  completes; then it stops the detector, destroys the tray, launches the
-  installer itself (see below) and quits. **electron-updater does the check and
+  of waiting for the push. The install calls `markQuitting()`
+  (`src/core/quitting.js`) first, or the window's `close` handler hides the
+  window and `app.quit()` never completes (a tier-3 failure is the one path that
+  calls `clearQuitting()`); then `runShutdownHooks()` stops the detector and
+  destroys the tray, it launches the installer itself (see below) and quits.
+  **electron-updater does the check and
   the download; it does not do the install.** "Later" in the banner is renderer-session state
   only — main and the tray keep the pending update. The
   `checkForUpdatesAndNotify` toast text is overridden too; its default promises
@@ -47,11 +61,11 @@ Specs: `docs/SPEC-UPDATER.md`, `docs/BUILD.md`.
     (`shared/update-message.js`): dev build → "not available in a development
     build", portable → the same answer the startup check gives silently, a
     check already in flight (**the startup one counts**) → "already running",
-    otherwise start one. `MainWindow.updateCheckState` is the single source of
+    otherwise start one. `Updater.updateCheckState` is the single source of
     that in-flight answer; the updater events move it, so the button is
     disabled while the startup check or a download runs, and there is never a
-    second `checkForUpdates()` in the air. The listener binding moved into
-    `prepareUpdater()` (still behind `_updaterBound`) so the button works with
+    second `checkForUpdates()` in the air. The listener binding lives in
+    `prepareUpdater()` (behind the module-level `listenersBound`) so the button works with
     the startup switch off without ever adding a second set of listeners.
     Logged as `update state=manual-check` — no URL, no path.
   - **The busy states have a watchdog**, or a download that dies without ever
@@ -169,10 +183,11 @@ on the happy path. **Nobody can be stranded on an old version by this feature.**
 - **The working copy does NOT go in `%TEMP%`.** It goes in electron-updater's
   own cache directory, `%LOCALAPPDATA%\<updaterCacheDirName>\helper-<version>-<random>\`,
   next to the `pending\` folder the installer was downloaded into
-  (`helperHome()`, and `MainWindow.updaterCacheDir()` asks
+  (`helperHome()`, and `Updater.updaterCacheDir()` asks
   `autoUpdater.downloadedUpdateHelper.cacheDir` first). It cannot run from
-  `resources/updater` — NSIS deletes that during the update. See the Bitdefender
-  trap below for why `%TEMP%` is not an option.
+  `resources/updater` — NSIS deletes that during the update. See
+  [§ Bitdefender](#bitdefender-unsigned-executables-and-temp--a-real-trap) for
+  why `%TEMP%` is not an option.
 - **`getContentBounds()`, not `getBounds()`,** and converted with
   `screen.dipToScreenRect`. The main window has a native frame, so the outer
   rectangle is ~32 px taller than the page; a helper centred in it draws the
@@ -255,7 +270,9 @@ refuses `oneClick: true` together with it.
 
 ## Bitdefender, unsigned executables and `%TEMP%` — a real trap
 
-Found the hard way on the development machine, twice in one session:
+This section is the one place the incident is described; AGENTS.md rule 7 and
+every other document point here. Found the hard way on the development
+machine, twice in one session:
 
 - Running the freshly built **unsigned NSIS installer with `/S` from a folder
   under `%TEMP%`** made Bitdefender's Advanced Threat Defense fire

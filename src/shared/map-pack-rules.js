@@ -659,11 +659,11 @@ function mergeTemplateSources(bundled, packs, opts) {
 
 /**
  * Is it time to look for new packs? The one gate both the startup timer and the
- * "Check for new maps now" button go through, so they cannot disagree. With the
- * setting off the answer is always no and **no request is made** — the promise
- * in the README, so a rule here and not a branch at the call site. `force` (the
- * button) ignores the interval but not the setting; a `lastCheckAt` in the
- * future counts as "now", so a bad clock cannot lock the check out for a day.
+ * *Check now* button go through, so they cannot disagree. With the setting off
+ * the timer never asks and **no request is made** — the promise in the README,
+ * so a rule here and not a branch at the call site. `force` (the button) ignores
+ * both the interval and the setting: the click is the consent. A `lastCheckAt`
+ * in the future counts as "now", so a bad clock cannot lock the check out for a day.
  * @param {{enabled, lastCheckAt, now, force?, lastFailed?, intervalMs?,
  *          retryMs?}} state
  * @returns {{check: boolean, reason: string}}

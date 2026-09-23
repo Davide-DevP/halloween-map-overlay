@@ -17,11 +17,12 @@ Order of implementation: 2, 4, 1, 5 (cheapest first; 5 touches every string).
   window, `lastDetected = null` (so the next Tab press re-detects even the
   same map), status "Back in menu — map cleared". One positive tick does
   nothing (avoids flicker on transitions).
-- Setting `hideInMenu` (bool, default true), switch in Settings → General,
-  **removed in 1.0**: always on, no setting and no switch (the pure
-  `shouldWatchMenu(shownKey)`; docs/agents/settings-and-onboarding.md § Two
-  settings the app decides),
-  under the auto-detect explanation.
+- Always on, with no setting and no switch: the pure `shouldWatchMenu(shownKey)`
+  decides from what the overlay shows alone. (0.3.0 shipped it as `hideInMenu`,
+  default true, a switch in Settings → General; 1.0 removed it —
+  docs/agents/settings-and-onboarding.md § Two settings the app decides.) The
+  code now waits for **three** consecutive positive ticks, not two
+  (`MENU_TICKS_TO_HIDE`, docs/SPEC-DETECT.md §2.3).
 - Tests: `menu-main.png` → menu = true; all four Tab fixtures, both gameplay
   fixtures → menu = false; margin printed. The fixture test discovery must
   treat `menu-*.png` as menu positives.

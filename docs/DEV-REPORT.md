@@ -1,5 +1,8 @@
 # Development report — Halloween Map Overlay 0.1.0
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Port of `LucaFontanot/dbd-map-overlay` (Apache-2.0) to *Halloween: The Game*,
 built to `docs/SPEC.md`.
 

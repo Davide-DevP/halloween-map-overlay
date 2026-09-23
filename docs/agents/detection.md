@@ -121,8 +121,10 @@ The overlay's map label rides on the detector's `map-change` —
 
 - **Home-page status line**: "Off" / "Watching for the in-game map (Tab)…" /
   "Back in menu — map cleared" / "Detected <Map> at HH:MM", driven by the
-  `map-detector-status` push plus one `invoke` at startup. The renderer keeps
-  the last status so it can re-render the line in a new language.
+  `map-detector-status` push plus one `invoke` at startup. The decision is the
+  pure `detectorStatusView(memory, status)` in `src/shared/detector-status.js`
+  (tested); `src/js/detector.js` keeps the returned memory so it can re-render
+  the line in a new language, and only translates and draws.
 - **The main menu ends the match** — always on since 1.0; it was the optional
   `hideInMenu` (default true, Settings › General) up to 0.7. `matcher.js` carries a second template — the menu's navigation
   strip, `MENU_STRIP_REL` = x 45..760, y 20..68 at 1919x1079, measured off
@@ -294,6 +296,11 @@ gated out *before* the menu matcher, i.e. it was not measuring the menu at all.
 The common case — a gameplay tick, every 700 ms for the whole of a match — is
 now 1.3 ms.
 
+This section is the **one place** these numbers live; AGENTS.md rule 6 and the
+specs quote the headline and link here. The 2026-09-23 matcher pass cut the
+gated-in paths further; its numbers are a separate A/B on a loaded machine and
+sit under *The budget, restated* below — do not mix the two tables.
+
 #### What was *not* done, and why
 
 **`matchMap` scores every variant of every map on every gated-in frame**, so
@@ -355,6 +362,8 @@ an empirical margin, not a proof.
 
 **If the per-tick cost ever has to come down, the fixed 6.8 ms is the target**
 — `DEFAULT_OFFSETS` is 15 views for one panel — not the ~0.10 ms per variant.
+The 2026-09-23 pass did exactly that (scratch buffers, precomputed resample
+weights: fixed cost 10.6 → 5.9 ms in its own A/B, *The budget, restated*).
 The separation between the maps is still measured, but as a build-time check
 with no runtime half; see *Map similarity is a build-time check* below.
 

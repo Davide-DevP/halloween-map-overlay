@@ -26,11 +26,10 @@ together but are independently useful:
    (`src/core/map-controller.js`) performs the effects. The main window's
    renderer becomes a **view**: it asks main for the state on load, renders it,
    sends intents, and receives pushes.
-2. **The main window becomes destroyable while it is hidden in the tray**
-   (`unloadWindowInTray`, default **true**; the setting was **removed in 1.0** and
-   the unload is always on — docs/agents/settings-and-onboarding.md § Two
-   settings the app decides), because nothing depends on it any
-   more.
+2. **The main window is destroyed while it is hidden in the tray**, always,
+   because nothing depends on it any more. (0.7 shipped this behind an
+   `unloadWindowInTray` setting, default on; 1.0 removed it —
+   docs/agents/settings-and-onboarding.md § Two settings the app decides.)
 
 A side effect that is worth as much as the memory: the overlay's independence
 from the main window's renderer gets **stronger**. Today a renderer crash loses
@@ -61,7 +60,7 @@ working through the reload, and the menu clear stays correctly gated.
 
 | Channel | Was | Now |
 |---|---|---|
-| `map-change` | **the** way a map reached the overlay | Kept, but only for the **settings preview** (`{preview: true}` + raw base64 rendered in the renderer's canvas). Everything else goes through `MapController` → `MainWindow.applyMapChange()`, which is the same function the IPC handler calls. |
+| `map-change` | **the** way a map reached the overlay | Kept, but only for the **settings preview** (`{preview: true}` + raw base64 rendered in the renderer's canvas). Everything else goes through `MapController` → `MainWindow.applyMapChange()`, which is the same function the IPC handler calls. Main → overlay/OBS it is **one object**: `{image, size, opacity, draggable, rotation, label, labelMode, markers, lang}` on the overlay, `{image, size, label, labelMode, markers, lang}` on OBS (docs/agents/architecture.md § `map-change` payload). |
 | `map-detector-shown` | the renderer told the detector what the overlay shows | **Gone.** `MapController` calls `MapDetector.noteShown()` directly. The 0.3.3 rule is unchanged — the menu clear is still gated on *what the overlay actually shows*, whoever put it there — it is simply no longer a round trip through a process that can die. |
 | `map-detector-applied` | the renderer told the detector what it did with a `show-map-command` | **Gone.** `MapController` calls `MapDetector.noteApplied()`. |
 | `map-detector-reset` | `clear-map` told the detector to forget | **Gone.** `MapController` calls `MapDetector.resetLastDetected()`. |
@@ -199,16 +198,13 @@ their own renderers.
 
 ## 5. Unloading the main window
 
-### 5.1 The setting
+### 5.1 No setting
 
-`unloadWindowInTray`, **default `true`**, Settings › General, next to
-"Use the graphics card to draw the app". With it off the window behaves exactly
-as it did in 0.6.
-
-> **Removed in 1.0.** There is no setting and no switch: the unload is always
-> on, a leftover `false` is ignored rather than migrated, and
-> `shouldUnloadMainWindow` has no `setting` input. Why:
-> docs/agents/settings-and-onboarding.md § Two settings the app decides.
+The unload is always on: there is no setting and no switch, a leftover
+`unloadWindowInTray: false` in an old file is ignored rather than migrated, and
+`shouldUnloadMainWindow` has no `setting` input. (0.7 had the switch, default
+on, in Settings › General; 1.0 removed it — why:
+docs/agents/settings-and-onboarding.md § Two settings the app decides.)
 
 ### 5.2 The decision — `shouldUnloadMainWindow()` in `src/shared/window-unload.js`
 
@@ -217,7 +213,6 @@ logged. It refuses ("not now") when:
 
 | reason | condition |
 |---|---|
-| `setting-off` | `unloadWindowInTray` is not `true` — **gone in 1.0** |
 | `no-window` | there is no window to unload |
 | `visible` | the window is on screen |
 | `minimized` | minimised to the taskbar rather than hidden to the tray. **`isMinimized()` alone cannot tell the two apart**: with minimize-to-tray on, the − button minimises first and the `minimize` handler then hides, and Windows keeps reporting the hidden window as minimised. `MainWindow.unloadVerdict()` therefore counts a window as minimised only while `hiddenAt` is 0 (no `hide` event). Until 1.0 it did not, and on the owner's machine — who sends the app to the tray with the − button — the window was **never** unloaded, in 0.7.0 either: found on 2026-09-21 by sampling the processes during a match (the main-window renderer, ~110 MB working set, was still alive after 90 s in the tray, and `app.log` had no `main-window state=unloaded` line since the feature shipped). The test that "covered" this had modelled the bug itself (`minimized = true` + `hide()` expected to keep the window). |
@@ -225,7 +220,7 @@ logged. It refuses ("not now") when:
 | `recording` | the hotkey bind dialog is recording (`Hotkeys.suspended`) |
 | `update-banner` | an update is downloaded and its banner has not been in front of a person yet |
 | `installing` | an install is under way |
-| `quitting` | `app.isQuiting` |
+| `quitting` | `isQuitting()` (`src/core/quitting.js`) |
 | `grace` | less than `UNLOAD_GRACE_MS` (45 s) since the window was hidden |
 
 Two things keep the busy set honest, because a reason that is never cleared is
@@ -251,7 +246,7 @@ a window that is never unloaded:
   `destroy()`; a flag cleared in a `finally` could already be false by the time
   the handler runs, and the overlay would go down mid-match.
 - **A real close is a real shutdown, and says so.** The other branch of that
-  same `closed` handler sets `app.isQuiting`, runs `runShutdownHooks()` (which
+  same `closed` handler calls `markQuitting()` (`src/core/quitting.js`), runs `runShutdownHooks()` (which
   takes the overlay, the Tab-map window, the detector and the tray, in that
   order), closes the OBS window and calls `app.quit()`. It does **not** leave
   it to `window-all-closed`: that only fires when every `BrowserWindow` is
@@ -261,7 +256,7 @@ a window that is never unloaded:
   resident with the detector, the hotkeys and the key trigger running behind a
   **dead** overlay that Tray › Show could never bring back.
 - `show()` rebuilds the window. Two guards on it: it **returns immediately when
-  `app.isQuiting`** (a second instance or an `update-downloaded` during
+  `isQuitting()`** (a second instance or an `update-downloaded` during
   `finishInstall`'s deferred quit must not build a renderer while the installer
   is taking over), and the one-time startup work (`cleanStaleUpdateHelpers()`,
   `checkUpdates()`) runs on the **first** construction only, so opening the
@@ -288,8 +283,9 @@ main-window state=unloaded reason=tray hiddenMs=45012
 main-window state=loaded reason=tray-click
 ```
 
-`system.txt`'s `[health]` section gains `main window = loaded|unloaded` and
-`unloadWindowInTray = on|off` (that line is **gone in 1.0**; the state lines stay).
+`system.txt`'s `[health]` section prints `main window = loaded|unloaded` and
+`main window held by = …` (0.7 also printed `unloadWindowInTray = on|off`,
+removed with the setting in 1.0).
 
 ## 6. Toasts while the window is gone
 

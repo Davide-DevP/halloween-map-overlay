@@ -1,5 +1,8 @@
 # Verification 6 — 0.3.3 detector: civilian variants, margin accept, menu gate on the shown map (independent review)
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Reviewed HEAD `6b2ea22` (= `origin/main`, version 0.3.3), detector commits
 `89b372e..HEAD` (22 files; the code is all in `14d87b7`, `6b2ea22` is
 AGENTS.md/README wording only). Nothing in the commit messages, AGENTS.md or

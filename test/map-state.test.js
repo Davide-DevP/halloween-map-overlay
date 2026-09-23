@@ -12,9 +12,9 @@ const {SYSTEM_HOTKEY_DEFS, OPACITY_STEP, SIZE_STEP} = require(path.join(ROOT, 's
 
 /*
  * `src/shared/map-state.js` — every decision that used to live in
- * `src/js/maps.js`, i.e. in the main window's renderer. That renderer is now
- * allowed not to exist (`unloadWindowInTray`), so these rules have to hold in
- * the main process on their own, and this file is where they are held.
+ * `src/js/maps.js`, i.e. in the main window's renderer. The app tears that
+ * renderer down in the tray on its own (no setting since 1.0; see
+ * docs/agents/memory.md, the tray unload), so these rules hold in main alone.
  *
  * Nothing here touches electron, a window or a file: the catalogue and the
  * settings are plain data, exactly as the controller hands them over.

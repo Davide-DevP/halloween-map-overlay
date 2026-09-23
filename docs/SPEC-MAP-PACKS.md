@@ -237,7 +237,7 @@ longer a stutter budget — but it is still one core of the player's CPU, and
 
 The **check deadline** exists because `MapPacks` holds a single-flight flag for
 the duration: 200 packs × 4 files × a 30 s per-request timeout is hours, and the
-"Check for new maps" button would be dead for all of it. Packs not reached are
+Settings › General *Check now* button would be dead for all of it. Packs not reached are
 `skipped: deadline` and picked up by the next check.
 
 Nothing is sent: a GET of a public file, no query string, no cookies, no
@@ -390,10 +390,13 @@ trust levels differ — and that difference is the point.
 
 ## 6. When it runs
 
-- **`checkForMapPacks`**, default `true`, Settings › General next to the
-  update-check switch. With it off **no request is made at all**: the gate is
-  the pure `shouldCheckPacks`, so the startup check and the button cannot
-  disagree about it.
+- **`checkForMapPacks`**, default `true`. Since 1.0 it has no switch of its
+  own: Settings › General › *Look for news by itself* is one switch over both
+  `checkForUpdates` and `checkForMapPacks` (`NEWS_CHECK_KEYS`,
+  `newsCheckState`, `settingsForNewsCheck` in `src/shared/settings-defaults.js`
+  — on when either key is on, and a toggle writes both). With the key off the
+  **automatic** check makes **no request at all**: the gate is the pure
+  `shouldCheckPacks`.
 - **At startup, after the window is up** — a `setTimeout` from
   `createWindow()`, deliberately later than the update check's 4 s so the two
   requests do not toast over each other. It never blocks the window.
@@ -406,8 +409,11 @@ trust levels differ — and that difference is the point.
   writes `lastCheckAt` anyway; without this it would get nothing for the rest of
   the day however long it was online afterwards. "Nothing published yet" (the
   404) is *not* a failure and does not shorten anything.
-- **"Check for new maps now"** in Settings › General ignores the interval but
-  **not** the setting.
+- **Settings › General › *Check now*** (one button for both checks: the app
+  update check, then `check-map-packs`, which is `check({force: true})`)
+  ignores the 24 h interval **and** the setting — the click is the consent,
+  exactly as for the update check. `shouldCheckPacks` reports it as
+  `reason: 'manual'` when the setting is off and `'forced'` otherwise.
 - A newly installed pack toasts (`mapPacks.installedOne` /
   `installedOneBound` / `installedMany`) and the gallery refreshes over
   `map-packs-updated` → `Maps.invalidateCache()`. No restart.

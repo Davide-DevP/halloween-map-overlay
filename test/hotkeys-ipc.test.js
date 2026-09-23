@@ -3,70 +3,29 @@ const assert = require('node:assert');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const Module = require('module');
+const {installElectronStub} = require('./helpers/electron-stub');
+const {fakeSettings: makeFakeSettings} = require('./helpers/fake-settings');
 
 /*
  * `core/hotkeys.js`'s IPC surface, driven through the channels the renderer
  * uses: the validation order, the `hotkeys.json` writes and the rollback-backed
  * system writes. `electron` is stubbed before the module loads, as
- * `test/tab-mode.test.js` does; `globalShortcut` records instead of binding.
+ * every such file does (`test/helpers/electron-stub.js`); `globalShortcut`
+ * records instead of binding.
  */
 const ROOT = path.join(__dirname, '..');
 const USER_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'hmo-hotkeys-ipc-'));
+process.on('exit', () => fs.rmSync(USER_DATA, {recursive: true, force: true}));
 const HOTKEY_FILE = path.join(USER_DATA, 'hotkeys.json');
 
-const IPC = {handlers: new Map(), listeners: new Map()};
-const SHORTCUTS = {registered: new Set(), refuse: new Set(), throwOn: new Set()};
-
-const realLoad = Module._load;
-Module._load = function (request) {
-    if (request === 'electron') {
-        return {
-            app: {getPath: () => USER_DATA},
-            ipcMain: {
-                handle(channel, fn) { IPC.handlers.set(channel, fn); },
-                on(channel, fn) { IPC.listeners.set(channel, fn); }
-            },
-            globalShortcut: {
-                register(accelerator) {
-                    if (SHORTCUTS.throwOn.has(accelerator)) throw new Error('bad accelerator');
-                    if (SHORTCUTS.refuse.has(accelerator)) return false;
-                    SHORTCUTS.registered.add(accelerator);
-                    return true;
-                },
-                unregister(accelerator) { SHORTCUTS.registered.delete(accelerator); },
-                unregisterAll() { SHORTCUTS.registered.clear(); }
-            }
-        };
-    }
-    return realLoad.apply(this, arguments);
-};
+const {ipc: IPC, shortcuts: SHORTCUTS} = installElectronStub({userData: USER_DATA});
 
 const Hotkeys = require(path.join(ROOT, 'src/core/hotkeys'));
-const {DEFAULT_SETTINGS} = require(path.join(ROOT, 'src/shared/settings-defaults'));
 const {HOTKEY_DEFAULTS_VERSION} = require(path.join(ROOT, 'src/shared/hotkey-migration'));
 const {ACTION_TO_SETTING_KEY} = require(path.join(ROOT, 'src/shared/hotkeys-constants'));
 
-function fakeSettings(over) {
-    const values = Object.assign({}, DEFAULT_SETTINGS,
-        {hotkeyDefaultsVersion: HOTKEY_DEFAULTS_VERSION}, over || {});
-    return {
-        values,
-        settings: values,
-        fileSettings: values,
-        writes: [],
-        failWrites: false,
-        get(key) { return values[key]; },
-        all() { return values; },
-        set(key, value, opts) {
-            this.writes.push({key, value, opts});
-            if (this.failWrites) return false;
-            values[key] = value;
-            return true;
-        },
-        merge(changes) { Object.assign(values, changes); return true; }
-    };
-}
+const fakeSettings = (over) => makeFakeSettings(
+    Object.assign({hotkeyDefaultsVersion: HOTKEY_DEFAULTS_VERSION}, over || {}));
 
 function fakeMainWindow() {
     return {

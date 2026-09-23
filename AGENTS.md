@@ -65,31 +65,25 @@ Every change must respect all of these.
    automatic in-process fallback); **only numbers and keys cross the boundary**,
    and a test asserts no reply carries pixels. Main keeps the scheduler, the
    state machine and the windows — and a request that cannot be answered is "no
-   frame this tick", never a quiet capture in main. The tick itself also got
-   cheaper: gate first on the raw bytes, then reduce only the regions that are
-   read — a gated-out gameplay tick went 27.0 → **1.3 ms**, a gated-in Tab tick
-   41.2 → **21.9 ms**, with every matcher **score** bit-identical and the gate
-   verdict-identical on real frames (`test/detector-equality.test.js`).
-   `matchMap` scores every installed variant on every gated-in frame, but
-   measure before optimising that: the **fixed** cost is ~6.8 ms (the 15
-   alignment views and their gradients) and a variant is **~0.10 ms**, so the
-   whole 48-variant cap is under 5 ms. Three ways to skip work were tried and
-   rejected — coarse-to-fine and verify-the-current-map-first change decisions,
-   and an early exit on a "these maps are far apart" measurement bought ~0.6 ms
-   today for a per-pair safety claim the data could not support. Never add a
-   second per-tick capture, never go back to `desktopCapturer`, and do not put
-   pixel work back on main.
-   [`docs/agents/detection.md`](docs/agents/detection.md).
+   frame this tick", never a quiet capture in main. Gate first on the raw
+   bytes, then reduce only the regions that are read (0.7: a gated-out gameplay
+   tick 27.0 → **1.3 ms**, a gated-in Tab tick 41.2 → **21.9 ms**); every
+   matcher **score** must stay bit-identical and the gate verdict-identical
+   (`test/detector-equality.test.js`). `matchMap` scores every installed variant
+   on every gated-in frame, but its **fixed** cost dominates and a variant is
+   ~0.1 ms, so measure before optimising it: coarse-to-fine,
+   verify-the-current-map-first and an early exit were all tried and rejected.
+   Never add a second per-tick capture, never go back to `desktopCapturer`, and
+   do not put pixel work back on main. Every current number (including the
+   2026-09-23 matcher pass) and the rejected alternatives:
+   [`docs/agents/detection.md` § The capture path](docs/agents/detection.md#the-capture-path--do-not-make-it-heavier).
 7. **Never run an unsigned executable out of `%TEMP%`**, in a test or in the
-   product. Bitdefender's Advanced Threat Defense fired on exactly that shape on
-   the development machine: it killed the whole launching process tree (the
-   terminal included), neutralised the installer by lower-casing its `MZ`
-   signature, and on another run silently dropped that installer's registry
-   writes, so later updates had no `UninstallString`. The same file run from
-   `dist/` was fine — which is why the updater helper's working copy lives in
-   electron-updater's cache under `%LOCALAPPDATA%`. Nothing is whitelisted; the
-   design avoids the shapes that look like malware.
-   [`docs/agents/updater-and-installer.md`](docs/agents/updater-and-installer.md).
+   product: Bitdefender's Advanced Threat Defense killed the whole launching
+   process tree on the development machine for exactly that shape, which is
+   why the updater helper's working copy lives under `%LOCALAPPDATA%`. Nothing
+   is whitelisted; the design avoids the shapes that look like malware. The
+   incident in full:
+   [`docs/agents/updater-and-installer.md` § Bitdefender](docs/agents/updater-and-installer.md#bitdefender-unsigned-executables-and-temp--a-real-trap).
 8. **Do not launch Electron, the packaged app, the installer or the updater
    helper from an agent session** — `npm start`, `npm run build:win` and any
    `.exe` are for the owner at a real desk (see rule 7, and an Electron window
@@ -111,7 +105,9 @@ One line per module, grouped. The annotated version — every quirk, every
 ```
 Entry and windows
   index.js                      Entry point; Wayland→X11 respawn; single-instance lock; wires everything
-  src/core/main-window.js       Main BrowserWindow + IPC hub; `applyMapChange`; the update flow; the tray unload
+  src/core/main-window.js       Main BrowserWindow + IPC hub; `applyMapChange`; the tray unload; update IPC wiring only
+  src/core/updater.js           The whole update flow: check, watchdog, download, three install tiers (window access injected)
+  src/core/quitting.js          `markQuitting/clearQuitting/isQuitting` — the one "app is quitting" flag
   src/core/map-controller.js    Which map is on the overlay: hotkeys, detector, CLI, gallery. No window needed
   src/shared/map-state.js       PURE state + intent → state + effects (the whole match-time logic)
   src/shared/window-unload.js   PURE `shouldUnloadMainWindow()` — may the window be destroyed right now
@@ -119,7 +115,8 @@ Entry and windows
   src/core/overlay-position.js  PURE positioning math (corner preset + glide + rotated box)
   src/core/obs-window.js        Green-background window for OBS capture
   src/core/tab-overlay-window.js  The second transparent window, for Tab-map mode
-  src/shared/web-preferences.js PURE `webPreferences()` — the one object all four windows use
+  src/shared/web-preferences.js PURE `webPreferences()` — the one object all five windows use
+  src/shared/errors.js, timers.js  PURE `errorMessage(err)`; `clearTimer`/`unrefTimer`
   src/core/tray.js, is-wayland.js  System tray icon and menu; Wayland session detection
 Catalogue and maps
   src/core/map-library.js       fs side of the catalogue: three roots, listing, key → path
@@ -157,6 +154,7 @@ Detection
   src/core/map-detector/matcher.js  PURE matcher: grayscale, crop, NCC, Tab gate, menu strip
   src/core/map-detector/templates.json  Generated + committed; `format: 2`, one list per map
   src/shared/detector-rules.js  PURE cadence, throttle, menu gate, game-window identification
+  src/shared/detector-status.js PURE home-page detector status line (`src/js/detector.js` only draws it)
   src/core/foreground.js        Is the game in front? ~1 s poll, no capture → `Hotkeys.setActive`
   src/core/gc.js                One V8 collection on demand, for the detector loop only
 Hotkeys
@@ -243,7 +241,7 @@ npm run build:win      # build-updater, then NSIS installer + portable into dist
 | [diagnostics.md](docs/agents/diagnostics.md) | Two logs and one writer, redaction, the crash policy (including the `render-process-gone` trap), the report zip | `app-log.js`, `rotating-log.js`, `diagnostics*`, `redact.js`, `js/diagnostics.js`, any crash handler |
 | [i18n.md](docs/agents/i18n.md) | The mechanism, the six languages and how to add one, the locale rule, what is deliberately untranslated, the per-language glossaries, the markup attributes and their tested fallbacks, re-rendering, resolution in main | `shared/i18n.js`, `js/i18n.js`, `core/language.js`, `src/i18n/*.json`, any user-visible string |
 | [maps-authoring.md](docs/agents/maps-authoring.md) | Adding a map with no code change, the image half, crop detection, locating the map panel in a fixture, marker data, shipping as a pack instead, what to do when two maps score alike | adding a map, `prepare-maps.js`, `prepare-detector.js`, `maps/`, `maps-src/` |
-| [updater-and-installer.md](docs/agents/updater-and-installer.md) | The check and the download, the idle-priority install, the themed helper and its handshake, the NSIS build shape, the Bitdefender trap, our installer window | `main-window.js`'s update code, `update-helper.js`, `update-message.js`, `updater/`, `build/installer.nsh`, `build.nsis` |
+| [updater-and-installer.md](docs/agents/updater-and-installer.md) | Where the flow lives (`updater.js`), the check and the download, the idle-priority install, the themed helper and its handshake, the NSIS build shape, the Bitdefender trap, our installer window | `updater.js`, `quitting.js`, `update-helper.js`, `update-message.js`, `updater/`, `build/installer.nsh`, `build.nsis` |
 | [releasing.md](docs/agents/releasing.md) | The workflow, the procedure in order, the tag rule, the `gh` scope gotcha | tagging, `.github/workflows/release.yml`, `version` in `package.json` |
 | [memory.md](docs/agents/memory.md) | The measured memory decisions, how to quote the numbers, the tray unload (no setting since 1.0) and the one "win" that is not | `gc.js`, `web-preferences.js`, `hardwareAcceleration`, `shared/window-unload.js`, anything that looks like a spare allocation |
 
@@ -252,7 +250,10 @@ Specs are the source of truth where they overlap these documents: `docs/SPEC.md`
 `SPEC-MAP-PACKS.md`, `SPEC-MAP-STATE.md` (the map state in main + the tray
 unload, with the full IPC inventory), `SPEC-UPDATER.md`, `BUILD.md`.
 Measurements and audits:
-`docs/MEMORY-REPORT-2.md`, `docs/VERIFICATION*.md`, `docs/DEV-REPORT.md`.
+`docs/MEMORY-REPORT*.md`, `docs/VERIFICATION*.md`, `docs/DEV-REPORT.md` — these
+are **historical, not maintained** (each says so in a banner): they record what
+was true when written, so a stale name or number there is not a bug to fix;
+the current fact lives in the `docs/agents/` document that owns it.
 
 ---
 
@@ -288,7 +289,7 @@ update them.
    constraint.
 8. **Never remove the self-updating rule**: this clause must survive all edits.
 
-*Last updated: 2026-09-22, release 1.2.0 (the controller button, both paths). Split into `AGENTS.md` + `docs/agents/` at 0.7.0
+*Last updated: 2026-09-23, after 1.2.0 (docs aligned to refactor `4713636`: `updater.js`, `quitting.js`, `errors.js`/`timers.js`, `detector-status.js`, the one-object `map-change`, the borrowed tutorial controls, five windows; `SPEC-DETECT`/`-MARKERS`/`-MAP-PACKS`/`-MAP-STATE` checked against the code; one owner per measured fact; historical reports bannered). Before that: 2026-09-22, release 1.2.0 (the controller button, both paths). Split into `AGENTS.md` + `docs/agents/` at 0.7.0
 (Ctrl+Alt defaults, accelerator normalisation against Electron's own parser,
 `hotkeysGameOnly`, suspension while recording, settings-write reporting +
 rollback, map packs, markers and Tab-map mode, and the map state moving into

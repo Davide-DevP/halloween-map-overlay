@@ -1,7 +1,8 @@
 const {test} = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const Module = require('module');
+const {installElectronStub} = require('./helpers/electron-stub');
+const {fakeSettings: makeFakeSettings} = require('./helpers/fake-settings');
 
 /*
  * `src/core/map-controller.js` — the impure half of the map state, and the
@@ -16,23 +17,10 @@ const Module = require('module');
  * tray — and asserts the overlay is still driven.
  *
  * `require('electron')` outside Electron is a path string, so it is stubbed
- * before the module is loaded, exactly as `test/tab-mode.test.js` does.
+ * before anything is loaded (`test/helpers/electron-stub.js`).
  */
 const ROOT = path.join(__dirname, '..');
-const IPC = {handlers: new Map(), listeners: new Map()};
-const realLoad = Module._load;
-Module._load = function (request) {
-    if (request === 'electron') {
-        return {
-            app: {getPath: () => path.join(__dirname, 'nonexistent-userdata')},
-            ipcMain: {
-                handle(channel, fn) { IPC.handlers.set(channel, fn); },
-                on(channel, fn) { IPC.listeners.set(channel, fn); }
-            }
-        };
-    }
-    return realLoad.apply(this, arguments);
-};
+const {ipc: IPC} = installElectronStub();
 const MapController = require(path.join(ROOT, 'src/core/map-controller'));
 const {buildCatalog} = require(path.join(ROOT, 'src/core/map-catalog'));
 const {SYSTEM_HOTKEY_DEFS} = require(path.join(ROOT, 'src/shared/hotkeys-constants'));
@@ -68,16 +56,8 @@ function fakeMainWindow() {
     };
 }
 
-function fakeSettings(over) {
-    const values = Object.assign({opacity: 0.5, size: 250, rotation: 0, markers: true}, over || {});
-    return {
-        values,
-        written: [],
-        get: (key) => values[key],
-        all: () => values,
-        set(key, value) { values[key] = value; this.written.push({key, value}); return true; }
-    };
-}
+const fakeSettings = (over) => makeFakeSettings(over,
+    {base: {opacity: 0.5, size: 250, rotation: 0, markers: true}});
 
 function fakeDetector() {
     return {
@@ -124,7 +104,7 @@ test('every system hotkey action runs with no window', () => {
     }
     assert.ok(mainWindow.applied.length > before, 'the overlay was driven');
     // The four that change a setting all wrote one.
-    const keys = settings.written.map(w => w.key);
+    const keys = settings.writes.map(w => w.key);
     for (const key of ['rotation', 'opacity', 'size', 'markers']) {
         assert.ok(keys.includes(key), key);
     }

@@ -1,5 +1,8 @@
 # Memory / resource review — Halloween Map Overlay 0.2.2
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 **Verdict: NO LEAK FOUND.** Memory grows ~0.3 MB per `map-change` in the main process and in the overlay renderer, but a renderer GC returns both to baseline (measured after ~130 changes), the detection loop is flat, and the code review found no unbounded structure; one minor, user-action-bounded object-URL strand is noted.
 
 Date 2026-09-17. Reviewer: independent agent. Binary under test: `dist/win-unpacked/Halloween Map Overlay.exe` built 13:17 from `c3f12ff` (HEAD during review; `f3168b7` "Run the update installer at idle priority" was committed by another agent at 14:00 while this ran — it changes only the install path, adds no timers/listeners, still calls `mapDetector.stop()` before quit, and is not in the tested binary). Working tree was clean at every check; no file looked mid-edit.

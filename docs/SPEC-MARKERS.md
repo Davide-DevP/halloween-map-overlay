@@ -115,7 +115,9 @@ extent is the panel's own side (~786 px at 1080p).
 | 800 px | 20.1 px | 2.86 px |
 
 The OBS window draws the **same payload** with the same module, so a stream
-shows what the player sees. Only the rotation differs (the OBS window has none).
+shows what the player sees. The OBS object leaves out only what the overlay
+window itself needs — `opacity`, `draggable`, `rotation` (the OBS window has no
+rotation) — and never carries the settings preview.
 
 Markers ride on the existing `map-change` payload, never on a channel of their
 own — the same rule the map name follows, for the same reason: the overlay must
@@ -663,19 +665,22 @@ So `resolveTriggerMethod` returns one of **three** states:
 "broken". `checkInterval('key-waiting')` is the **safety** cadence and
 `detectIntervalFor` returns **null**: with no game window there is nothing to
 capture, and claiming a 450 ms override in that state is the same class of lie.
-The `tab-mode-start` line now prints only cadences that are in effect, plus
-`game=yes|no`.
+The `tab-mode-start` line prints every cadence field, with **`0`** for one that
+is not in effect (`keyMs=0` on the polling path, `detectMs=0` with no faster
+detection), plus `game=yes|no` and, since 1.1, `pad=yes|no`.
 
 #### The probe reads no key
 
-`KeyTrigger.probe()` loads koffi, binds `user32` and makes **one**
+`KeyTrigger.open()` (called `probe()` until the 2026-09-23 refactor; the log
+field and the failure reason are still `probe`) loads koffi, binds `user32` and
+makes **one**
 `GetForegroundWindow()` call — no arguments, a window handle back, nothing about
 the keyboard. It runs whenever the key method is wanted, **including with the
 game closed**, so availability is known from the first run, appears in Settings
 and is logged once as `tab-key-trigger available=yes where=probe`. It does
 **not** start the poll and does **not** call `GetAsyncKeyState`; verified in
 plain node by counting the bound calls (`probe-check.js`: exactly
-`["GetForegroundWindow"]`, poll not running, second probe cached at zero calls).
+`["GetForegroundWindow"]`, poll not running, a second `open()` cached at zero calls).
 
 It used to probe with `GetAsyncKeyState`, which meant "is the native path
 available?" could not be answered without reading a key — and the help text

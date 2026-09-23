@@ -1,7 +1,8 @@
 const {test} = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const Module = require('module');
+const {installElectronStub} = require('./helpers/electron-stub');
+const {fakeSettings: makeFakeSettings} = require('./helpers/fake-settings');
 
 /*
  * `src/core/tab-mode.js` — the impure half of Tab-map mode, and the half where
@@ -14,21 +15,13 @@ const Module = require('module');
  * drives the interleavings by hand.
  *
  * `require('electron')` outside Electron is a path string, so the two modules
- * that reach for it are stubbed before `tab-mode` is loaded.
+ * that reach for it get `test/helpers/electron-stub.js` before `tab-mode` loads.
  */
 const ROOT = path.join(__dirname, '..');
-const realLoad = Module._load;
-Module._load = function (request, parent, isMain) {
-    if (request === 'electron') {
-        return {
-            app: {getPath: () => path.join(__dirname, 'nonexistent-userdata')},
-            ipcMain: {handle() {}, on() {}},
-            screen: null,
-            BrowserWindow: function () { throw new Error('the test must inject an overlay'); }
-        };
-    }
-    return realLoad.apply(this, arguments);
-};
+installElectronStub({electron: {
+    screen: null,
+    BrowserWindow: function () { throw new Error('the test must inject an overlay'); }
+}});
 const TabMode = require(path.join(ROOT, 'src/core/tab-mode'));
 const {
     FAST_INTERVAL, SAFETY_INTERVAL, CONFIRM_RETRY_DELAYS, CONFIRMED_MEMORY_MS
@@ -42,34 +35,19 @@ const RECT = {x: 0, y: 0, width: 1920, height: 1080};
  * Doubles
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** A settings object with the real `onChange` contract. */
-function fakeSettings(over) {
-    const values = Object.assign({
-        tabMarkers: true,
-        markers: true,
-        markerLegend: true,
-        markerOpacity: 0.9,
-        markerLayerCellar: true,
-        markerLayerGate: true,
-        markerLayerCar: true,
-        markerLayerGas: true,
-        markerTrigger: 'auto',
-        tabMarkerKey: 9
-    }, over || {});
-    const listeners = [];
-    return {
-        values,
-        get: (key) => values[key],
-        all: () => values,
-        onChange: (fn) => listeners.push(fn),
-        set(key, value) {
-            const before = values[key];
-            values[key] = value;
-            if (before !== value) for (const fn of listeners) fn([key]);
-            return true;
-        }
-    };
-}
+const TAB_BASE = {
+    tabMarkers: true,
+    markers: true,
+    markerLegend: true,
+    markerOpacity: 0.9,
+    markerLayerCellar: true,
+    markerLayerGate: true,
+    markerLayerCar: true,
+    markerLayerGas: true,
+    markerTrigger: 'auto',
+    tabMarkerKey: 9
+};
+const fakeSettings = (over) => makeFakeSettings(over, {base: TAB_BASE});
 
 /** The window double: records what it was asked to do. */
 function fakeOverlay() {

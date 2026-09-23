@@ -1,5 +1,8 @@
 # Verification 4 — 0.3.0 feature batch (independent review)
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Reviewed HEAD `d8348b6` (== `origin/main`), commits `3f64a53..HEAD` (5 commits,
 40 files, +3831/−364). Spec: `docs/SPEC-0.3.md`. Nothing in `DEV-REPORT.md`,
 the commit messages or the developer summary was taken on trust; every claim

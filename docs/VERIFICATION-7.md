@@ -1,5 +1,8 @@
 # Verification 7 — 0.3.4 one-click installer window (`build/installer.nsh`) (independent review)
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Reviewed HEAD `f962605` (= `origin/main`, version 0.3.4), commit `f962605`
 "Give the one-click installer the app's own face" (AGENTS.md, README.md,
 `build/icon.ico`, `build/installer.nsh`, `docs/BUILD.md`, `package.json`).

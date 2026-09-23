@@ -97,14 +97,12 @@ in AGENTS.md is unchanged: the helper makes **zero** network requests.
   > **Amended during implementation (and this is what shipped).** The copy does
   > **not** go under `%TEMP%`. It goes into electron-updater's own cache
   > directory, `%LOCALAPPDATA%\<updaterCacheDirName>\helper-<version>-<random>\`,
-  > beside the `pending\` folder the installer was downloaded into. Reason,
-  > measured on the development machine: starting an unsigned NSIS installer
-  > from a folder under `%TEMP%` made Bitdefender's Advanced Threat Defense
-  > block "all applications involved", kill the launching process tree and
-  > corrupt the installer's PE header. Running unsigned executables out of the
-  > user's temp directory is a malware shape; the updater cache is where
-  > electron-updater has always downloaded and run that same installer. The
-  > stale-copy sweep moved with it (`helper-*`, never anything else in that
+  > beside the `pending\` folder the installer was downloaded into, because an
+  > unsigned executable run out of `%TEMP%` is a malware shape that Bitdefender
+  > acted on during development (the incident:
+  > `docs/agents/updater-and-installer.md` § Bitdefender); the updater cache is
+  > where electron-updater has always downloaded and run that same installer.
+  > The stale-copy sweep moved with it (`helper-*`, never anything else in that
   > directory). Everything else in this section is unchanged.
 - `installUpdate()` becomes: themed path first; on **any** failure fall
   through to today's `spawnInstallerAtLowPriority()` (stock banner), then to

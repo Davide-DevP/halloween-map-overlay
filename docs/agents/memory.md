@@ -67,8 +67,9 @@ anything that looks like a spare allocation in the detector loop.
     to **on** and loads a dictionary per renderer). Measured worth: **~1 MB,
     inside the noise** — it is kept because it cannot regress a feature the app
     does not have, not because it moved the number, and it is not in the
-    headline. A test asserts all four windows use the builder, so the fifth one
-    cannot quietly go back to an inline object.
+    headline. A test asserts all five windows use the builder (main, overlay,
+    OBS, Tab markers, controller input), so a sixth cannot quietly go back to
+    an inline object.
     `backgroundThrottling` is deliberately absent:
     throttling the tray-hidden main window is right, and its hotkeys arrive as
     IPC, not as timers. **One window passes `{backgroundThrottling: false}`

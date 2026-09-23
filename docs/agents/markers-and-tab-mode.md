@@ -253,8 +253,10 @@ players rebind it). Markers appear ~60 ms after the press instead of up to
     first field run of a packaged build had the game closed and reported
     `method=polling reason=unavailable`, which Settings renders as "not
     available on this PC" — about a path that had never been tried. So
-    availability is a separate question from whether the loop runs: `probe()`
-    answers it whenever the key method is wanted, *including with the game
+    availability is a separate question from whether the loop runs:
+    `KeyTrigger.open()` (named `probe()` before the 2026-09-23 refactor; the
+    failure reason is still `probe`) answers it whenever the key method is
+    wanted, *including with the game
     closed*, and `KeyTrigger.status().available` stays **tri-state** (`null` =
     never probed), because flattening that into `false` is the same lie.
     **The probe reads no key**: `GetForegroundWindow()` takes no arguments and

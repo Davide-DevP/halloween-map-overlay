@@ -42,22 +42,55 @@ test('extras are merged last and each call is a fresh object', () => {
     assert.notStrictEqual(webPreferences(), webPreferences());
 });
 
-test('every window in the app is built through this one builder', () => {
-    // Five windows now (main, overlay, OBS, Tab markers, controller input) and the next one must
-    // not quietly go back to an inline object — that is how three of them ended
-    // up with spellcheck on for years.
-    const files = [
-        'src/core/main-window.js',
-        'src/core/overlay-window.js',
-        'src/core/obs-window.js',
-        'src/core/tab-overlay-window.js',
-        'src/core/pad-window.js'
-    ];
-    for (const file of files) {
-        const src = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-        assert.ok(/webPreferences:\s*webPreferences\(/.test(src),
-            `${file} does not build its webPreferences with the shared builder`);
+/** Every `.js` file under `dir`, recursively. */
+function sourceFiles(dir) {
+    const out = [];
+    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) out.push(...sourceFiles(full));
+        else if (entry.name.endsWith('.js')) out.push(full);
+    }
+    return out;
+}
+
+/** The argument text of every `new BrowserWindow(…)` in `src`, parens balanced. */
+function browserWindowCalls(src) {
+    const calls = [];
+    const needle = 'new BrowserWindow(';
+    for (let at = src.indexOf(needle); at !== -1; at = src.indexOf(needle, at + 1)) {
+        let depth = 0;
+        let end = at + needle.length - 1;
+        for (; end < src.length; end++) {
+            if (src[end] === '(') depth += 1;
+            else if (src[end] === ')' && --depth === 0) break;
+        }
+        calls.push({line: src.slice(0, at).split('\n').length, args: src.slice(at + needle.length, end)});
+    }
+    return calls;
+}
+
+test('every BrowserWindow in the app is built through this one builder', () => {
+    // Found by grep, not listed by hand, so a sixth window cannot skip the
+    // builder unnoticed — an inline object is how three windows ran with
+    // spellcheck on for years.
+    const root = path.join(__dirname, '..');
+    const sites = [];
+    for (const file of sourceFiles(path.join(root, 'src'))) {
+        const src = fs.readFileSync(file, 'utf8');
+        const calls = browserWindowCalls(src);
+        if (!calls.length) continue;
+        const rel = path.relative(root, file).split(path.sep).join('/');
         assert.ok(/require\(['"]\.\.\/shared\/web-preferences['"]\)/.test(src),
-            `${file} does not require the shared builder`);
+            `${rel} builds a window but does not require the shared builder`);
+        for (const call of calls) {
+            sites.push(rel);
+            assert.ok(/webPreferences:\s*webPreferences\(/.test(call.args),
+                `${rel}:${call.line} builds a BrowserWindow without webPreferences()`);
+        }
+    }
+    // A floor, so a grep that silently matched nothing cannot pass: main,
+    // overlay, OBS, Tab markers, controller input.
+    for (const file of ['main-window', 'overlay-window', 'obs-window', 'tab-overlay-window', 'pad-window']) {
+        assert.ok(sites.includes(`src/core/${file}.js`), `no BrowserWindow found in ${file}.js`);
     }
 });

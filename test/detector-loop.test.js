@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert');
-const Module = require('module');
+const {installElectronStub} = require('./helpers/electron-stub');
 const {EventEmitter} = require('events');
 
 /*
@@ -21,18 +21,10 @@ const {EventEmitter} = require('events');
  * log directory. Without a path the event log disables itself, and `app-log`
  * keeps everything in its ring buffer, so nothing here writes a file.
  */
-const electronStub = {
-    ipcMain: {handle() {}, on() {}},
-    app: {on() {}, getVersion: () => '0.0.0-test'}
-};
-const originalLoad = Module._load;
-Module._load = function (request, ...rest) {
-    if (request === 'electron') return electronStub;
-    return originalLoad.call(this, request, ...rest);
-};
+const electronStub = installElectronStub({userData: null});
 const MapDetector = require('../src/core/map-detector');
 const DetectorWorkerHost = require('../src/core/map-detector/worker-host');
-Module._load = originalLoad;
+electronStub.restore();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

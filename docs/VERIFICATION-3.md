@@ -1,5 +1,8 @@
 # Independent verification, third pass — Halloween Map Overlay 0.2.0 (phase 2: automatic map detection)
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Reviewer: independent, no stake in the outcome. `docs/DEV-REPORT.md` and commit messages were not used as evidence; every claim below was re-run or re-read. Environment: Windows 11 Pro 10.0.26200, Node 24.19.0, Electron 40, Git Bash. HEAD `35caa07` == `origin/main`. No GUI interaction possible; the game was **not** running during this pass (the owner's installed app was left untouched — every Electron instance below ran with its own `--user-data-dir` and was killed by PID tree only).
 
 ## Verdict

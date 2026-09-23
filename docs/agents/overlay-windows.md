@@ -2,12 +2,14 @@
 
 [← AGENTS.md](../../AGENTS.md) · **Read before** touching `src/core/overlay-window.js`,
 `obs-window.js`, `tab-overlay-window.js`, `overlay-position.js`, the
-`map-change` payload's label arguments, or anything about window focus, size
+`map-change` payload's label fields, or anything about window focus, size
 or DPI.
 
-The four windows are built from one `webPreferences` object
-(`src/shared/web-preferences.js`, see [memory.md](memory.md)); a test asserts
-all four use the builder, so a fifth cannot quietly go back to an inline object.
+The five windows (main, overlay, OBS, Tab markers and, since 1.2, the hidden
+controller-input window `pad-window.js`) are built from one `webPreferences`
+object (`src/shared/web-preferences.js`, see [memory.md](memory.md)); a test
+asserts all five use the builder, so a sixth cannot quietly go back to an
+inline object.
 The OBS window is the same picture on a green background, gets the same
 `map-change` payload and the same marker module — a stream shows what the
 player sees.
@@ -47,7 +49,9 @@ player sees.
   and both are load-bearing:
   - **our own teardown** (the window carries `__hmoUnloading`) returns at once.
     Without that guard every tray unload would take the overlay down mid-match.
-  - **a real close** sets `app.isQuiting`, runs `runShutdownHooks()`, closes
+  - **a real close** calls `markQuitting()` (`src/core/quitting.js`, the one
+    process-wide "on its way out" flag that replaced `app.isQuiting`), runs
+    `runShutdownHooks()`, closes
     the OBS window and calls `app.quit()` — it does **not** leave the shutdown
     to `window-all-closed`. That event needs *every* `BrowserWindow` gone, and
     `TabOverlayWindow` is a lazy third window nobody there closes: with
@@ -77,8 +81,9 @@ player sees.
 ## The overlay label
 
 - **The overlay label rides on the existing `map-change` payload.** It travels
-  as the 6th and 7th arguments of the overlay's `map-change` (`mapLabel`,
-  `labelMode`), never as a second IPC message — the overlay must never be able
+  as the `label` and `labelMode` fields of the overlay's one `map-change`
+  object (shape in [architecture.md](architecture.md) § `map-change` payload),
+  never as a second IPC message — the overlay must never be able
   to name a map it is not showing. The `mapLabel` **setting** decides:
   - `auto` (default, the original behaviour): a label only when the caller sent
     one, which only an automatic detector switch does (`shared/map-state.js`'s
@@ -89,7 +94,7 @@ player sees.
   - `always`: the caller's label, or the name main resolved from the catalogue.
     The overlay keeps it up (no timer).
   - `never`: main sends an empty label, so nothing downstream has to know.
-  The OBS window gets the same two arguments and applies the same rule. The
+  The OBS window gets the same two fields and applies the same rule. The
   label is unrotated, bottom-aligned (it lives in the 10 % of extra height the
   rotated bounding box already has) and uses the map's own opacity.
   The settings preview *does* now carry a label (`overlay.sampleMap`) so

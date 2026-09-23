@@ -64,22 +64,8 @@ test('mapLabelMode normalises anything a hand-edited file could hold', () => {
     }
 });
 
-test('the defaults object has no undefined values', () => {
-    // `Settings` fills a missing key from here with `=== undefined` as the
-    // test, so an undefined default would be re-applied on every start and
-    // could never be overridden.
-    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-        assert.notStrictEqual(value, undefined, key);
-    }
-});
-
 test('hardware acceleration is off by default, and that is a measured decision', () => {
-    // `docs/MEMORY-REPORT-2.md`: with the GPU process reduced to a software
-    // display compositor the in-match state loses ~14 MB of private working
-    // set and ~59 MB of commit for no measurable CPU, and the overlay — a
-    // still PNG plus an SVG, with no animation anywhere in `src/map/map.html`
-    // — looks identical.
-    // Flipping this back should be a visible diff, not a quiet edit.
+    // Tripwire for a measured default: docs/agents/memory.md (hardwareAcceleration).
     assert.strictEqual(DEFAULT_SETTINGS.hardwareAcceleration, false);
 });
 

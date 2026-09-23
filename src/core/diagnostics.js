@@ -267,7 +267,8 @@ class Diagnostics {
             return redactCustomMapKeys(fs.readFileSync(file, 'utf-8'), CUSTOM_CREATOR);
         } catch (err) {
             console.error('hotkeys.json could not be read for the report:', err && err.message);
-            return `(hotkeys.json could not be read: ${(err && err.message) || err})\n`;
+            // The code only: an fs error message carries the full path (rule 3).
+            return `(hotkeys.json could not be read: ${(err && err.code) || 'error'})\n`;
         }
     }
 

@@ -1,5 +1,8 @@
 # Memory footprint — measured, then reduced (post-0.6.0 working tree)
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Follow-up to `docs/MEMORY-REPORT.md` (0.2.2, "no leak found"). That report
 looked for a leak; this one asks a different question — **how much RAM does the
 app actually cost while a match is being played, and how much of it can go

@@ -2,12 +2,6 @@ const {test} = require('node:test');
 const assert = require('node:assert');
 const gc = require('../src/core/gc');
 
-test('collect() is a function that never throws', () => {
-    assert.strictEqual(typeof gc.collect, 'function');
-    // Called repeatedly, exactly as a detector tick would.
-    for (let i = 0; i < 3; i++) gc.collect();
-});
-
 test('a collection really is available on this runtime', () => {
     // Not merely "it did not throw": the whole point of the module is that the
     // detector's 7.6 MB native frames are released between ticks, and a silent

@@ -4,7 +4,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const {EventEmitter} = require('events');
-const Module = require('module');
+const {installElectronStub} = require('./helpers/electron-stub');
+const {fakeSettings: makeFakeSettings} = require('./helpers/fake-settings');
 
 /*
  * `core/main-window.js`'s **lifecycle**: the window being torn down while the
@@ -17,23 +18,12 @@ const Module = require('module');
  * leaving the process resident with no window and a dead overlay.
  *
  * `require('electron')` outside Electron is a path string, so it is stubbed
- * before the module is loaded, as `test/tab-mode.test.js` does.
+ * before anything is loaded (`test/helpers/electron-stub.js`).
  */
 const ROOT = path.join(__dirname, '..');
 global.dirname = ROOT;
 const USER_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'hmo-unload-'));
-
-const IPC = {handlers: new Map(), listeners: new Map()};
-const APP = {
-    getPath: () => USER_DATA,
-    getName: () => 'Halloween Map Overlay',
-    getVersion: () => '0.7.0',
-    getLocale: () => 'en-GB',
-    isPackaged: false,
-    quitCalls: 0,
-    on() {},
-    quit() { this.quitCalls += 1; }
-};
+process.on('exit', () => fs.rmSync(USER_DATA, {recursive: true, force: true}));
 
 /** Every window the stub has handed out, so "a third window is alive" is real. */
 const WINDOWS = [];
@@ -72,31 +62,22 @@ class FakeBrowserWindow extends EventEmitter {
     close() { this.destroy(); }
 }
 
-const realLoad = Module._load;
-Module._load = function (request) {
-    if (request === 'electron') {
-        return {
-            app: APP,
-            BrowserWindow: FakeBrowserWindow,
-            ipcMain: {
-                handle(channel, fn) { IPC.handlers.set(channel, fn); },
-                on(channel, fn) { IPC.listeners.set(channel, fn); }
-            },
-            screen: {
-                getAllDisplays: () => [],
-                getPrimaryDisplay: () => ({workArea: {x: 0, y: 0, width: 1920, height: 1040}, scaleFactor: 1}),
-                dipToScreenRect: (win, rect) => rect
-            },
-            shell: {openPath: async () => '', openExternal() {}, showItemInFolder() {}}
-        };
+const {ipc: IPC, app: APP} = installElectronStub({
+    userData: USER_DATA,
+    version: '0.7.0',
+    electron: {
+        BrowserWindow: FakeBrowserWindow,
+        screen: {
+            getAllDisplays: () => [],
+            getPrimaryDisplay: () => ({workArea: {x: 0, y: 0, width: 1920, height: 1040}, scaleFactor: 1}),
+            dipToScreenRect: (win, rect) => rect
+        }
     }
-    return realLoad.apply(this, arguments);
-};
+});
 
 const MainWindow = require(path.join(ROOT, 'src/core/main-window'));
 const quitting = require(path.join(ROOT, 'src/core/quitting'));
 const {UNLOAD_GRACE_MS} = require(path.join(ROOT, 'src/shared/window-unload'));
-const {DEFAULT_SETTINGS} = require(path.join(ROOT, 'src/shared/settings-defaults'));
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Doubles
@@ -106,10 +87,7 @@ function fakeWindowDouble() {
     return {closed: 0, sent: [], close() { this.closed += 1; }, send(c) { this.sent.push(c); }};
 }
 
-function fakeSettings(over) {
-    const values = Object.assign({}, DEFAULT_SETTINGS, over || {});
-    return {values, get: (key) => values[key], all: () => values, set() { return true; }, settings: values};
-}
+const fakeSettings = makeFakeSettings;
 
 function build(over) {
     quitting.clearQuitting();

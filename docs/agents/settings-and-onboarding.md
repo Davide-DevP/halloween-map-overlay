@@ -36,7 +36,7 @@ Since 0.7 the main window is **destroyed** while the app sits in the tray
 (`docs/SPEC-MAP-STATE.md` §5; always on since 1.0 — see *Two settings the app
 decides* below). Two consequences for anything in this document:
 
-- **Nothing in Settings, the tour or the mirrors may be the owner of a
+- **Nothing in Settings or the tutorial may be the owner of a
   behaviour.** The four settings a hotkey can change (`rotation`, `opacity`,
   `size`, `markers`) are written by `shared/map-state.js` in main; an open
   Settings modal *follows* through `Options.syncFromSettings()` on a `map-state`
@@ -239,9 +239,10 @@ where 0.7 had three independent switches (`tabMarkers`, `tabHidesMinimap` and
   `syncPlacement()` sets the checked radio from that. A cached copy let Settings
   show `corner` selected over the tab-mode blocks after a change made in the
   tutorial, and clicking the already-checked card then fired no `change` at all.
-- **The *Recognise the map automatically* switch is one setting in three places**:
-  the Map tab, the tutorial's layers step and the home page. All three go
-  through `Detector.setEnabled`, and all three draw from the pure
+- **The *Recognise the map automatically* switch is one setting in two controls**:
+  the Map tab's `#autoDetectCheck` (which the tutorial's layers step borrows —
+  it is the same element) and the home page's. Both go
+  through `Detector.setEnabled`, and both draw from the pure
   `autoDetectSwitchState(placement, running)`, which has **three** states:
   - `corner` → an ordinary switch.
   - `tab`/`both` **and the loop running** → on and `disabled`, with the reason
@@ -272,9 +273,10 @@ where 0.7 had three independent switches (`tabMarkers`, `tabHidesMinimap` and
   `Options.applyDragState` disables the corner preset, the two glide sliders and
   the monitor picker while it is on and shows `#movedByHandNote`, because those
   three cannot mean anything over a window the user placed by hand. The
-  tutorial's step 3 carries the same note (`#tourCornerLocked`, shown from the
-  real picker's `disabled`): a greyed-out control with no explanation is
-  reachable every time the tutorial is reopened later.
+  tutorial's step 3 borrows the pickers but not that note, so it carries its
+  own (`#tourCornerLocked`, shown from the real picker's `disabled`): a
+  greyed-out control with no explanation is reachable every time the tutorial
+  is reopened later.
 
 ## What to show
 
@@ -361,18 +363,23 @@ Rules that hold it together:
   - Reopened from **Settings › General › See the setup guide again**, which
     closes the Settings modal first — one focus trap at a time.
 - **No parallel state, and that is what makes "pressing Next six times changes
-  nothing" true.** Every control is a *mirror*: a change writes into the real
-  control in Settings and fires the event that control's own handler listens for
-  (`mirrorCheck` picks `input` for a `role="switch"` and `change` for a chip —
-  firing both would write twice), so `src/js/options.js` does the saving, the
-  overlay refresh and the glide snap. `syncMirror` copies the real control's
-  `disabled` state too — `.trigger()` runs a handler whether or not its element
-  is disabled. The placement cards call `Options.applyPlacement` (which owns the
-  write order); the auto-recognise switch goes through `Detector.setEnabled`; the
-  map key uses `Options.attachMapKeyRecorder('#tourMapKeyBtn', …)` — **the same
-  recorder**, because two would be two write paths for one virtual-key code. The
-  tutorial holds *no* placement of its own: `Onboarding.placement()` re-reads it
-  from the settings file every time.
+  nothing" true.** Settings › Map (and General, for the language and the
+  news-check switch) holds the **only copy** of every control the tutorial
+  shows. Each tutorial step has `<template data-borrow="<id>">` slots in
+  `src/index.html`; `Onboarding.borrowControls()` on `open()` moves each named
+  element into its slot (leaving a comment node where it came from) and
+  `returnControls()` on `close()` puts it back. So there is one element, one
+  handler and one write path per setting: `src/js/options.js` does the saving,
+  the overlay refresh, the glide snap, the placement write order
+  (`applyPlacement`) and the map-key recorder. Borrowing is safe only because
+  `open()` closes the Settings modal first — no control is ever needed in two
+  places at once. The tutorial follows the writes rather than making them:
+  `Options.onPlacementApplied(callback)` re-renders it after a card's writes
+  have landed, and it holds *no* placement of its own —
+  `Onboarding.placement()` re-reads it from the settings file every time.
+  (Up to 1.2.0 these were *mirrors* — `#tour*` copies kept in step by
+  `mirrorCheck`/`syncMirror` and a second `attachMapKeyRecorder('#tourMapKeyBtn')`
+  call; the 2026-09-23 refactor, commit 4713636, replaced them with borrowing.)
 - **Step 4 carries the same markers notice as Settings** (`markerMasterNotice`,
   through the real `#markersShowBtn`), because `toggle-markers` can be unbound —
   and then the tutorial would show five ticked chips over an empty overlay with
@@ -477,11 +484,13 @@ Rules that hold it together:
   `focusout` with a null `relatedTarget` is the case no keydown listener could
   see. `focusin`, deliberately **not** a second `document` keydown listener, so
   there is nothing for the hotkey recorder to collide with. For the same reason
-  the auto-recognise switch is **never `disabled` while it waits** (a busy flag
-  instead): disabling the focused element blurs it and took the trap down with
-  it. `setDisabled` moves focus away first when it does have to disable one.
+  the auto-recognise switch is **never `disabled` while it waits**
+  (`Options.detectBusy` drops a re-entrant click instead): disabling the
+  focused element blurs it and took the trap down with it. When the placement
+  lock *does* have to disable it, `Options.syncPlacement()` first moves focus
+  to the enclosing `#tour` or `.modal`.
 
 See also: [i18n.md](i18n.md) (the tutorial's language step),
 [markers-and-tab-mode.md](markers-and-tab-mode.md) (`Settings.onChange(keys)`,
 the marker settings) and [detection.md](detection.md) (the auto-recognise switch
-the tutorial mirrors).
+the tutorial borrows).

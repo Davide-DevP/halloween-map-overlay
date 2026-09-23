@@ -1,5 +1,8 @@
 # Verification 5 — 0.3.2 field diagnostics (independent review)
 
+> **Historical, not maintained.** A record of what was true when it was written; names, paths and numbers may be stale.
+> Current facts live in the `docs/agents/` document that owns them (see AGENTS.md).
+
 Reviewed HEAD `a401971` (version 0.3.2), commits `ce4d5f6..HEAD` (32 files,
 +2625/−163). Spec: `docs/SPEC-0.3.2.md`. Nothing in `DEV-REPORT.md`, the commit
 messages or the developer summary was taken on trust; every claim below was

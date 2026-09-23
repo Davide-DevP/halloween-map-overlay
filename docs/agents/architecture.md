@@ -13,7 +13,7 @@ renderer, touching `map-library.js`/`map-catalog.js`, or changing the
 | Fonts | `@fontsource-variable/geist` + `-geist-mono` (local, runtime deps) |
 | Image sizing | `image-size` (runtime), `sharp` (dev only, map prep) |
 | Screen capture | `node-screenshots` (runtime, prebuilt NAPI, asarUnpacked) — loaded **in the detector's `utilityProcess`**, not in main |
-| Key state | `koffi` (runtime, prebuilt NAPI, asarUnpacked, MIT) — **one** `user32` call, Tab-map mode only, loaded lazily |
+| Key state | `koffi` (runtime, prebuilt NAPI, asarUnpacked, MIT) — **one** `user32` call (plus one `XInputGetState`, only with a controller button set), Tab-map mode only, loaded lazily |
 | Build/packaging | electron-builder (NSIS + portable) |
 | Package manager | npm |
 
@@ -28,10 +28,23 @@ index.js                        → Entry point. Wayland → X11 respawn.
                                   Builds every module and wires them together.
 src/core/main-window.js         → Main BrowserWindow + IPC hub.
                                   `applyMapChange()` reads the image,
-                                  sizes/positions the overlay, forwards base64
-                                  to overlay + OBS windows. Also owns the
-                                  **tray unload**: the window is destroyed
-                                  while hidden and rebuilt on demand (0.7).
+                                  sizes/positions the overlay, sends one
+                                  `map-change` object to overlay + OBS. Also
+                                  owns the **tray unload**: the window is
+                                  destroyed while hidden and rebuilt on demand
+                                  (0.7). Of the update flow it keeps only the
+                                  IPC wiring and `installUpdate()` for the tray.
+src/core/updater.js             → The whole update flow (`Updater`): the check,
+                                  its stall watchdog, the download, the three
+                                  install tiers and the helper hand-off. Window
+                                  access is injected (`send`, `sendUpdate`,
+                                  `getWindow`, `getTray`, `runShutdownHooks`)
+                                  because the main window may not exist.
+                                  `docs/agents/updater-and-installer.md`.
+src/core/quitting.js            → `markQuitting()` / `clearQuitting()` /
+                                  `isQuitting()`: the one process-wide "the app
+                                  is on its way out" flag (replaced
+                                  `app.isQuiting`). No electron import.
 src/core/map-controller.js      → Which map is on the overlay, and every
                                   decision that changes it: the hotkeys, the
                                   detector, the CLI, the gallery. The impure
@@ -115,12 +128,21 @@ src/shared/tab-mode-rules.js    → PURE Tab-mode scheduler (`reduceTabMode`),
                                   key trigger's decisions (`keyHintFor`,
                                   `resolveTriggerMethod`, `checkInterval`,
                                   `detectIntervalFor`). Tested.
-src/core/key-trigger.js         → Tab-mode's **key-state trigger**: koffi →
-                                  `user32` `GetAsyncKeyState` for *one*
-                                  configured key (+ Alt only while it reads
-                                  down), a 30 ms `setTimeout` loop, and the
-                                  edges. Lazy, injectable loader, falls back to
+src/core/key-trigger.js         → Tab-mode's **key-state trigger** (what it
+                                  reads and why: `markers-and-tab-mode.md` §
+                                  The key-state trigger). `open()` loads and
+                                  proves the native path without reading a key;
+                                  lazy, injectable loader, falls back to
                                   polling on any failure. Tested.
+src/core/pad-input.js           → koffi → `XInputGetState`: the controller
+                                  button, Xbox path. Lazy, like key-trigger.
+src/core/pad-window.js          → Hidden window for the Gamepad API (every
+                                  other pad). Exists only while a controller
+                                  button is set; `backgroundThrottling: false`.
+src/map/pad.html, pad-renderer.js → That window's renderer: polls only when
+                                  told, sends edges only.
+src/shared/pad-codes.js         → PURE standard-mapping codes, XInput bits,
+                                  labels, "is this button down". Tested.
 src/shared/key-codes.js         → PURE `KeyboardEvent.code`/`key` → Windows
                                   virtual-key code, plus `vkLabel` and
                                   `resolveMapVk`. **Not** an accelerator — it
@@ -184,6 +206,10 @@ src/shared/detector-rules.js    → PURE cadence + throttle + the renderer's
                                   (`classifyWindow`/`pickGameWindow`, shared
                                   with `core/foreground.js`),
                                   shared by main and the renderer. Tested.
+src/shared/detector-status.js   → PURE home-page status line: from main's
+                                  `map-detector-status` push and what the line
+                                  remembered, `{state, messageKey, params}`.
+                                  `src/js/detector.js` only draws it. Tested.
 src/core/map-detector/templates.json → Generated, committed. `format: 2`: a
                                   **list** of 64x64 thumbnails per map (one per
                                   view: Michael, civilian, …), keyed by
@@ -192,7 +218,10 @@ src/core/map-detector/templates.json → Generated, committed. `format: 2`: a
                                   reads the pre-0.3.3 one-thumbnail shape.
 src/core/hotkeys.js             → globalShortcut registration + hotkeys.json +
                                   the active/inactive switch. A thin caller
-                                  around `shared/hotkeys-rules.js`.
+                                  around `shared/hotkeys-rules.js`. Its IPC is
+                                  registered from two tables (`handle`/`on`)
+                                  into named methods — `tab-mode.js` does the
+                                  same — so each channel is one line to find.
 src/core/foreground.js          → Is the game in front? ~1 s `Window.all()` +
                                   `isFocused()` poll (NO frame capture) plus
                                   Electron focus/blur, → `Hotkeys.setActive`.
@@ -214,7 +243,14 @@ src/core/gc.js                  → One V8 collection on demand, for the detecto
                                   reaches the renderers. Node built-ins only.
                                   Tested. See `docs/agents/memory.md`.
 src/shared/web-preferences.js   → PURE `webPreferences()` — the one object all
-                                  four windows are built with. Tested.
+                                  five windows are built with. Tested.
+src/shared/errors.js            → PURE `errorMessage(err)`: an Error's message,
+                                  or the value stringified. Use it in every
+                                  `catch` that logs.
+src/shared/timers.js            → PURE `clearTimer(handle)` (returns null, so
+                                  `this.t = clearTimer(this.t)`) and
+                                  `unrefTimer(handle)` (a background timer never
+                                  keeps the process alive).
 src/shared/hotkeys-constants.js → PURE hotkey defs + first-run map-hotkey
                                   defaults + accelerator formatting +
                                   opacity/size step maths. Tested.
@@ -252,7 +288,7 @@ src/shared/onboarding-rules.js  → PURE setup-tutorial decisions: does it open
                                   Tested.
 src/shared/i18n.js              → PURE t(lang, key, params), msg(),
                                   translateMessage(), resolveLanguage(). Tested.
-src/i18n/en.json, it.json       → Flat dotted key → string catalogues.
+src/i18n/*.json                 → Flat dotted key → string catalogues (six).
 src/shared/update-message.js    → PURE "Version X.Y.Z is ready." headline for
                                   the update banner, "Updating to X.Y.Z" for
                                   the 0.5.0 updating view, and the whole
@@ -263,7 +299,7 @@ src/core/update-helper.js       → App side of the themed updater: where the
                                   helper copy goes, the argument list, the
                                   window bounds, the ready-file handshake and
                                   the stale-copy sweep. fs only, no electron —
-                                  the electron half is `MainWindow`. Tested.
+                                  the electron half is `core/updater.js`. Tested.
 updater/*.cs                    → `hmo-updater.exe`: C#/WPF, code-only, built by
                                   `scripts/build-updater.js` with the csc.exe
                                   inside Windows. `Program` (args → window →
@@ -279,18 +315,26 @@ scripts/build-updater.js        → Dev only: updater/*.cs → build/updater/.
 src/index.html                  → Main window markup. No inline `<style>` and no
                                   `style=` attributes (the one exception is
                                   `#unset-pos`, which jQuery `.show()/.hide()`
-                                  owns).
+                                  owns), no inline `onclick`. Navbar items are
+                                  `<button class="nav-link">`, not `<a href="#">`.
+                                  The tutorial's steps hold `<template
+                                  data-borrow>` slots, not controls.
 src/css/app.css                 → The whole theme. Design tokens on `:root`
                                   (warm off-black surfaces, ONE accent
                                   `--hmo-accent` #e8853a, radii, z-index scale,
                                   easing) followed by Bootstrap overrides. It
                                   re-skins Bootstrap rather than replacing it,
                                   so every `data-bs-*` hook still works. No blue
-                                  and no green anywhere; `btn-success` /
-                                  `btn-primary` both map to the accent, the
-                                  alerts are quiet tinted panels with a left
-                                  rule, and destructive red is used for removals
-                                  only. Two traps: `--bs-alert-bg` holds a
+                                  and no green anywhere; `btn-primary` is the
+                                  accent (the unused `btn-success` and other
+                                  variant rules were dropped in the 2026-09-23
+                                  pass), the alerts are quiet tinted panels
+                                  with a left rule, and destructive red
+                                  (`--hmo-danger*` tokens) is used for removals
+                                  only. `#hotkeyToast` is coloured by
+                                  `.is-ok` / `.is-error` (set in
+                                  `src/js/hotkeys.js`), with no `!important`.
+                                  Two traps: `--bs-alert-bg` holds a
                                   gradient here, so `.alert` must paint it with
                                   the `background` shorthand (Bootstrap's own
                                   `background-color: var(…)` goes transparent);
@@ -313,8 +357,10 @@ src/js/custom.js                → "Add your own map" modal.
 src/js/detector.js              → Home-page auto-detect switch + status line.
 src/js/overlay-preview.js       → Canvas sample image for the Map tab.
 src/js/onboarding.js            → First-run setup tutorial (`#tour`): six steps,
-                                  focus trap, and *mirrors* of the real Settings
-                                  controls. Owns only its own three markers.
+                                  focus trap, and the real Settings controls
+                                  **borrowed** while it is open
+                                  (`borrowControls`/`returnControls`). Owns only
+                                  its own three markers.
 src/js/settings.js              → Renderer mirror of the settings file.
 src/js/i18n.js                  → Renderer i18n singleton: `t()`, `applyDom()`,
                                   `onChange()` re-render hooks.
@@ -383,15 +429,17 @@ test/                           → node:test unit tests for the pure modules.
   : path.join(global.dirname, "maps")` (`map-library.js`). `global.dirname` is
   set at the top of `index.js`.
 
-- **Pure vs impure**: `map-catalog.js`, `overlay-position.js`,
+- **Pure vs impure**: every module in `src/shared/` (among them
   `hotkeys-constants.js`, `hotkeys-rules.js`, `hotkey-migration.js`,
   `settings-defaults.js`, `map-placement.js`, `onboarding-rules.js`,
-  `i18n.js`, `map-state.js`,
-  `window-unload.js`,
-  `update-message.js`, `detector-rules.js`, `redact.js`, `map-pack-rules.js`,
-  `diagnostics/zip.js` and `map-detector/matcher.js`
-  import nothing from
-  electron or `fs` (`i18n.js` requires the two JSON catalogues and nothing
+  `i18n.js`, `map-state.js`, `window-unload.js`, `update-message.js`,
+  `detector-rules.js`, `detector-status.js`, `detector-worker-rules.js`,
+  `tab-mode-rules.js`, `marker-rules.js`, `marker-geometry.js`,
+  `key-codes.js`, `pad-codes.js`, `redact.js`, `map-pack-rules.js`,
+  `errors.js`, `timers.js`, `escape-html.js`, `web-preferences.js`), plus
+  `map-catalog.js`, `overlay-position.js`, `diagnostics/zip.js` and
+  `map-detector/matcher.js`, import nothing from
+  electron or `fs` (`i18n.js` requires the six JSON catalogues and nothing
   else; `map-pack-rules.js` imports *nothing at all*, which is why
   `mergeMapPacks` takes the catalogue's `sortCatalog` as an argument). Keep them
   that way. A second tier — `rotating-log.js`,
@@ -421,7 +469,14 @@ test/                           → node:test unit tests for the pure modules.
   `src/js/maps.js` now toasts `hotkeys.error.mapMissing` instead of doing
   nothing.
 - **`map-change` payload**: `MainWindow.applyMapChange(map, opts)` is the one
-  implementation. `MapController` calls it directly; the `map-change` **IPC**
+  implementation. What it sends is **one object** per window (since the
+  2026-09-23 refactor; positional arguments before): the overlay gets
+  `{image, size, opacity, draggable, rotation, label, labelMode, markers,
+  lang}`, the OBS window `{image, size, label, labelMode, markers, lang}` (and
+  nothing at all for a `{preview: true}` change). Add a field to the object;
+  never add a second channel (the label and the markers must never be able to
+  describe a map that is not the one drawn).
+  `MapController` calls it directly; the `map-change` **IPC**
   channel is kept for the settings preview alone, which is canvas-rendered in
   the renderer and therefore cannot be anything but raw base64.
   The payload is a catalogue key, a custom-map file name, or raw
