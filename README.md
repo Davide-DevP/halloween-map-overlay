@@ -859,6 +859,21 @@ that too.
 
 ## Changelog
 
+### 1.3.1
+
+- **The update screen gets more time to appear.** The app now waits up to
+  fifteen seconds for its own update window instead of four. On a slow start
+  the four were not enough, and the plain Windows installer showed instead.
+  Updating from 1.3.0 may still show the plain installer once: the waiting is
+  done by the version you already have.
+- **Settings and the home page, tidied.** A setting the app decides for itself
+  is shown as *On* rather than as a switch you cannot move. The map name and
+  the buttons at the top are quieter. The recognition bar keeps only its
+  status. Hotkey rows show *Edit* and *Reset*; *Remove key* is inside the
+  edit dialog.
+- **A taller window that remembers its size.** It opens at 1100×820 and comes
+  back at the size you left it.
+
 ### 1.3.0
 
 - **More than one controller?** When you choose the controller button, the app
