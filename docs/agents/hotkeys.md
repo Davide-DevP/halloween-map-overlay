@@ -391,6 +391,19 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
     because "the hotkeys do nothing" now has a second, legitimate cause — and
     `hotkeys suspended = yes` when the bind dialog is open, which is a third.
 
+## The bind dialog stays over Settings
+
+- **`#addHotkeyModal` is opened from code, never with `data-bs-toggle`.**
+  Bootstrap 5's modal data API hides whatever modal is already open before
+  showing the target, so a `data-bs-toggle` button inside Settings closed
+  Settings and dropped the user on the home page after every map binding
+  (reported by the owner on 2026-09-23, present since the first release).
+  `bootstrap.Modal.getOrCreateInstance(el).show()` has no such step: the
+  dialog stacks over Settings, as the system-hotkey edit path always did.
+  Bootstrap still removes `modal-open` from `<body>` when the dialog closes,
+  so the dialog's `hidden.bs.modal` handler puts it back while Settings is
+  still shown — otherwise the page behind Settings becomes scrollable.
+
 ## Suspended while the bind dialog records
 
 - **The global shortcuts are suspended while the bind dialog records.**

@@ -248,7 +248,12 @@ class Hotkeys {
             self.saveSystemHotkey();
         });
 
-        new bootstrap.Modal(document.getElementById('addHotkeyModal')).show();
+        this.openBindDialog();
+    }
+
+    openBindDialog() {
+        const el = document.getElementById('addHotkeyModal');
+        if (el) bootstrap.Modal.getOrCreateInstance(el).show();
     }
 
     async saveSystemHotkey() {
@@ -432,6 +437,11 @@ class Hotkeys {
             if (!$(e.target).is('#hotkeyInput')) self.recordingHotkey = false;
         });
 
+        // Opened from code, never `data-bs-toggle`: Bootstrap's data API hides
+        // the modal already open (Settings) first, and the user lands on the
+        // home page. Why: docs/agents/hotkeys.md § The bind dialog stays over Settings.
+        $('#addMapHotkeyBtn').on('click', () => this.openBindDialog());
+
         // Native, so the `.off('click')` swaps of the save action never drop it.
         const saveButton = document.getElementById('saveHotkeyBtn');
         if (saveButton) saveButton.addEventListener('click', () => saveButton.blur());
@@ -452,6 +462,10 @@ class Hotkeys {
         modal.addEventListener('hidden.bs.modal', () => {
             self.restoreModalDefaults();
             self.suspendGlobalHotkeys(false);
+            // Bootstrap drops `modal-open` when *any* modal closes; Settings is
+            // still up underneath and must keep the page from scrolling.
+            const settings = document.getElementById('settings');
+            if (settings && settings.classList.contains('show')) document.body.classList.add('modal-open');
         });
 
         // Minimize-to-tray hides the window with the modal still "open", so
