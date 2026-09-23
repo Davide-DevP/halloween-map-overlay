@@ -282,7 +282,10 @@ Bitdefender kill-tree trap below): an agent prepares, the owner launches.
   second per run.
 - **The whole flow against a local build — `npm run serve-updates`.**
   1. Build a *higher* version without touching `package.json`:
-     `npm run build-updater && npx electron-builder -w -c.extraMetadata.version=<next>`
+     `npm run build-updater`, then
+     `npx electron-builder -w --% --config.extraMetadata.version=<next>`
+     (PowerShell 5.1: no `&&`, and `--%` keeps it from splitting the dotted
+     option at the first `.`)
      → `dist/latest.yml`, the Setup exe and its `.blockmap`.
   2. `npm run serve-updates` serves `dist/` on `http://127.0.0.1:8765/`
      (loopback only, Range supported for the blockmap).
