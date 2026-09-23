@@ -519,25 +519,31 @@ because Chromium samples gamepads only for a visible page and Electron reports
 a hidden window's page as hidden unless throttling is off (the one deviation
 from `shared/web-preferences.js`'s default; `docs/agents/memory.md`). The
 renderer polls `navigator.getGamepads()` at `KEY_POLL_INTERVAL` **only while
-main says so** (`pad-watch {on, code, id}`: trigger running, button set, game
+main says so** (`pad-watch {on, code}`: trigger running, button set, game
 in front — sent on the foreground *edge* from `KeyTrigger.noteForeground`) and
 sends **edges** of the one button (`pad-edge`), never a reading. Main folds
 that level into the key trigger's tick (`KeyTrigger.setApiPadDown`), where it
 counts only while the game is the foreground window. With no button set the
 controller is never read and the window does not exist.
 
-**Which controller.** *Choose button…* answers with the button **and the pad it
-was pressed on** (`pad-recorded {code, id}`, `id` = `Gamepad.id`); main keeps
-the id and stores it as `tabMarkerPadId` when it stores that button, and clears
-it with the button. The watch then reads (`padsToRead`): with **one** pad
-connected, that pad whatever its id — Steam Input can change an id between
-sessions, and one pad is no ambiguity; with **two or more**, only the pads
-whose id matches, and **none** if the chosen one is not connected; with no id
-stored (a button set before this existed), every pad. There is no dropdown:
-pressing the button on the controller you play with *is* the choice, and
-Settings shows that controller's short name beside the button. The id is a
-device description, so it never reaches a log or a report verbatim — `(set)`
-or `(none)` (`docs/agents/diagnostics.md`).
+**Which controller: every one.** *Choose button…* answers with the button
+alone (`pad-recorded {code}`) and the watch reads that button on **every
+connected pad** (`mapButtonDown` over `navigator.getGamepads()`). 1.3.0–1.3.2
+remembered the pad pressed on by its `Gamepad.id` (`tabMarkerPadId`) and, with
+two or more pads, read only that one; a field case retired it after 1.3.2 — a
+DualSense connected over Bluetooth *and* USB is two pads to Chromium, and a game
+launched from Steam Big Picture adds Steam's virtual Xbox pad while Steam takes
+the physical one, so the remembered pad was the silent one. The stale key is
+still redacted in older files (`docs/agents/diagnostics.md`) and read by
+nothing. The reasoning and the field numbers:
+`docs/agents/markers-and-tab-mode.md` § The controller button.
+
+**View is the touchpad.** The game's map button is View on an Xbox pad and the
+touchpad click on a PlayStation pad, so the app offers them as **one** button,
+*View / Touchpad*: index 17 is an alias of 8 (`MAP_BUTTON_ALIASES`) — chosen as
+either face, stored as 8 (a 1.3.x file holding 17 resolves to 8), read as both
+(`watchCodes`). A player who chose the touchpad on a DualSense and later plays
+on an Xbox pad, or through Steam's virtual Xbox pad, does not choose again.
 
 **Either input held is "down"** (`foldMapInputs`): a key released while the
 button is still held is not an edge, and vice versa. **Alt vetoes only the
@@ -562,11 +568,11 @@ comes and goes with the foreground — turned out wrong, but the no-blur cancel
 and the 15 s cost nothing). `set-tab-marker-pad` validates the code in main
 like `set-tab-marker-key`.
 
-A stored code is the **standard-mapping index** (0 = A/✕ … 8 = View/Share,
-17 = Touchpad); 1.1.x's stored bits are migrated (`LEGACY_PAD_BITS`).
-**Labels** name both faces — `A / ✕`, `View / Share`, `LB / L1` — because the
-standard mapping cannot say which pad is plugged in; the touchpad is its own
-button. The Guide button is not offered: it is the platform overlay's key.
+A stored code is the **standard-mapping index** (0 = A/✕ … 8 = View, which
+is also the touchpad, 17); 1.1.x's stored bits are migrated (`LEGACY_PAD_BITS`).
+**Labels** name both faces — `A / ✕`, `View / Touchpad`, `LB / L1` — because
+the standard mapping cannot say which pad is plugged in. The Guide button is
+not offered: it is the platform overlay's key.
 Labels are never translated (they name physical buttons); only *None* is.
 
 Reading raw HID reports in main was rejected as a far broader statement about
@@ -739,8 +745,8 @@ and it validates the virtual-key code the renderer sends — with
 `nodeIntegration: true` the renderer is not a trust boundary, and
 `GetAsyncKeyState` would answer for a mouse button. Since 1.1 the same group
 holds **Controller button** (§5.7.1): `set-tab-marker-pad` (a code or `null`),
-`record-tab-marker-pad` (main's hidden pad window waits for the press; the pad
-pressed on becomes the chosen controller) and `cancel-tab-marker-pad`. Both rows appear in Settings › Map
+`record-tab-marker-pad` (main's hidden pad window waits for the press on any
+pad) and `cancel-tab-marker-pad`. Both rows appear in Settings › Map
 and in the setup tutorial's key step, through the same recorders.
 
 System hotkey **Show / hide markers**, default `CommandOrControl+Alt+M`,

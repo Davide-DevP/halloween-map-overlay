@@ -9,8 +9,8 @@ const T = require('../src/shared/tab-mode-rules');
  * The controller button is the map key's second input: a *standard gamepad*
  * button index, read through the Gamepad API for every pad Chromium knows,
  * never an accelerator. These are the decisions around it — what may be
- * stored, what counts as "down", what the recorder accepts, which of several
- * pads is read and what the chosen one is called on screen.
+ * stored, what counts as "down", what the recorder accepts, and which faces
+ * are one button (View is the touchpad on a PlayStation pad).
  */
 
 const VIEW = 8;
@@ -25,8 +25,30 @@ test('the pad button ships unset, and junk resolves to unset — never to a gues
     // A stored code comes back as itself, as a number or a string.
     assert.strictEqual(P.resolveMapPad(VIEW), VIEW);
     assert.strictEqual(P.resolveMapPad('0'), A);
-    assert.strictEqual(P.resolveMapPad(P.TOUCHPAD), P.TOUCHPAD);
     assert.strictEqual(P.resolveMapPad(P.LEFT_TRIGGER), P.LEFT_TRIGGER);
+});
+
+test('the touchpad is View: a 1.3.x file that stored 17 reads as the one map button', () => {
+    // The game's map button is View on Xbox and the touchpad on PlayStation, so
+    // a player who chose the touchpad on a DualSense and then plays through
+    // Steam's virtual Xbox pad — or on an Xbox pad — does not choose again.
+    assert.deepStrictEqual([...P.MAP_BUTTON_ALIASES], [[P.TOUCHPAD, VIEW]]);
+    assert.strictEqual(P.resolveMapPad(P.TOUCHPAD), VIEW);
+    assert.strictEqual(P.resolveMapPad('17'), VIEW);
+    assert.strictEqual(P.isWatchablePad(P.TOUCHPAD), false, 'not a code of its own');
+    assert.strictEqual(P.padLabel(P.TOUCHPAD), '');
+    // What the watch reads for a stored code: the code and its other faces.
+    assert.deepStrictEqual(P.watchCodes(VIEW), [VIEW, P.TOUCHPAD]);
+    assert.deepStrictEqual(P.watchCodes(A), [A]);
+    assert.deepStrictEqual(P.watchCodes(P.TOUCHPAD), []);
+    assert.deepStrictEqual(P.watchCodes(null), []);
+    assert.deepStrictEqual(P.watchCodes(P.GUIDE), []);
+    // Every alias points at an offered button, and never at another alias.
+    for (const [alias, target] of P.MAP_BUTTON_ALIASES) {
+        assert.ok(P.isWatchablePad(target), `alias ${alias} → unwatchable ${target}`);
+        assert.ok(!P.isWatchablePad(alias), `alias ${alias} is also offered`);
+        assert.ok(!P.MAP_BUTTON_ALIASES.has(target), `alias chain at ${target}`);
+    }
 });
 
 test('a 1.1.0–1.1.2 file, which stored the old button bit, still names the same button', () => {
@@ -64,15 +86,27 @@ test('every offered button is a standard index with a label, and the Guide butto
     assert.strictEqual(P.padLabel(P.GUIDE), '');
     // Both faces of the pad are named, because the standard mapping cannot say which one is plugged in.
     assert.strictEqual(P.padLabel(A), 'A / ✕');
-    assert.strictEqual(P.padLabel(VIEW), 'View / Share');
-    assert.strictEqual(P.padLabel(P.TOUCHPAD), 'Touchpad');
+    // …and View names the touchpad, which is the same button to the game.
+    assert.strictEqual(P.padLabel(VIEW), 'View / Touchpad');
+    assert.ok(P.PAD_BUTTONS.every(b => b.code !== P.TOUCHPAD), 'the touchpad is not offered twice');
 });
 
 test('Gamepad API: "down" is the one button\'s `pressed`, with `value` as the fallback', () => {
     const buttons = (pressedIndex) => Array.from({length: 18}, (_, i) => ({pressed: i === pressedIndex, value: i === pressedIndex ? 1 : 0}));
     assert.strictEqual(P.standardButtonDown(buttons(VIEW), VIEW), true);
-    assert.strictEqual(P.standardButtonDown(buttons(P.TOUCHPAD), P.TOUCHPAD), true);
     assert.strictEqual(P.standardButtonDown(buttons(A), VIEW), false);
+    // The raw read is exact: index 17 is index 17…
+    assert.strictEqual(P.standardButtonDown(buttons(P.TOUCHPAD), VIEW), false);
+    // …and the map button folds its faces: View stored, touchpad pressed, is down.
+    assert.strictEqual(P.mapButtonDown(buttons(P.TOUCHPAD), VIEW), true);
+    assert.strictEqual(P.mapButtonDown(buttons(VIEW), VIEW), true);
+    assert.strictEqual(P.mapButtonDown(buttons(A), VIEW), false);
+    assert.strictEqual(P.mapButtonDown(buttons(VIEW), A), false);
+    // A short array (an Xbox pad has no index 17) is read as far as it goes.
+    assert.strictEqual(P.mapButtonDown(buttons(VIEW).slice(0, 16), VIEW), true);
+    assert.strictEqual(P.mapButtonDown(buttons(A).slice(0, 16), VIEW), false);
+    assert.strictEqual(P.mapButtonDown(null, VIEW), false);
+    assert.strictEqual(P.mapButtonDown(buttons(P.TOUCHPAD), P.TOUCHPAD), false, 'an alias is not a stored code');
     // A button object with no `pressed` (an odd mapping) is read by value.
     assert.strictEqual(P.standardButtonDown([{value: 0.9}], A), true);
     assert.strictEqual(P.standardButtonDown([{value: 0.2}], A), false);
@@ -89,13 +123,16 @@ test('the recorder sees the held buttons in precedence order, and nothing else',
     }
     const buttons = Array.from({length: 18}, () => ({pressed: false, value: 0}));
     assert.deepStrictEqual(P.heldStandardButtons(buttons), []);
+    // The touchpad held is a recording of View: one button, whichever face.
     buttons[P.TOUCHPAD].pressed = true;
-    assert.deepStrictEqual(P.heldStandardButtons(buttons), [P.TOUCHPAD]);
-    // Two at once is reported as two, so the caller can refuse to guess.
+    assert.deepStrictEqual(P.heldStandardButtons(buttons), [VIEW]);
     buttons[VIEW].pressed = true;
-    assert.deepStrictEqual(P.heldStandardButtons(buttons), [VIEW, P.TOUCHPAD]);
+    assert.deepStrictEqual(P.heldStandardButtons(buttons), [VIEW], 'two faces of one button are one');
+    // Two buttons at once is reported as two, so the caller can refuse to guess.
+    buttons[A].pressed = true;
+    assert.deepStrictEqual(P.heldStandardButtons(buttons), [VIEW, A]);
     // The Guide/PS button is not a recordable press.
-    assert.deepStrictEqual(P.heldStandardButtons(Object.assign([], buttons, {[VIEW]: {pressed: false}, [P.TOUCHPAD]: {pressed: false}, [P.GUIDE]: {pressed: true}})), []);
+    assert.deepStrictEqual(P.heldStandardButtons(Object.assign([], buttons, {[A]: {pressed: false}, [VIEW]: {pressed: false}, [P.TOUCHPAD]: {pressed: false}, [P.GUIDE]: {pressed: true}})), []);
 });
 
 test('either input held is "down"; Alt vetoes only the keyboard', () => {
@@ -123,64 +160,4 @@ test('the recording timeout sits where the design needs it', () => {
     }
     // Long enough to Alt+Tab back to the game and press, short enough to give up on a missing pad.
     assert.ok(T.PAD_RECORD_TIMEOUT >= 10000 && T.PAD_RECORD_TIMEOUT <= 30000);
-});
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Which controller: chosen by pressing, read by id only when it matters
- * ──────────────────────────────────────────────────────────────────────────── */
-
-const DS4 = 'Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)';
-// Chromium's own id for an Xbox pad: the word in it is Chromium's, not ours.
-const XBOX = 'Xbox 360 Controller (XInput STANDARD GAMEPAD)';
-
-test('the chosen pad ships unset, and a stored id that is not one resolves to none', () => {
-    assert.strictEqual(DEFAULT_SETTINGS.tabMarkerPadId, null);
-    for (const bad of [null, undefined, '', '   ', 42, {}, [], 'x'.repeat(P.PAD_ID_MAX + 1)]) {
-        assert.strictEqual(P.resolvePadId(bad), null, JSON.stringify(bad));
-    }
-    assert.strictEqual(P.resolvePadId(DS4), DS4);
-});
-
-test('one pad is read whatever its id: there is nothing to choose between', () => {
-    const one = [{id: 'renamed by Steam Input'}];
-    assert.deepStrictEqual(P.padsToRead(one, DS4), one);
-    assert.deepStrictEqual(P.padsToRead(one, null), one);
-    assert.deepStrictEqual(P.padsToRead([], DS4), []);
-    assert.deepStrictEqual(P.padsToRead(null, DS4), []);
-    // Empty slots in `getGamepads()` are not pads.
-    assert.deepStrictEqual(P.padsToRead([null, one[0], undefined], DS4), one);
-});
-
-test('with two or more pads only the chosen one is read, and none if it is gone', () => {
-    const ds4 = {id: DS4};
-    const xbox = {id: XBOX};
-    assert.deepStrictEqual(P.padsToRead([xbox, ds4], DS4), [ds4]);
-    assert.deepStrictEqual(P.padsToRead([xbox, ds4], XBOX), [xbox]);
-    // Two identical pads share an id: both are "the chosen one".
-    const twin = {id: DS4};
-    assert.deepStrictEqual(P.padsToRead([ds4, xbox, twin], DS4), [ds4, twin]);
-    // The chosen pad unplugged, two others left: none is read, never a guess.
-    assert.deepStrictEqual(P.padsToRead([xbox, {id: 'Generic USB Joystick'}], DS4), []);
-    // No pad chosen yet (a button set before the choice existed): every pad, as before.
-    assert.deepStrictEqual(P.padsToRead([xbox, ds4], null), [xbox, ds4]);
-});
-
-test('the controller name drops Chromium\'s suffix and stays short', () => {
-    assert.strictEqual(P.padDisplayName(DS4), 'Wireless Controller');
-    assert.strictEqual(P.padDisplayName(XBOX), 'Xbox 360 Controller');
-    assert.strictEqual(P.padDisplayName('DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)'),
-        'DualSense Wireless Controller');
-    assert.strictEqual(P.padDisplayName('USB Gamepad (Vendor: 0079 Product: 0011)'), 'USB Gamepad');
-    assert.strictEqual(P.padDisplayName('054c-05c4-Wireless Controller'), 'Wireless Controller');
-    // A parenthesis that is part of the name stays.
-    assert.strictEqual(P.padDisplayName('Pad (Blue)'), 'Pad (Blue)');
-    const long = P.padDisplayName('A'.repeat(100));
-    assert.strictEqual(long.length, P.PAD_NAME_MAX);
-    assert.ok(long.endsWith('…'));
-    assert.strictEqual(P.padDisplayName('Pad\u0000\nOne'), 'Pad One');
-    // Nothing readable left: the caller's translated fallback.
-    for (const empty of ['', '   ', '(STANDARD GAMEPAD Vendor: 054c Product: 09cc)', null, undefined, 7]) {
-        assert.strictEqual(P.padDisplayName(empty, 'Your controller'), 'Your controller', String(empty));
-    }
-    assert.strictEqual(P.padDisplayName(''), '');
 });

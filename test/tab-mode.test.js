@@ -115,7 +115,7 @@ function fakePadWindow() {
         cancelled: [],
         closed: 0,
         ensure() { return true; },
-        setWatch(on, code, id) { this.watches.push({on, code, id}); },
+        setWatch(on, code) { this.watches.push({on, code}); },
         record() { this.records++; return Promise.resolve(this.next); },
         cancelRecord(why) { this.cancelled.push(why); return true; },
         close() { this.closed++; },
@@ -1226,76 +1226,65 @@ test('status and the counters report the optimistic show', async () => {
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The controller button: one path, and the pad pressed on is the one read
+ * The controller button: one path, read on every connected pad
  * ──────────────────────────────────────────────────────────────────────────── */
 
-const PAD_ID = 'Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)';
 const VIEW_BUTTON = 8;
+const PAD_ID = 'Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)';
 
-test('Choose button… goes through the pad window alone, and keeps the id in main', async () => {
+test('Choose button… goes through the pad window alone, and answers with the button only', async () => {
     const padWindow = fakePadWindow();
     const {mode, settings, trigger} = build({padWindow});
     assert.strictEqual(trigger.recordPad, undefined, 'the trigger has no recorder of its own');
-    padWindow.next = {ok: true, code: VIEW_BUTTON, label: 'View / Share', id: PAD_ID};
+    // A pad window that still named the pad it was pressed on: the name goes no further.
+    padWindow.next = {ok: true, code: VIEW_BUTTON, label: 'View / Touchpad', id: PAD_ID};
     const answer = await mode.recordPad();
     assert.strictEqual(padWindow.records, 1);
-    // The renderer is told the button, never which pad it was pressed on.
-    assert.deepStrictEqual(answer, {ok: true, code: VIEW_BUTTON, label: 'View / Share'});
-    // Nothing is stored until Settings stores the button…
-    assert.ok(!settings.writes.some(w => w.key === 'tabMarkerPadId'), 'stored before the button was');
+    assert.deepStrictEqual(answer, {ok: true, code: VIEW_BUTTON, label: 'View / Touchpad'});
+    // Nothing is stored until Settings stores the button, and then only the button.
+    assert.ok(!settings.writes.some(w => w.key === "tabMarkerPad"), "stored before Settings asked");
     mode.setMapPadButton(VIEW_BUTTON);
-    // …and then the pad pressed on is the chosen controller.
     assert.strictEqual(settings.get('tabMarkerPad'), VIEW_BUTTON);
-    assert.strictEqual(settings.get('tabMarkerPadId'), PAD_ID);
     assert.strictEqual(trigger.mapPad, VIEW_BUTTON);
-    mode.destroy();
-});
-
-test('removing the button forgets the chosen controller with it', async () => {
-    const padWindow = fakePadWindow();
-    const {mode, settings} = build({padWindow, settingValues: {tabMarkerPad: VIEW_BUTTON, tabMarkerPadId: PAD_ID}});
-    mode.setMapPadButton(null);
-    assert.strictEqual(settings.get('tabMarkerPad'), null);
-    assert.strictEqual(settings.get('tabMarkerPadId'), null);
-    mode.destroy();
-});
-
-test('an id is only ever taken from the recording that produced that button', async () => {
-    const padWindow = fakePadWindow();
-    const {mode, settings} = build({padWindow, settingValues: {tabMarkerPad: 0, tabMarkerPadId: 'Older Pad'}});
+    assert.ok(!settings.writes.some(w => w.key === 'tabMarkerPadId'), 'no pad is chosen any more (after 1.3.2)');
     // A failed recording stores nothing and answers with its reason.
     padWindow.next = {ok: false, reason: 'timeout'};
     assert.deepStrictEqual(await mode.recordPad(), {ok: false, reason: 'timeout'});
-    mode.setMapPadButton(VIEW_BUTTON);
-    assert.strictEqual(settings.get('tabMarkerPadId'), 'Older Pad');
-    // A recording for one button does not re-point a different one.
-    padWindow.next = {ok: true, code: VIEW_BUTTON, label: 'View / Share', id: PAD_ID};
-    await mode.recordPad();
-    mode.setMapPadButton(0);
-    assert.strictEqual(settings.get('tabMarkerPadId'), 'Older Pad');
-    // …and it is used once: a later set with no recording changes nothing.
-    await mode.recordPad();
-    mode.setMapPadButton(VIEW_BUTTON);
-    assert.strictEqual(settings.get('tabMarkerPadId'), PAD_ID);
-    settings.set('tabMarkerPadId', 'Older Pad');
-    mode.setMapPadButton(VIEW_BUTTON);
-    assert.strictEqual(settings.get('tabMarkerPadId'), 'Older Pad');
     mode.destroy();
 });
 
-test('the pad window is told the button and the chosen controller, in the game only', () => {
+test('a 1.3.x file that chose the touchpad on one pad reads View on every pad', async () => {
+    // The field case (2026-09-23): a DualSense shown twice by Windows (Bluetooth
+    // and cable), then Steam's virtual Xbox pad — the chosen id matched none of
+    // them and the button went silent. docs/agents/markers-and-tab-mode.md.
+    const padWindow = fakePadWindow();
+    const {mode, settings, trigger} = build({padWindow, settingValues: {tabMarkerPad: 17, tabMarkerPadId: PAD_ID}});
+    assert.strictEqual(mode.mapPad(), VIEW_BUTTON);
+    assert.strictEqual(mode.status().mapPadLabel, 'View / Touchpad');
+    trigger.running = true;
+    trigger.foreground = true;
+    mode.syncPadWatch();
+    const last = padWindow.watches[padWindow.watches.length - 1];
+    assert.deepStrictEqual(last, {on: true, code: VIEW_BUTTON}, 'no pad id reaches the window');
+    // The stale id is never read, and removing the button does not touch it either.
+    mode.setMapPadButton(null);
+    assert.strictEqual(settings.get('tabMarkerPad'), null);
+    assert.ok(!settings.writes.some(w => w.key === 'tabMarkerPadId'));
+    mode.destroy();
+});
+
+test('the pad window is told the button, in the game only, and the status never names a pad', () => {
     const padWindow = fakePadWindow();
     const {mode, trigger} = build({padWindow, settingValues: {tabMarkerPad: VIEW_BUTTON, tabMarkerPadId: PAD_ID}});
     trigger.running = true;
     trigger.foreground = false;
     mode.syncPadWatch();
-    assert.deepStrictEqual(padWindow.watches[padWindow.watches.length - 1], {on: false, code: VIEW_BUTTON, id: PAD_ID});
+    assert.deepStrictEqual(padWindow.watches[padWindow.watches.length - 1], {on: false, code: VIEW_BUTTON});
     trigger.foreground = true;
     mode.syncPadWatch();
-    assert.deepStrictEqual(padWindow.watches[padWindow.watches.length - 1], {on: true, code: VIEW_BUTTON, id: PAD_ID});
-    // Whether a controller was chosen is reported; which one never is.
+    assert.deepStrictEqual(padWindow.watches[padWindow.watches.length - 1], {on: true, code: VIEW_BUTTON});
     const status = mode.status();
-    assert.strictEqual(status.mapPadChosen, true);
+    assert.strictEqual('mapPadChosen' in status, false);
     assert.ok(!JSON.stringify(status).includes(PAD_ID), 'the id reached the status');
     mode.destroy();
 });

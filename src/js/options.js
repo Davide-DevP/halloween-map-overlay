@@ -8,7 +8,7 @@ const {buildPreviewImage} = require('./overlay-preview');
 const {presetToGlide} = require('../core/overlay-position');
 const {mapLabelMode, newsCheckState, settingsForNewsCheck} = require('../shared/settings-defaults');
 const {keyEventToVk, vkLabel, resolveMapVk, DEFAULT_MAP_VK} = require('../shared/key-codes');
-const {resolveMapPad, resolvePadId, padLabel, padDisplayName} = require('../shared/pad-codes');
+const {resolveMapPad, padLabel} = require('../shared/pad-codes');
 const {manualCheckView} = require('../shared/update-message');
 const {
     normalisePlacement, placementFromSettings, settingsForPlacement, placementSections,
@@ -353,7 +353,7 @@ class Options {
         this.attachMapKeyRecorder('#tabMarkerKeyBtn', '#tabMarkerKeyValue');
         this.attachMapKeyReset('#tabMarkerKeyReset');
         this.renderMapKey();
-        this.attachMapPadRecorder('#tabMarkerPadBtn', '#tabMarkerPadValue', '#tabMarkerPadName');
+        this.attachMapPadRecorder('#tabMarkerPadBtn', '#tabMarkerPadValue');
         this.attachMapPadRemove('#tabMarkerPadReset');
         this.renderMapPad();
 
@@ -669,15 +669,14 @@ class Options {
 
     /**
      * Arm one button as the controller-button recorder. The wait happens in
-     * main's hidden pad window (`record-tab-marker-pad`, bounded there), and
-     * the pad pressed on becomes the chosen controller. **Losing focus does
-     * not cancel**: the player may switch to the game to press. Esc or a
-     * second click cancels. One recorder for however many buttons.
+     * main's hidden pad window (`record-tab-marker-pad`, bounded there).
+     * **Losing focus does not cancel**: the player may switch to the game to
+     * press. Esc or a second click cancels. One recorder for however many buttons.
      */
-    attachMapPadRecorder(buttonId, valueId, nameId) {
+    attachMapPadRecorder(buttonId, valueId) {
         const self = this;
         if (!$(buttonId).length) return;
-        this.mapPadTargets.push({buttonId, valueId, nameId});
+        this.mapPadTargets.push({buttonId, valueId});
         $(buttonId).on("click", async function () {
             if (self.recordingMapPad === buttonId) {
                 await self.cancelMapPadRecording();
@@ -731,18 +730,11 @@ class Options {
         });
     }
 
-    /**
-     * The label names a physical button, so only "None" is translated; the
-     * controller's name is the pad's own, shown only once one was chosen.
-     */
+    /** The label names a physical button, so only "None" is translated. */
     renderMapPad() {
         const code = resolveMapPad(this.settings.raw('tabMarkerPad'));
         const label = code === null ? t('settings.tabMarkers.pad.none') : padLabel(code);
-        const id = code === null ? null : resolvePadId(this.settings.raw('tabMarkerPadId'));
-        const name = id === null ? '' : padDisplayName(id, t('settings.tabMarkers.pad.controller'));
-        for (const {buttonId, valueId, nameId} of this.mapPadTargets) {
-            // `.text()`: the name comes from the device, not from this app.
-            if (nameId) $(nameId).text(name).attr('title', name || null);
+        for (const {buttonId, valueId} of this.mapPadTargets) {
             $(valueId).text(label).toggleClass('is-unset', code === null);
             $(buttonId).text(t('settings.tabMarkers.pad.change')).removeClass('active');
         }

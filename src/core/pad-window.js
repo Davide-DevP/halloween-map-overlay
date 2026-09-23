@@ -4,7 +4,7 @@ const {BrowserWindow, ipcMain} = require('electron');
 const {webPreferences} = require('../shared/web-preferences');
 const appLog = require('./app-log');
 const {PAD_RECORD_TIMEOUT} = require('../shared/tab-mode-rules');
-const {resolveMapPad, resolvePadId, padLabel} = require('../shared/pad-codes');
+const {resolveMapPad, padLabel} = require('../shared/pad-codes');
 const {errorMessage} = require('../shared/errors');
 const {clearTimer, unrefTimer} = require('../shared/timers');
 
@@ -22,8 +22,8 @@ const {clearTimer, unrefTimer} = require('../shared/timers');
  * docs/agents/markers-and-tab-mode.md § The controller button.
  *
  * What crosses from the renderer: `pad-edge` (down/up of the one watched
- * button), `pad-recorded` (one code and that pad's `Gamepad.id`), `pad-seen`
- * (a count). Never a reading; the id is never logged.
+ * button), `pad-recorded` (one code), `pad-seen`
+ * (a count). Never a reading, never a pad's name.
  */
 class PadWindow {
 
@@ -33,7 +33,7 @@ class PadWindow {
         /** Set at quit: nothing may build the window again. */
         this.destroyed = false;
         /** What the renderer was last told, so a repeat costs nothing. */
-        this.watch = {on: false, code: null, id: null};
+        this.watch = {on: false, code: null};
         /** The window could not be built: what Settings calls "unavailable". */
         this.failed = false;
         this.onEdge = null;
@@ -65,7 +65,7 @@ class PadWindow {
                 const a = answer || {};
                 const resolved = resolveMapPad(a.code);
                 if (this.recording && resolved !== null) {
-                    this.recording.finish({ok: true, code: resolved, label: padLabel(resolved), id: resolvePadId(a.id)});
+                    this.recording.finish({ok: true, code: resolved, label: padLabel(resolved)});
                 }
             },
             seen: (event, count) => {
@@ -84,7 +84,7 @@ class PadWindow {
         if (this.window && !this.window.isDestroyed()) return true;
         this.window = null;
         this.ready = false;
-        this.watch = {on: false, code: null, id: null};
+        this.watch = {on: false, code: null};
         try {
             this.window = new BrowserWindow({
                 show: false,
@@ -109,8 +109,8 @@ class PadWindow {
             this.ready = true;
             // Re-send what it should be doing: a reload forgets everything.
             const wanted = this.watch;
-            this.watch = {on: false, code: null, id: null};
-            this.setWatch(wanted.on, wanted.code, wanted.id);
+            this.watch = {on: false, code: null};
+            this.setWatch(wanted.on, wanted.code);
             if (this.recording) this.send('pad-record', {on: true});
         });
         this.window.webContents.on('render-process-gone', (event, details) => {
@@ -144,12 +144,12 @@ class PadWindow {
     /**
      * Read the pad, or stop. `on` is decided by the caller from the same three
      * facts as the key read: the trigger runs, a button is set, the game is in
-     * front. `id` is the chosen pad's `Gamepad.id`, for `padsToRead`. Idempotent.
+     * front. Every connected pad is read for it. Idempotent.
      */
-    setWatch(on, code, id) {
+    setWatch(on, code) {
         const resolved = resolveMapPad(code);
-        const next = {on: on === true && resolved !== null, code: resolved, id: resolvePadId(id)};
-        if (next.on === this.watch.on && next.code === this.watch.code && next.id === this.watch.id) return;
+        const next = {on: on === true && resolved !== null, code: resolved};
+        if (next.on === this.watch.on && next.code === this.watch.code) return;
         // `ensure()` resets `watch` when it has to build the window, so it
         // runs first; `did-finish-load` then re-sends whatever `watch` holds.
         if (next.on && !this.ensure()) return;
@@ -194,7 +194,7 @@ class PadWindow {
     /** Close the window; it can be built again. */
     close() {
         this.cancelRecord('closed');
-        this.watch = {on: false, code: null, id: null};
+        this.watch = {on: false, code: null};
         this.ready = false;
         if (this.window) {
             if (!this.window.isDestroyed()) {

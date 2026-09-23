@@ -130,8 +130,8 @@ test('useHardwareAcceleration: a boolean is honoured, anything else is the defau
     }
 });
 
-test('no controller is chosen in a new file: with one pad, any pad is read', () => {
+test('no controller button is set in a new file, and no pad is ever chosen', () => {
     // docs/agents/markers-and-tab-mode.md § The controller button.
     assert.strictEqual(DEFAULT_SETTINGS.tabMarkerPad, null);
-    assert.strictEqual(DEFAULT_SETTINGS.tabMarkerPadId, null);
+    assert.strictEqual('tabMarkerPadId' in DEFAULT_SETTINGS, false, 'retired after 1.3.2: every pad is read');
 });

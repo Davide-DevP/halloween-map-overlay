@@ -34,11 +34,12 @@ local file, and the user decides whether to send it.
   a *shipped* map; a custom map is `(custom)`, because its key is a name the
   user typed. Custom maps appear as a **count** in the startup snapshot and
   nowhere else. The detector's "no frames, no pixels" rule is unchanged.
-- **A device id is logged as `(set)` or `(none)`, never verbatim.** Since
-  2026-09-23 the settings hold one: `tabMarkerPadId`, the `Gamepad.id` of the
-  controller the player chose (`Wireless Controller (STANDARD GAMEPAD Vendor:
-  054c Product: 09cc)`) — not a path, not text they typed, but a description
-  of hardware on their PC that a report has no use for. `DEVICE_SETTING_KEYS`
+- **A device id is logged as `(set)` or `(none)`, never verbatim.** 1.3.0–1.3.2
+  stored one: `tabMarkerPadId`, the `Gamepad.id` of the controller the player
+  chose (`Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)`)
+  — not a path, not text they typed, but a description of hardware on their PC
+  that a report has no use for. The key was retired after 1.3.2 (every pad is
+  read now) but sits in older files, so the redaction stays. `DEVICE_SETTING_KEYS`
   in `shared/redact.js` lists such keys, and the three places a settings
   value leaves memory all go through it: `Settings.set()`'s `setting` line
   (`redactSettingValue`), `appLog.collect()` — which is both the

@@ -144,8 +144,8 @@ src/core/pad-window.js          → Hidden window for the Gamepad API: the one
 src/map/pad.html, pad-renderer.js → That window's renderer: polls only when
                                   told, sends edges only.
 src/shared/pad-codes.js         → PURE standard-mapping codes, labels, "is
-                                  this button down", `padsToRead` (which pad
-                                  of several) and `padDisplayName`. Tested.
+                                  this button down" and the one alias (the
+                                  touchpad is View). Every pad is read. Tested.
 src/shared/key-codes.js         → PURE `KeyboardEvent.code`/`key` → Windows
                                   virtual-key code, plus `vkLabel` and
                                   `resolveMapVk`. **Not** an accelerator — it

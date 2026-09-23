@@ -5,8 +5,9 @@
  * the W3C *standard gamepad* button index — the vocabulary of
  * `navigator.getGamepads()`, which is how every pad Chromium knows (Xbox,
  * DualShock, DualSense, generic) is read. *Not* an accelerator: it never
- * reaches the hotkey tables. One button per setting; the label names both the
- * Xbox and the PlayStation face because the standard mapping cannot tell which.
+ * reaches the hotkey tables. One button per setting, read on every connected
+ * pad; the label names both the Xbox and the PlayStation face because the
+ * standard mapping cannot tell which.
  * Why: docs/agents/markers-and-tab-mode.md § The controller button.
  */
 
@@ -16,21 +17,23 @@ const NO_PAD_BUTTON = null;
 /** Standard-mapping indices that need a name in code. */
 const LEFT_TRIGGER = 6;
 const RIGHT_TRIGGER = 7;
+/** The PlayStation touchpad click: the same button as View, see below. */
 const TOUCHPAD = 17;
 
 /** The Guide/PS button: never offered — the platform overlay's own key. */
 const GUIDE = 16;
 
-/** Longest controller name shown in Settings; Chromium's ids run past 80. */
-const PAD_NAME_MAX = 40;
-
-/** Longest `Gamepad.id` stored; anything longer is not a real id. */
-const PAD_ID_MAX = 256;
+/**
+ * The game's map button is View on an Xbox pad and the touchpad on a
+ * PlayStation pad, so the two are **one button** here: chosen as either, read
+ * as both. A code that is another code's face maps to it. Why:
+ * docs/agents/markers-and-tab-mode.md § The controller button.
+ */
+const MAP_BUTTON_ALIASES = new Map([[TOUCHPAD, 8]]);
 
 /** Every button the app is willing to watch, in recording precedence. */
 const PAD_BUTTONS = Object.freeze([
-    {code: 8, label: 'View / Share'},
-    {code: TOUCHPAD, label: 'Touchpad'},
+    {code: 8, label: 'View / Touchpad'},
     {code: 9, label: 'Menu / Options'},
     {code: 0, label: 'A / ✕'},
     {code: 1, label: 'B / ○'},
@@ -73,19 +76,21 @@ function isWatchablePad(code) {
 function resolveMapPad(value) {
     const code = typeof value === 'number' ? value : parseInt(value, 10);
     if (isWatchablePad(code)) return code;
+    if (MAP_BUTTON_ALIASES.has(code)) return MAP_BUTTON_ALIASES.get(code);
     if (LEGACY_PAD_BITS.has(code)) return LEGACY_PAD_BITS.get(code);
     return NO_PAD_BUTTON;
 }
 
 /**
- * Normalise the stored `tabMarkerPadId` — the `Gamepad.id` of the controller
- * the button was chosen on. Not a string, empty or absurdly long is **none**.
- * @returns {?string}
+ * The standard indices read for one stored code: the code itself and every
+ * face that is the same button on another pad (View is also the touchpad).
+ * @returns {number[]} empty for a code the app does not watch
  */
-function resolvePadId(value) {
-    if (typeof value !== 'string') return null;
-    if (!value.trim() || value.length > PAD_ID_MAX) return null;
-    return value;
+function watchCodes(code) {
+    if (!isWatchablePad(code)) return [];
+    const codes = [code];
+    for (const [alias, target] of MAP_BUTTON_ALIASES) if (target === code) codes.push(alias);
+    return codes;
 }
 
 /** What a stored code is called on screen. Never translated. @returns {string} */
@@ -102,7 +107,8 @@ function padLabel(code) {
  * @param {Array<{pressed?: boolean, value?: number}>} buttons
  */
 function standardButtonDown(buttons, code) {
-    if (!isWatchablePad(code) || !Array.isArray(buttons)) return false;
+    const readable = isWatchablePad(code) || MAP_BUTTON_ALIASES.has(code);
+    if (!readable || !Array.isArray(buttons)) return false;
     const b = buttons[code];
     if (!b) return false;
     if (typeof b.pressed === 'boolean') return b.pressed;
@@ -110,47 +116,23 @@ function standardButtonDown(buttons, code) {
 }
 
 /**
+ * Is the **map button** down: the stored code or any of its other faces. The
+ * watch reads this on every connected pad — a pad Windows shows twice
+ * (Bluetooth and cable) or Steam's virtual copy of it is still the one pad.
+ * Why: docs/agents/markers-and-tab-mode.md § The controller button.
+ */
+function mapButtonDown(buttons, code) {
+    return watchCodes(code).some(c => standardButtonDown(buttons, c));
+}
+
+/**
  * For the recorder: the buttons held in a Gamepad API reading, in precedence
- * order. One held button is a recording; none or several is "keep waiting".
+ * order, each face folded onto its button. One held button is a recording;
+ * none or several is "keep waiting".
  * @returns {number[]} codes
  */
 function heldStandardButtons(buttons) {
-    return PAD_BUTTONS.filter(b => standardButtonDown(buttons, b.code)).map(b => b.code);
-}
-
-/**
- * Which connected pads the watch reads. One pad is read whatever its id
- * (Steam Input can change an id between sessions); with two or more, only the
- * chosen one — and none if it is not there. No id stored is every pad.
- * Why: docs/agents/markers-and-tab-mode.md § The controller button.
- * @param {Array<{id?: string}>} list
- * @param {?string} id
- */
-function padsToRead(list, id) {
-    const pads = Array.isArray(list) ? list.filter(Boolean) : [];
-    if (pads.length <= 1) return pads;
-    const wanted = resolvePadId(id);
-    if (wanted === null) return pads;
-    return pads.filter(p => p.id === wanted);
-}
-
-/**
- * A short on-screen name from a `Gamepad.id`: Chromium's `(STANDARD GAMEPAD
- * Vendor: 054c Product: 09cc)`-style suffix dropped, capped at `PAD_NAME_MAX`.
- * @returns {string} `fallback` when nothing readable is left
- */
-function padDisplayName(id, fallback = '') {
-    if (typeof id !== 'string') return fallback;
-    let name = id
-        .replace(/[\u0000-\u001f\u007f]/g, ' ')
-        .replace(/\s*\([^()]*\b(?:STANDARD GAMEPAD|Vendor:\s*[0-9a-f]+|Product:\s*[0-9a-f]+)[^()]*\)\s*$/i, '')
-        // Firefox-style `054c-09cc-` prefix, in case an id ever arrives that way.
-        .replace(/^[0-9a-f]{4}-[0-9a-f]{4}-/i, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-    if (!name) return fallback;
-    if (name.length > PAD_NAME_MAX) name = name.slice(0, PAD_NAME_MAX - 1).trimEnd() + '…';
-    return name;
+    return PAD_BUTTONS.filter(b => mapButtonDown(buttons, b.code)).map(b => b.code);
 }
 
 module.exports = {
@@ -159,16 +141,14 @@ module.exports = {
     RIGHT_TRIGGER,
     TOUCHPAD,
     GUIDE,
-    PAD_NAME_MAX,
-    PAD_ID_MAX,
     PAD_BUTTONS,
     LEGACY_PAD_BITS,
+    MAP_BUTTON_ALIASES,
     isWatchablePad,
     resolveMapPad,
-    resolvePadId,
+    watchCodes,
     padLabel,
     standardButtonDown,
-    heldStandardButtons,
-    padsToRead,
-    padDisplayName
+    mapButtonDown,
+    heldStandardButtons
 };

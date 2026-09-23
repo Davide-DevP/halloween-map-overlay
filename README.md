@@ -391,16 +391,23 @@ either way.
   about it is written down except that your map button went down or came up.
   With no button set, the controller is never read at all, and that hidden
   part of the app does not even exist.
-- **More than one controller plugged in?** Press the button on the one you
-  play with when you choose it: that is the controller the app reads from then
-  on. With only one plugged in, it is simply that one.
+- **Plug it in with a cable.** Over Bluetooth a PlayStation controller may
+  not be seen at all; over USB it is. And the button is read on every
+  controller that is plugged in, so a pad that Windows shows twice, or the
+  Xbox-style controller Steam creates for a game, is not a problem.
+- **Playing through Steam?** Choose the button with the game open: click
+  *Choose button…*, switch back to the game and press the button there. While
+  another window is in front, Steam makes the controller act as a mouse and
+  keyboard, so nothing would arrive.
 - **Choosing the button is the one time it is read outside the game**: for up to fifteen seconds after you click *Choose button…* — long enough to switch
   back to the game and press it there, should the button do nothing on the
   desktop.
 - **Xbox, PlayStation and other PC controllers all work as they are**, with
   nothing to install: the Gamepad API knows the DualShock 4, the DualSense and
-  the Xbox pads by name. On a PlayStation pad the touchpad click is a button
-  like any other.
+  the Xbox pads by name. View and the touchpad click are the same button to the
+  app, because they are the same button to the game: choose the touchpad on a
+  PlayStation pad and an Xbox pad opens the map with View, without choosing
+  again.
 
 If reading the key state does not work on your PC — some security software
 blocks it — the app says so once and falls back to the slower method below, all
@@ -583,7 +590,7 @@ text:
 - `settings-app.json`, `hotkeys.json`: your settings and key bindings. A
   hotkey bound to one of your own imported images shows as
   `Custom/(custom)` — the binding is in there, the name you gave the image is
-  not. The controller you chose for the map shows as `(set)`, not by its name.
+  not. A controller name an older version stored shows as `(set)`, never the name.
 - `crash-*.txt`: any crash the app recorded, with the last 200 log lines.
 - `system.txt`: Windows version, screens, graphics card, app version, plus the
   marker switches and what *on the game’s own map* was doing (whether it
@@ -807,7 +814,7 @@ same rules as the key: only while the game is the window in front. A hidden
 part of the app reads the controller the way a web browser does (the standard
 Gamepad API) and looks at the one button you chose; the rest is thrown away,
 never written down and never sent. With more than one controller plugged in,
-only the one you pressed the button on when you chose it is read.
+that one button is read on each of them.
 Choosing the button is the one time it is read outside the game, for at most
 fifteen seconds after you click *Choose button…*. With no button set the
 controller is never read. See [Playing with a controller](#playing-with-a-controller).
@@ -860,6 +867,20 @@ Security → Virus & threat protection → Manage settings → Exclusions** remo
 that too.
 
 ## Changelog
+
+### 1.3.3
+
+- **The controller button works on every controller you plug in.** The app
+  no longer remembers which controller you chose the button on: it reads that
+  one button on all of them. A PlayStation controller that Windows shows twice
+  (Bluetooth and cable), or the Xbox-style controller Steam creates when you
+  play through Big Picture, used to leave the button silent.
+- **View and the touchpad are one button.** Choose the touchpad on a
+  PlayStation controller and an Xbox controller opens the map with View, with
+  nothing to choose again. The button now reads *View / Touchpad*.
+- **Plug the controller in with a cable.** Over Bluetooth a PlayStation
+  controller may not be seen; the settings and the FAQ now say so, and say how
+  to choose the button when you play through Steam.
 
 ### 1.3.2
 

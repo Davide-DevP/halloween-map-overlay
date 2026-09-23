@@ -184,12 +184,13 @@ or user text, which is why `core/settings.js` may log every change.
   `shared/pad-codes.js` (1.1.x stored a different button bit; `resolveMapPad`
   migrates it), `null` = none — the only binding with two inputs, and never a hotkey
   ([markers-and-tab-mode.md § The controller button](markers-and-tab-mode.md#the-controller-button)).
-  `tabMarkerPadId` (2026-09-23) is the `Gamepad.id` of the controller that
-  button was pressed on in *Choose button…*, `null` = none chosen (any pad is
-  read). Main stores it from the recording itself, never from the renderer, and
-  clears it with the button; it only matters with two or more pads connected.
-  It names a device, so it never reaches a log or a report verbatim: `(set)` /
-  `(none)` ([diagnostics.md](diagnostics.md), "a device id").
+  The touchpad (17) is stored as View (8): one button to the game
+  ([markers-and-tab-mode.md § The controller button](markers-and-tab-mode.md#the-controller-button)).
+  `tabMarkerPadId` (1.3.0–1.3.2) was the `Gamepad.id` of the pad the button
+  was pressed on; **retired after 1.3.2** — every pad is read — so it is no
+  longer a default and nothing reads it, but an older file still holds one and
+  it names a device, so it stays in `DEVICE_SETTING_KEYS` and reaches a log or
+  a report only as `(set)` / `(none)` ([diagnostics.md](diagnostics.md)).
   `markerTrigger` picks `auto` (the key trigger, falling back to
   polling) or `polling`. `markerOpacity` is separate from the overlay's own
   `opacity`: the map is a backdrop, the markers are the thing being read.

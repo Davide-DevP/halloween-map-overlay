@@ -314,31 +314,52 @@ recorder, a combiner, a probe script, their tests) for one button.
     is load-bearing, see [memory.md](memory.md).
   - **Edges only cross the boundary.** The renderer sends `pad-edge`
     (down/up of the one button), `pad-seen` (a count) and, once per
-    recording, `pad-recorded {code, id}`. Main folds the level in through
+    recording, `pad-recorded {code}`. Main folds the level in through
     `KeyTrigger.setApiPadDown`; `tick()` counts it **only while the game is
     in front and a button is set**, after the foreground → key → Alt reads.
   - **`foldMapInputs` is where the two become one.** Alt vetoes the keyboard
     press only; a pad press with Alt down is a press.
-  - **Choosing the controller is pressing on it.** *Choose button…* records in
-    the hidden window: exactly one held button on any pad is the answer, and
-    that pad's `Gamepad.id` comes with it. Main keeps the id
-    (`TabMode.recordedPad`) and stores it as `tabMarkerPadId` only when
-    `set-tab-marker-pad` stores *that* code — the renderer is never trusted
-    with it and never sent it; removing the button clears it. No dropdown: the
-    owner's decision, because "press the button on the controller you use" is
-    one sentence a player cannot get wrong.
-  - **One pad connected = no ambiguity, whatever its id** (`padsToRead` in
-    `shared/pad-codes.js`). Steam Input can present the same physical pad
-    under a different id between sessions, so matching the id with one pad
-    would silently stop a working setup. With two or more, only pads whose id
-    equals the stored one are read, and **none** if it is not connected —
-    never a guess. No id stored (a button set before the choice existed) reads
-    every pad, as 1.2 did.
-  - **The id never reaches a log or a report.** It is a device description;
-    `app.log`, `system.txt` and the report's `settings-app.json` show
-    `(set)`/`(none)` ([diagnostics.md](diagnostics.md)). Settings shows a
-    short name (`padDisplayName`: Chromium's `(STANDARD GAMEPAD Vendor: …)`
-    suffix dropped, 40 characters) next to the button.
+  - **The button is read on every connected pad, and the pad is never
+    chosen.** *Choose button…* records in the hidden window: exactly one held
+    button on any pad is the answer, and only the code crosses. 1.3.0–1.3.2
+    stored the `Gamepad.id` of the pad pressed on (`tabMarkerPadId`) and,
+    with two or more pads, read only that one. **Retired after 1.3.2 on a
+    field case**: a DualSense that Windows showed twice (Bluetooth *and*
+    cable) was two pads to Chromium, and a game launched from Steam Big
+    Picture adds Steam's virtual Xbox 360 pad while Steam takes the physical
+    pad for itself — so the "chosen" pad was the silent one and the button
+    stopped working, with `2 pad(s) seen, 0 edges` in `system.txt`. A second
+    pad is nearly always a copy of the same controller, not a second player.
+    The stale key stays redacted in older files ([diagnostics.md](diagnostics.md));
+    nothing reads it. Do not bring the id back to "fix" two players on two
+    pads: read every pad, that is the rule.
+  - **View and the touchpad are one button** (`MAP_BUTTON_ALIASES` in
+    `shared/pad-codes.js`: 17 → 8). The game opens its map with View on an
+    Xbox pad and the touchpad click on a PlayStation pad, and Steam's virtual
+    Xbox pad has no index 17 at all, so a stored touchpad would go silent the
+    moment the pad became an Xbox one. One offered button, labelled
+    *View / Touchpad*: chosen as either face (`heldStandardButtons` folds
+    17 onto 8), stored as 8, read as both (`watchCodes` → `mapButtonDown`);
+    a 1.3.x file that stored 17 resolves to 8. The one cost: on a physical
+    PlayStation pad index 8 is *Create*, which now also counts — the
+    standard mapping cannot say which face is plugged in, and the game does
+    nothing on Create, so the markers would show over gameplay for as long as
+    it is held. Accepted over asking players to choose again per controller.
+  - **Bluetooth is not the app's to fix.** The same field case: the
+    DualSense over Bluetooth was not seen by the hidden window at all
+    (`padsSeen=0`), over USB it was. Chromium's Bluetooth handling of Sony
+    pads is what it is; the help text and the FAQ say *cable*, and *Choose
+    button…* says *no controller* rather than pretending. Reading HID in main
+    to work around it is the rejected broader read, below.
+  - **Steam: choose with the game open, press inside the game.** With a game
+    running through Steam Input, Steam applies the *desktop* layout (mouse and
+    keyboard emulation, no pad buttons) while any other window — ours — is in
+    front, and the game's layout only while the game is; the 15 s recording
+    window and the no-blur cancel exist for exactly that Alt+Tab. Verified
+    2026-09-23 on the field machine: cable + Big Picture + Alt+Tab = recorded
+    and working. Steam's default PlayStation layout sends the touchpad click as
+    a mouse click, so through Steam the player either binds it to View in the
+    Steam layout or presses View/touchpad on the pad — both land on index 8.
   - **"Unavailable" means the window could not be built** (`PadWindow.failed`,
     set when `new BrowserWindow` throws). Settings then appends
     `settings.tabMarkers.method.padUnavailable`; it is never the key

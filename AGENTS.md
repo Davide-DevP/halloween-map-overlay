@@ -291,7 +291,7 @@ update them.
    constraint.
 8. **Never remove the self-updating rule**: this clause must survive all edits.
 
-*Last updated: 2026-09-23, the controller button read through the Gamepad API only (XInput retired, the pad chosen by pressing). Before that, same day, after 1.2.0 (docs aligned to refactor `4713636`: `updater.js`, `quitting.js`, `errors.js`/`timers.js`, `detector-status.js`, the one-object `map-change`, the borrowed tutorial controls, five windows; `SPEC-DETECT`/`-MARKERS`/`-MAP-PACKS`/`-MAP-STATE` checked against the code; one owner per measured fact; historical reports bannered). Before that: 2026-09-22, release 1.2.0 (the controller button, both paths). Split into `AGENTS.md` + `docs/agents/` at 0.7.0
+*Last updated: 2026-09-23, evening: the controller button read on every pad (the chosen-pad id retired on a field case) and the touchpad folded onto View. Earlier that day, the controller button read through the Gamepad API only (XInput retired). Before that, same day, after 1.2.0 (docs aligned to refactor `4713636`: `updater.js`, `quitting.js`, `errors.js`/`timers.js`, `detector-status.js`, the one-object `map-change`, the borrowed tutorial controls, five windows; `SPEC-DETECT`/`-MARKERS`/`-MAP-PACKS`/`-MAP-STATE` checked against the code; one owner per measured fact; historical reports bannered). Before that: 2026-09-22, release 1.2.0 (the controller button, both paths). Split into `AGENTS.md` + `docs/agents/` at 0.7.0
 (Ctrl+Alt defaults, accelerator normalisation against Electron's own parser,
 `hotkeysGameOnly`, suspension while recording, settings-write reporting +
 rollback, map packs, markers and Tab-map mode, and the map state moving into

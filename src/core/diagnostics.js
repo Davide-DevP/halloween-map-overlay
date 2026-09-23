@@ -210,13 +210,11 @@ class Diagnostics {
             + `every ${trigger.intervalMs || 0} ms`);
         lines.push(`key trigger counters = ${trigger.polls || 0} polls, ${trigger.downs || 0} down, `
             + `${trigger.ups || 0} up, ${trigger.errors || 0} errors`);
-        // The controller: the one configured code and whether a pad was chosen —
-        // never which pad, never a reading.
+        // The controller: the one configured code — never a pad, never a reading.
         if (tab.mapPad === null || tab.mapPad === undefined) {
             lines.push('controller button = none (the controller is not read)');
         } else {
-            lines.push(`controller button = standard index ${Number(tab.mapPad)} (${tab.mapPadLabel || '?'}), `
-                + `chosen controller ${tab.mapPadChosen ? 'set' : 'none (any pad)'}`);
+            lines.push(`controller button = standard index ${Number(tab.mapPad)} (${tab.mapPadLabel || '?'}), read on every pad`);
         }
         const pw = tab.padWindow || {};
         lines.push(`controller window = ${pw.exists ? 'open' : 'closed'}${pw.exists && !pw.ready ? ' (loading)' : ''}`
@@ -267,8 +265,9 @@ class Diagnostics {
     }
 
     /**
-     * `settings-app.json` with the chosen controller's id taken out — which is
-     * why the file is **not** in `LOG_FILES`. Null when there is none.
+     * `settings-app.json` with any stored controller id taken out (a 1.3.x key,
+     * still redacted) — which is why the file is **not** in `LOG_FILES`. Null
+     * when there is none.
      */
     redactedSettings() {
         const file = path.join(this.dir || '', 'settings-app.json');

@@ -47,6 +47,7 @@ function redactCustomMapKeys(text, creator = 'Custom') {
 /**
  * Settings whose value names a device on the user's PC (a controller's
  * `Gamepad.id`): logged and reported as `(set)` or `(none)`, never verbatim.
+ * `tabMarkerPadId` was retired after 1.3.2 but still sits in older files.
  * Why: docs/agents/diagnostics.md ("a device id").
  */
 const DEVICE_SETTING_KEYS = Object.freeze(['tabMarkerPadId']);
