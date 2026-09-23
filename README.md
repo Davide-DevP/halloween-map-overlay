@@ -859,6 +859,41 @@ that too.
 
 ## Changelog
 
+### 1.3.0
+
+- **More than one controller?** When you choose the controller button, the app
+  remembers which controller you pressed it on, and in the game it listens to
+  that one only. With a single controller plugged in nothing changes. Settings
+  shows the name of the controller you chose.
+- **One way to read the controller.** Xbox, PlayStation and other PC controllers
+  are all read the same way now, through the standard Gamepad API. The FAQ and
+  the *Playing with a controller* section above say exactly what is read.
+- **Adding a hotkey to a map keeps Settings open.** Before, every new key sent
+  you back to the home page.
+- **The menu works from the keyboard.** Settings, *Add your own map*, FAQ and
+  Credits can be reached with Tab and opened with Enter.
+- **Faster under the hood.** The map recognition does the same work in about a
+  quarter less time per check, with results identical to the bit. The gallery
+  loads its images all at once instead of one by one.
+- Fixes nobody should have noticed: a diagnostic report could include your
+  Windows user folder if `hotkeys.json` was locked by an antivirus; an empty
+  name in *Add your own map* could break the custom maps folder.
+
+### 1.2.0
+
+- **PlayStation and other controllers work through Steam.** The controller
+  button is read the way a web browser reads a controller, so a DualShock or
+  DualSense set up through Steam Input works, not only an Xbox pad.
+
+### 1.1.0 – 1.1.2
+
+- **The map key can have a second input: one controller button.** Choose it
+  under *Settings → Map* or in the setup tutorial, and hold it in the game the
+  way you hold the map key. On PlayStation through Steam the map opens with the
+  touchpad, and the label says so.
+- Choosing the button waits up to fifteen seconds and survives an Alt+Tab back
+  to the game, which Steam needs for a PlayStation pad.
+
 ### 1.0.0
 
 - **A setup guide instead of a tour.** Six short steps set the app up without
