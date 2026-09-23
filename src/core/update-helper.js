@@ -21,11 +21,12 @@ const HELPER_EXE = 'hmo-updater.exe';
 const HELPER_PREFIX = 'helper-';
 
 /**
- * 4 s is generous for a 90 KB WPF process and unnoticeable to a user. It is
- * also the whole antivirus story: a blocked exe never writes the file, the wait
- * expires, and the update happens the old way.
+ * 15 s, not 4: a cold .NET/WPF start behind an antivirus pre-scan took over
+ * 5 s once (1.2.0 → 1.3.0) and fell to the stock installer. A dead helper ends
+ * the wait at once; a blocked one costs this, then the old way.
+ * Why: docs/agents/updater-and-installer.md § The handshake
  */
-const READY_TIMEOUT_MS = 4000;
+const READY_TIMEOUT_MS = 15000;
 const READY_POLL_MS = 100;
 
 /** `<ready-file>.abort`; `updater/Runner.cs` (`AbortSuffix`) has the same literal. */

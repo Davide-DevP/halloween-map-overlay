@@ -474,7 +474,7 @@ test('launchUpdater: no ready-file within the budget kills the helper and gives 
             homeDir: root,
             spawnFn,
             // The injected clock is what keeps this test instant; the real
-            // budget is 4 s.
+            // budget is 15 s.
             wait: {
                 now: () => clock,
                 sleep: async (ms) => {

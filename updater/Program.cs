@@ -95,7 +95,7 @@ namespace HmoUpdater
             }
             catch (Exception ex)
             {
-                // The app will time out after 4 s and use the stock installer.
+                // The app will time out after 15 s and use the stock installer.
                 // That is the designed outcome, so it is a log line, not a
                 // reason to stop: if the app does quit anyway the helper is
                 // still the best thing on screen.

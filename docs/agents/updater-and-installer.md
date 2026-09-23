@@ -155,9 +155,23 @@ on the happy path. **Nobody can be stranded on an old version by this feature.**
   `autoUpdater.quitAndInstall`. Tiers 2 and 3 were not touched; only the order.
 - **The handshake is the whole safety story.** `launchUpdater()` resolves
   `ok: true` only after the helper has written its ready-file, and the app does
-  not call `app.quit()` before that. No file within **4 s**, a spawn error, a
+  not call `app.quit()` before that. No file within **15 s**, a spawn error, a
   missing folder → log line, tier 2. That is what makes an antivirus block
   harmless, and it is the one invariant never to weaken.
+  **The budget was 4 s until 1.3.1.** On 2026-09-23 the 1.2.0 → 1.3.0 update
+  on the owner's PC logged `update-helper ok=no reason=no-ready-file ms=5321`
+  and went to tier 2: the helper had been copied and spawned, was still alive
+  at the deadline, and had written neither the ready-file nor its own first
+  log line (`start`, which `Runner` writes right after `Show()`), so it was
+  stalled *before* drawing — a cold CLR/WPF start, or an antivirus holding a
+  freshly copied unsigned exe for analysis (Bitdefender flagged an unrelated
+  script on the same machine fifteen minutes later). The two 2026-09-22 runs
+  of the identical helper took 230 ms to the ready-file; no Windows Update,
+  reboot-related or .NET ngen event explains the difference, so the cause is
+  not pinned. The wait was raised to 15 s because it costs nothing on the
+  happy path (the file ends it), a dead helper still ends it at once
+  (`isDead`), and only a blocked helper pays it — once, before the stock
+  installer. The "updating" view stays on screen for the whole wait.
   The helper writes the file from `UpdaterWindow.Ready`, which fires after the
   first frame **and** the fade-in — not right after `Show()`. Writing it earlier
   takes the app's identical picture away while the helper is still at opacity 0,
@@ -172,7 +186,7 @@ on the happy path. **Nobody can be stranded on an old version by this feature.**
   fade-in ends, and an app that quits for a helper showing an error screen has
   skipped a fallback that would have worked.
 - **`installUpdate()` is single-flight** (`installInFlight`). `installStarted`
-  is only set once a tier has started, and tier 1 awaits for up to 4 s; banner +
+  is only set once a tier has started, and tier 1 awaits for up to 15 s; banner +
   tray inside that window used to spawn two helpers.
 - **The helper's minimum size is 560x380 DIPs, not pixels.** `helperBounds`
   takes the primary display's `scaleFactor`; WPF lays out in DIPs, so 560 px at

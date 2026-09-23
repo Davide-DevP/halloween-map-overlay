@@ -109,7 +109,7 @@ in AGENTS.md is unchanged: the helper makes **zero** network requests.
   `quitAndInstall` exactly as now. Keep all three tiers and the existing
   comments' reasoning intact.
 - Handshake: the app quits **only after** the ready-file appears. No ready-file
-  within **4 s**, or spawn error, or helper folder missing → kill the helper if
+  within **15 s**, or spawn error, or helper folder missing → kill the helper if
   it is alive, `appLog.error('update-helper', …)`, use the stock path. This is
   what makes an antivirus block harmless.
 - Pass the main window's bounds in physical pixels (`screen.dipToScreenRect`)

@@ -411,7 +411,7 @@ namespace HmoUpdater
         /// the first paint, with the window still at opacity 0 — would take the
         /// app's identical picture away while this one was still invisible, and
         /// the user would see the desktop for a fifth of a second. Waiting
-        /// costs ~350 ms of the 4 s the app is prepared to wait.
+        /// costs ~350 ms of the 15 s the app is prepared to wait.
         /// </summary>
         internal event Action Ready;
 
@@ -448,7 +448,7 @@ namespace HmoUpdater
             }
             catch (Exception)
             {
-                // The app times out after 4 s and uses the stock installer,
+                // The app times out after 15 s and uses the stock installer,
                 // which is the designed fallback, not a crash.
             }
         }

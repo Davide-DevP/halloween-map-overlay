@@ -503,7 +503,7 @@ class Updater {
      *   stays up only while `themed`.
      */
     installUpdate() {
-        // **Single-flight.** Tier 1 awaits the handshake for up to 4 s, and the
+        // **Single-flight.** Tier 1 awaits the handshake for up to 15 s, and the
         // banner and the tray item pressed inside that window each spawned
         // their own helper — two silent installers over one install dir.
         if (this.installInFlight) return this.installInFlight;
