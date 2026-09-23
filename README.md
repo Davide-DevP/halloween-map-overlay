@@ -861,6 +861,15 @@ that too.
 
 ## Changelog
 
+### 1.3.2
+
+- **A new icon.** A map pin with a carved pumpkin for a head, everywhere the
+  app shows itself: the window, the taskbar, the installer and the update
+  screen. In the system tray the pin stands alone, so it stays readable on a
+  dark taskbar.
+- For anyone who tests updates locally: `npm run probe-updater` and
+  `npm run serve-updates`, described in the developer docs.
+
 ### 1.3.1
 
 - **The update screen gets more time to appear.** The app now waits up to
