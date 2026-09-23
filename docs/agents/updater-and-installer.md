@@ -266,6 +266,48 @@ on the happy path. **Nobody can be stranded on an old version by this feature.**
   `--screenshot <path> [--screenshot-after <ms>]` (RenderTargetBitmap, then
   exit). The app never passes them.
 
+## Testing an update locally
+
+Two levels, both owner-run from a terminal of their own (rule 8, and the
+Bitdefender kill-tree trap below): an agent prepares, the owner launches.
+
+- **The helper alone — `npm run probe-updater`.** Copies the *installed*
+  helper (or `build/updater` after `npm run build-updater`) into a fresh
+  `helper-probe<n>-<random>` folder under `%LOCALAPPDATA%\halloween-map-overlay-updater\`,
+  exactly the app's shape, spawns it with `--demo` (no installer, nothing
+  touched) and prints the milliseconds to its ready-file, three times. This
+  is the question the 2026-09-23 fallback left open: how long a cold start
+  takes on this PC, and whether it is the first copy of the day or every
+  copy. Compare against `READY_TIMEOUT_MS`. The themed window flashes for a
+  second per run.
+- **The whole flow against a local build — `npm run serve-updates`.**
+  1. Build a *higher* version without touching `package.json`:
+     `npm run build-updater && npx electron-builder -w -c.extraMetadata.version=<next>`
+     → `dist/latest.yml`, the Setup exe and its `.blockmap`.
+  2. `npm run serve-updates` serves `dist/` on `http://127.0.0.1:8765/`
+     (loopback only, Range supported for the blockmap).
+  3. In the **installed** app, back up and replace
+     `%LOCALAPPDATA%\Programs\Halloween Map Overlay\resources\app-update.yml` with
+     ```yaml
+     provider: generic
+     url: http://127.0.0.1:8765/
+     updaterCacheDirName: halloween-map-overlay-updater
+     ```
+     (`updaterCacheDirName` must stay: `helperHome()` reads it.)
+  4. Start the installed app, Settings › General › *Check now*, then
+     *Restart and update*. Watch `%APPDATA%\halloween-map-overlay\app.log`
+     (`update-helper ok=… ms=…`, `install-update path=themed|stock`) and
+     `updater.log` (`start` → `ready-file` → `installer-exit`).
+  5. The freshly installed build ships its own `app-update.yml` pointing at
+     GitHub again, so nothing to restore unless the update failed — then put
+     the backup back.
+  Caveat: the installed app then *is* `<next>`, and a later GitHub release
+  with the same number will not be offered to it; release the same commit
+  under that number, or reinstall the previous Setup exe from Releases first.
+  The update is always run by the **installed** version's code, so this is
+  the only way to exercise `core/updater.js` and the handshake budget before
+  they ship.
+
 ## The NSIS build shape
 
 **The NSIS build is `oneClick: true`, `perMachine: false`, and that is load

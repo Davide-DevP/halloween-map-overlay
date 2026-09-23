@@ -209,6 +209,8 @@ Dev-only scripts and data
   scripts/build-markers.js      maps-src/markers.json → the shipped runtime file (`--check`)
   scripts/build-pack.js         One map image + fixtures → a pack in `packs/`
   scripts/build-updater.js      updater/*.cs → build/updater/
+  scripts/probe-updater.js      Owner-run: time the helper to its ready-file, the app's own launch shape, --demo
+  scripts/serve-updates.js      Owner-run: dist/ as a loopback generic update feed for a local end-to-end update
   maps-src/*.webp, detection-fixtures/*.png  Untouched map originals; game screenshots (template sources + test matrix)
   test/                         node:test unit tests for the pure and fs-only modules
 ```

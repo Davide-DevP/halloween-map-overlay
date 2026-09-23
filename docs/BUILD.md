@@ -40,6 +40,9 @@ state. Add `--screenshot <path> [--screenshot-after <ms>]` and the window
 renders itself to a PNG with `RenderTargetBitmap` and exits — that is how the
 design was compared against the app's own loading overlay, frame by frame.
 Both switches are debug-only and neither is ever passed by the app.
+`npm run probe-updater` times the helper the way the app launches it, and
+`npm run serve-updates` feeds an installed app from `dist/` — see
+`docs/agents/updater-and-installer.md` § Testing an update locally.
 
 Output lands in `dist/`:
 
