@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const {buildZip} = require('./zip');
+const {errorMessage} = require('../../shared/errors');
 
 /**
  * The diagnostic report: one zip from a list of files and a list of generated
@@ -110,7 +111,7 @@ function buildDiagnosticReport(options = {}) {
         fs.mkdirSync(outDir, {recursive: true});
         fs.writeFileSync(target, buildZip(zipEntries));
     } catch (err) {
-        result.error = (err && err.message) || String(err);
+        result.error = errorMessage(err);
         return result;
     }
     result.ok = true;

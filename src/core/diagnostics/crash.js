@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const {redactHome} = require('../../shared/redact');
+const {errorMessage} = require('../../shared/errors');
 
 /**
  * Crash files: one text file per fatal event, in userData next to the logs.
@@ -99,7 +100,7 @@ function writeCrashReport(dir, info = {}, keep = MAX_CRASH_FILES) {
         fs.mkdirSync(dir, {recursive: true});
         fs.writeFileSync(target, formatCrashReport(info), 'utf-8');
     } catch (err) {
-        return {ok: false, name: null, path: null, error: (err && err.message) || String(err)};
+        return {ok: false, name: null, path: null, error: errorMessage(err)};
     }
     pruneCrashFiles(dir, keep);
     return {ok: true, name, path: target, error: null};

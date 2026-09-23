@@ -1,6 +1,7 @@
 const electron = require('electron');
 const nodeScreenshots = require('node-screenshots');
 const appLog = require('./app-log');
+const {errorMessage} = require('../shared/errors');
 const {classifyWindow} = require('../shared/detector-rules');
 const {
     FOREGROUND_GAME, FOREGROUND_OWN, FOREGROUND_OTHER, FOREGROUND_UNKNOWN,
@@ -228,7 +229,7 @@ class ForegroundWatcher {
         const now = Date.now();
         if (now - this.lastErrorAt < ERROR_LOG_INTERVAL) return;
         this.lastErrorAt = now;
-        const message = (err && err.message) || String(err);
+        const message = errorMessage(err);
         console.error('Foreground watcher:', message);
         appLog.warn('hotkeys-foreground', {action: 'scan-failed', message});
     }

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const {spawn} = require('child_process');
+const {errorMessage} = require('../shared/errors');
 
 /**
  * The app side of the themed updater (`hmo-updater.exe`) — tier 1 of
@@ -308,7 +309,7 @@ async function launchUpdater(options) {
     let spawnError = null;
     if (typeof child.on === 'function') {
         child.on('error', (err) => {
-            spawnError = (err && err.message) || String(err);
+            spawnError = errorMessage(err);
             exited = true;
         });
         child.on('exit', () => {

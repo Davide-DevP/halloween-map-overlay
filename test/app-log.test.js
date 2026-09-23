@@ -85,6 +85,19 @@ test('a non-string field (an Error, an array, a nested object) is redacted too',
     assert.match(text, /c\.png/);
 });
 
+test('past the depth cap nothing raw is logged, and a circular field cannot throw', () => {
+    const {log, dir} = fresh();
+    const deep = {a: {b: {c: {d: {e: `${HOME}\\secret.png`}}}}};
+    const loop = {name: 'x'};
+    loop.self = loop;
+    assert.doesNotThrow(() => log.error('deep', {deep, loop}));
+    log.flush();
+    const text = readLog(dir);
+    assert.strictEqual(leaksHome(text), false, text);
+    assert.doesNotMatch(text, /secret\.png/);
+    assert.match(text, /loop=/);
+});
+
 test('the renderer reports errors through main, redacted', () => {
     const {log, dir} = fresh();
     const report = stub.ipc.listeners.get('renderer-error');

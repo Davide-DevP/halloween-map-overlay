@@ -79,8 +79,12 @@ class AppLog {
         for (const [key, value] of Object.entries(fields)) {
             const clean = this.scrubValue(value, 0);
             // The writer prints one token per field: a structure becomes JSON
-            // *after* every string inside it was redacted.
-            out[key] = clean !== null && typeof clean === 'object' ? JSON.stringify(clean) : clean;
+            // *after* every string inside it was redacted. A log call never throws.
+            if (clean !== null && typeof clean === 'object') {
+                try { out[key] = JSON.stringify(clean); } catch (_) { out[key] = '[unserialisable]'; }
+            } else {
+                out[key] = clean;
+            }
         }
         return out;
     }
@@ -90,7 +94,9 @@ class AppLog {
     scrubValue(value, depth) {
         if (typeof value === 'string') return redactHome(value, this.home);
         if (value instanceof Error) return redactHome(`${value.name}: ${value.message}`, this.home);
-        if (depth >= 4 || value === null || typeof value !== 'object') return value;
+        if (value === null || typeof value !== 'object') return value;
+        // Past the depth cap nothing raw goes through: the rest is dropped.
+        if (depth >= 4) return '[nested]';
         if (Array.isArray(value)) return value.map(v => this.scrubValue(v, depth + 1));
         const out = {};
         for (const [k, v] of Object.entries(value)) out[k] = this.scrubValue(v, depth + 1);

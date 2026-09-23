@@ -4,6 +4,7 @@ const {app, ipcMain} = require('electron');
 const path = require('path');
 
 const appLog = require('./app-log');
+const {errorMessage} = require('../shared/errors');
 const rules = require('../shared/map-pack-rules');
 const MapPackStore = require('./map-pack-store');
 const {fetchPackFile} = require('./map-pack-fetch');
@@ -183,7 +184,7 @@ class MapPacks {
         } catch (err) {
             // `checkForPacks` is written never to throw; if it does, being
             // offline still must not be more than a toast.
-            appLog.error('map-pack-check', {result: 'threw', message: (err && err.message) || String(err)});
+            appLog.error('map-pack-check', {result: 'threw', message: errorMessage(err)});
             result = {ok: false, error: 'threw', notPublished: false, installed: [], skipped: [], failed: []};
         } finally {
             this.checking = false;

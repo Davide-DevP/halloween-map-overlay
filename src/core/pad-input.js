@@ -1,6 +1,7 @@
 'use strict';
 
 const appLog = require('./app-log');
+const {errorMessage} = require('../shared/errors');
 const {PAD_SCAN_INTERVAL, PAD_SLOTS} = require('../shared/tab-mode-rules');
 const {padButtonDown} = require('../shared/pad-codes');
 
@@ -97,7 +98,7 @@ class PadInput {
         this.fn = null;
         this.usable = false;
         this.reason = where;
-        appLog.warn('tab-pad-input', {available: 'no', where, message: (err && err.message) || String(err)});
+        appLog.warn('tab-pad-input', {available: 'no', where, message: errorMessage(err)});
         console.error(`Tab markers: the controller input is unavailable (${where}):`, err && err.message);
         return {ok: false, reason: where};
     }
