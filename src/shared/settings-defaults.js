@@ -37,6 +37,7 @@ const DEFAULT_SETTINGS = {
     onboardingPending: false,   // owed the setup tutorial? MUST stay false
     onboardingDone: false,
     tourSeenVersion: 0,         // MUST stay behind TOUR_VERSION
+    mainWindowSize: null,       // {width, height} of the main window; null = default
     lastCrashSeen: null,        // newest crash-*.txt shown; a file name
     rotation: 0,                // degrees, multiple of 90
     monitor: 0,                 // display index

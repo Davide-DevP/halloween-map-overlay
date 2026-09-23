@@ -378,7 +378,7 @@ kbd {
 }
 
 /* The navbar is `navbar-expand-md`: it is collapsed below 768px only. (This
-   block used to say 991.98px, so the default 1000px window — 984px of viewport
+   block used to say 991.98px, so the then-default 1000px window — 984px of viewport
    — got the collapsed menu's top margin and rule on an expanded navbar, and
    the links sat ~9px below the brand.) */
 @media (max-width: 767.98px) {
@@ -397,7 +397,7 @@ kbd {
  * Main layout
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/* A deliberately narrow measure. The default window is 1000x720 and the
+/* A deliberately narrow measure. The default window is 1100x820 and the
    gallery is four square maps: a wider column would only make the thumbnails
    too tall to see a map's name without scrolling. */
 main.container,
@@ -445,10 +445,15 @@ main.container {
     color: var(--hmo-text-mute);
 }
 
+/* The accent only when a map is on screen: "None" is not news. */
 .now-showing strong {
     font-size: 1.0625rem;
     font-weight: 500;
     letter-spacing: -0.016em;
+    color: var(--hmo-text-mute);
+}
+
+.now-showing strong.is-showing {
     color: var(--hmo-accent);
 }
 
@@ -860,12 +865,6 @@ main.container {
  * Auto-detect status strip
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/* The one-line reason the switch is locked sits beside the switch it explains,
-   not centred between it and the readout (`justify-content: space-between`). */
-#mapDetectionLocked {
-    margin-right: auto;
-}
-
 .detector-bar {
     display: flex;
     flex-wrap: wrap;
@@ -896,15 +895,6 @@ main.container {
 .detector-switch-name {
     font-weight: 500;
     color: var(--hmo-text);
-}
-
-.detector-hint {
-    font-size: 0.75rem;
-    color: var(--hmo-text-mute);
-}
-
-.detector-hint kbd {
-    font-size: 0.72rem;
 }
 
 .detector-readout {
@@ -1309,8 +1299,8 @@ body.is-updating {
     --bs-backdrop-opacity: 1;
 }
 
-/* Bootstrap only widens `.modal-lg` at >=992px, and the default window is
-   1000px of *frame* — under 992 of viewport — so Settings, the FAQ and the
+/* Bootstrap only widens `.modal-lg` at >=992px, and the window can be
+   900px of *frame* (its minimum) — under 992 of viewport — so Settings, the FAQ and the
    custom-image list were all being squeezed into 500px. Width here is driven
    by the window, not by a breakpoint. */
 .modal-lg {
@@ -1803,6 +1793,29 @@ body.is-touring .modal-backdrop {
     margin-left: 0.375rem;
     vertical-align: 1px;
     opacity: 0.85;
+}
+
+/* A setting the chosen placement keeps on: a statement, not a dead switch.
+   Why: docs/agents/settings-and-onboarding.md § Where do you want to see the map? */
+.locked-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    font-weight: 500;
+    color: var(--hmo-text);
+}
+
+.setting .locked-status {
+    margin-bottom: 0.3rem;
+}
+
+.tag.tag-on {
+    margin-left: 0;
+    vertical-align: baseline;
+    color: var(--hmo-text-dim);
+    border-color: var(--hmo-line-strong);
+    opacity: 1;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

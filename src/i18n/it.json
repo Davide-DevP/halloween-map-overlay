@@ -27,8 +27,6 @@
   "home.onOverlay": "Mostrata",
   "home.empty.title": "Nessuna mappa da mostrare",
   "home.noMaps": "Nessuna mappa trovata. Esegui <code>npm run prepare-maps</code> per generarle.",
-  "home.autoDetectHint": "(apri la mappa del gioco con <kbd>Tab</kbd>)",
-  "home.autoDetect.locked": "Serve per i punti sulla mappa del gioco, quindi resta acceso.",
   "home.fullscreenNotice": "Perché la mappa resti sopra il gioco, imposta la modalità di visualizzazione del gioco su <strong>Borderless Windowed</strong> (finestra senza bordi). Una finestra con bordo o barra del titolo impedisce anche di disegnare i punti sulla mappa del gioco. Altro nelle FAQ.",
 
   "detector.off": "Spento",
@@ -138,6 +136,7 @@
   "settings.where.both": "Tutte e due",
   "settings.where.both.help": "La mappa nell'angolo, più i punti sulla mappa del gioco.",
   "settings.autoDetect": "Riconosci la mappa da solo",
+  "settings.autoDetect.on": "Acceso",
   "settings.autoDetect.help": "La prima volta che apri la mappa del gioco, l'app capisce dove stai giocando e mostra la mappa giusta.",
   "settings.autoDetect.lockedHelp": "Serve per mettere i punti sulla mappa del gioco, quindi resta acceso.",
   "settings.autoDetect.blockedHelp": "Serve alla scelta che hai fatto qui sopra, e adesso è spento.",

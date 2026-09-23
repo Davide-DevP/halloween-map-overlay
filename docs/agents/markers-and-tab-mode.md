@@ -63,7 +63,7 @@ is why every string says "possible location". Data provenance is in
 - **Tab-map mode is experimental and off by default** (`tabMarkers`), and it
   **requires auto-detect** — the map is only known because the detector
   recognised it, so choosing either of the two game's-map placements switches
-  auto-detect on and locks it there (`autoDetectSwitchState`), and the mode
+  auto-detect on and keeps it there, shown as a plain *On* rather than a switch (`autoDetectSwitchState`), and the mode
   stops when the detector stops. The second window
   follows `overlay-window.js`'s rules exactly, and here they matter more:
   `hotkeysGameOnly` means a window of ours that steals the foreground

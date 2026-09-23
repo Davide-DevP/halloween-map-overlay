@@ -435,8 +435,14 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
 
 ## Unbinding
 
-- **A system hotkey can be unbound** (Settings › Hotkeys › *Remove key*, IPC
-  `unbind-system-hotkey`). Unbound is the **empty string** stored under the
+- **A system hotkey can be unbound** (Settings › Hotkeys › *Edit* → *Remove key*
+  in the bind dialog, IPC `unbind-system-hotkey`). Since 2026-09-23 the button
+  lives in `#addHotkeyModal`, shown only while a system hotkey is being edited
+  (`#unbindHotkeyBtn`, left of *Save*); it sends the IPC and closes the dialog,
+  and the rows keep *Edit* and *Reset* only — three text actions per row were
+  too many. Map-hotkey rows keep their own *Delete*: they have no default to
+  reset to. The tutorial's *change* opens the same dialog, so it gets the
+  button too. Unbound is the **empty string** stored under the
   action's `ACTION_TO_SETTING_KEY`, not a deleted key: `core/settings.js`
   back-fills anything `undefined` from `DEFAULT_SETTINGS`, so a deleted key
   would come back as the shipped default on the next start. `DEFAULT_SETTINGS`
@@ -467,7 +473,7 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
      `setting key=hotkeyRotateMap value=` reads like a write that lost its
      value, which is the same reason the Unbind path logs one.
   The Hotkeys tab shows a muted `hotkeys.notBound` label instead of a `<kbd>`,
-  disables *Remove key* when already unbound, and disables *Reset* only when the
+  the dialog disables *Remove key* when already unbound, and the row disables *Reset* only when the
   row already **is** the default. That last one needs the two-branch test in
   `systemHotkeyRows()`: `sameAccelerator` says nothing equals unbound, so
   for a default-unbound action a plain comparison leaves *Reset* enabled and

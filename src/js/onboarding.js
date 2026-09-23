@@ -472,8 +472,8 @@ class Onboarding {
 
     /**
      * The switch itself is Settings' own (`Options.syncPlacement` draws it);
-     * only the sentence under it is the tutorial's. Locked on exactly when the
-     * placement needs it (`autoDetectSwitchState`).
+     * only the sentence under it is the tutorial's. A plain "On" exactly when
+     * the placement needs it (`autoDetectSwitchState`).
      */
     renderLayersStep() {
         if (this.options) {
@@ -481,7 +481,7 @@ class Onboarding {
             this.options.syncPlacement();
         }
         const auto = autoDetectSwitchState(this.placement(), this.detectorRunning());
-        $('#tourDetectHelp').text(auto.blocked || auto.disabled
+        $('#tourDetectHelp').text(auto.blocked || auto.control === 'status'
             ? t(auto.reasonKey)
             : t('onboarding.layers.detect.help'));
     }

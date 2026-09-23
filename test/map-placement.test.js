@@ -125,11 +125,13 @@ test('placementSections: every choice leaves at least one map on screen', () => 
     }
 });
 
-test('autoDetectSwitchState: locked on for a game-map mode that is running', () => {
+test('autoDetectSwitchState: a game-map mode that is running shows a status, not a switch', () => {
+    // A switch that cannot be switched is not drawn anywhere: the view shows
+    // the name, a plain "On" and the reason.
     for (const p of ['tab', 'both']) {
         assert.deepStrictEqual(autoDetectSwitchState(p, true), {
+            control: 'status',
             checked: true,
-            disabled: true,
             blocked: false,
             reasonKey: 'settings.autoDetect.lockedHelp'
         }, p);
@@ -144,8 +146,8 @@ test('autoDetectSwitchState: a stored game-map mode with the loop off tells the 
     for (const p of ['tab', 'both']) {
         for (const running of [false, undefined, null, 'yes', 1]) {
             assert.deepStrictEqual(autoDetectSwitchState(p, running), {
+                control: 'switch',
                 checked: false,
-                disabled: false,
                 blocked: true,
                 reasonKey: 'settings.autoDetect.blockedHelp'
             }, `${p}/${JSON.stringify(running)}`);
@@ -155,24 +157,25 @@ test('autoDetectSwitchState: a stored game-map mode with the loop off tells the 
 
 test('autoDetectSwitchState: an ordinary switch on the corner', () => {
     assert.deepStrictEqual(autoDetectSwitchState('corner', true),
-        {checked: true, disabled: false, blocked: false, reasonKey: 'settings.autoDetect.help'});
+        {control: 'switch', checked: true, blocked: false, reasonKey: 'settings.autoDetect.help'});
     assert.deepStrictEqual(autoDetectSwitchState('corner', false),
-        {checked: false, disabled: false, blocked: false, reasonKey: 'settings.autoDetect.help'});
+        {control: 'switch', checked: false, blocked: false, reasonKey: 'settings.autoDetect.help'});
     // `checked` reports the loop, never the setting: a start main refused must
     // not leave a ticked box behind.
     assert.strictEqual(autoDetectSwitchState('corner', 'yes').checked, false);
     assert.strictEqual(autoDetectSwitchState('corner', null).checked, false);
 });
 
-test('autoDetectSwitchState: it is never both disabled and blocked', () => {
-    // "Disabled" means the user must not change it; "blocked" means only the
+test('autoDetectSwitchState: it is never both a status and blocked', () => {
+    // "Status" means the user must not change it; "blocked" means only the
     // user can. Both at once would be a dead end.
     for (const p of [...MAP_PLACEMENTS, 'nope', null]) {
         for (const running of [true, false]) {
             const state = autoDetectSwitchState(p, running);
-            assert.ok(!(state.disabled && state.blocked), `${p}/${running}`);
-            // A locked switch always claims to be on, and only when it is.
-            assert.strictEqual(state.disabled, state.checked && running === true
+            assert.ok(['switch', 'status'].includes(state.control), `${p}/${running}`);
+            assert.ok(!(state.control === 'status' && state.blocked), `${p}/${running}`);
+            // The status always says "On", and only when the loop really runs.
+            assert.strictEqual(state.control === 'status', state.checked && running === true
                 && placementNeedsDetection(p));
         }
     }

@@ -36,7 +36,9 @@ function formatValue(value) {
     if (typeof value === 'number') {
         return Number.isInteger(value) ? String(value) : value.toFixed(3);
     }
-    const text = String(value).replace(/[\r\n]+/g, ' ');
+    // A plain object (`mainWindowSize`) as JSON, not "[object Object]".
+    const raw = value && typeof value === 'object' && !Array.isArray(value) ? JSON.stringify(value) : String(value);
+    const text = raw.replace(/[\r\n]+/g, ' ');
     return /[\s"]/.test(text) ? `"${text.replace(/"/g, "'")}"` : text;
 }
 

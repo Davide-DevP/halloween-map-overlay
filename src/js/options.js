@@ -559,18 +559,21 @@ class Options {
         $('#gameMapKeyBlock').toggleClass('d-none', !sections.gameMap);
         $('#gameMapTroubleFold').toggleClass('d-none', !sections.troubleshooting);
         const auto = autoDetectSwitchState(placement, this.detectorRunning());
+        const status = auto.control === 'status';
         const check = document.getElementById('autoDetectCheck');
-        // Disabling the focused element blurs it: hand focus to its dialog first,
+        // Hiding the focused element blurs it: hand focus to its dialog first,
         // or the tutorial's focus trap loses it. Why: docs/agents/settings-and-onboarding.md.
-        if (auto.disabled && check && check === document.activeElement) {
+        if (status && check && check === document.activeElement) {
             const dialog = check.closest('#tour, .modal');
             if (dialog) dialog.focus();
         }
-        $(check).prop('checked', auto.checked).prop('disabled', auto.disabled);
+        $(check).prop('checked', auto.checked);
+        $('#autoDetectSwitchControl').toggleClass('d-none', status);
+        $('#autoDetectLocked').toggleClass('d-none', !status);
         $('#autoDetectHelp').text(t(auto.reasonKey));
         $('#autoDetectStart').toggleClass('d-none', !auto.blocked);
         if (this.detector && typeof this.detector.setPlacementLock === 'function') {
-            this.detector.setPlacementLock(auto.disabled);
+            this.detector.setPlacementLock(status);
         }
     }
 

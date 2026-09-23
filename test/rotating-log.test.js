@@ -29,6 +29,11 @@ test('formatLine: no level is the detector.log shape, unchanged', () => {
     assert.strictEqual(formatLine('match', {key: 'a/One'}, 0, ''), line);
 });
 
+test('formatLine: a plain object is written as JSON on one line', () => {
+    const line = formatLine('setting', {key: 'mainWindowSize', value: {width: 1100, height: 820}}, Date.UTC(2026, 8, 23), 'info');
+    assert.ok(line.endsWith(`key=mainWindowSize value="{'width':1100,'height':820}"\n`), line);
+});
+
 test('formatLine: a level with whitespace cannot split the line', () => {
     const line = formatLine('e', null, 0, 'very bad');
     assert.strictEqual(line.split('\n').length, 2, line);

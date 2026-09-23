@@ -189,9 +189,6 @@ class Hotkeys {
                     <span class="row-actions">
                         <button type="button" class="edit-system-btn btn btn-sm btn-quiet"
                                 data-action="${escapeHtml(row.actionId)}" title="${escapeHtml(t('hotkeys.editTitle'))}">${escapeHtml(t('common.edit'))}</button>
-                        <button type="button" class="unbind-system-btn btn btn-sm btn-quiet"
-                                data-action="${escapeHtml(row.actionId)}" title="${escapeHtml(t('hotkeys.unbindTitle'))}"
-                                ${row.bound ? '' : 'disabled'}>${escapeHtml(t('hotkeys.unbind'))}</button>
                         <button type="button" class="reset-system-btn btn btn-sm btn-quiet"
                                 data-action="${escapeHtml(row.actionId)}" title="${escapeHtml(t('hotkeys.resetTitle'))}"
                                 ${row.isDefault ? 'disabled' : ''}>${escapeHtml(t('common.reset'))}</button>
@@ -222,11 +219,6 @@ class Hotkeys {
         $('.edit-system-btn').off('click').on('click', function () {
             self.startSystemHotkeyEdit($(this).data('action'));
         });
-        // Fire and forget: main answers with a toast and the
-        // `system-hotkeys-updated` push that redraws this table.
-        $('.unbind-system-btn').off('click').on('click', function () {
-            ipcRenderer.send('unbind-system-hotkey', {actionId: $(this).data('action')});
-        });
         $('.reset-system-btn').off('click').on('click', function () {
             ipcRenderer.send('reset-system-hotkey', {actionId: $(this).data('action')});
         });
@@ -239,6 +231,9 @@ class Hotkeys {
         this.editingSystemAction = actionId;
 
         $('#mapSelectField').hide();
+        const {main, more} = systemHotkeyRows(this.systemHotkeys);
+        const row = main.concat(more).find(r => r.actionId === actionId);
+        $('#unbindHotkeyBtn').removeClass('d-none').prop('disabled', !(row && row.bound));
 
         this.startRecording();
         this.applyModalTitle();
@@ -274,8 +269,20 @@ class Hotkeys {
         if (result.ok) this.closeModal();
     }
 
+    /**
+     * Fire and forget: main answers with a toast and the
+     * `system-hotkeys-updated` push that redraws the table.
+     */
+    unbindSystemHotkey() {
+        const actionId = this.editingSystemAction;
+        if (!actionId) return;
+        ipcRenderer.send('unbind-system-hotkey', {actionId});
+        this.closeModal();
+    }
+
     restoreModalDefaults() {
         $('#mapSelectField').show();
+        $('#unbindHotkeyBtn').addClass('d-none').prop('disabled', false);
         $('#hotkeyInput').val('');
         this.editingSystemAction = null;
         this.recordingHotkey = false;
@@ -446,6 +453,7 @@ class Hotkeys {
         const saveButton = document.getElementById('saveHotkeyBtn');
         if (saveButton) saveButton.addEventListener('click', () => saveButton.blur());
         $("#saveHotkeyBtn").on("click", () => this.saveHotkeyToFile());
+        $('#unbindHotkeyBtn').on('click', () => this.unbindSystemHotkey());
 
         // Native listeners, not jQuery's: jQuery `.on()` treats ".bs.modal" as
         // an event namespace and never fires (same trap as the tabs in

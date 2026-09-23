@@ -112,6 +112,7 @@ Entry and windows
   src/core/map-controller.js    Which map is on the overlay: hotkeys, detector, CLI, gallery. No window needed
   src/shared/map-state.js       PURE state + intent → state + effects (the whole match-time logic)
   src/shared/window-unload.js   PURE `shouldUnloadMainWindow()` — may the window be destroyed right now
+  src/shared/window-size.js     PURE main-window size: default, minimum, work-area clamp, what a resize stores
   src/core/overlay-window.js    Transparent click-through always-on-top window
   src/core/overlay-position.js  PURE positioning math (corner preset + glide + rotated box)
   src/core/obs-window.js        Green-background window for OBS capture

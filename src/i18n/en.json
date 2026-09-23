@@ -27,8 +27,6 @@
   "home.onOverlay": "Showing",
   "home.empty.title": "No maps to show",
   "home.noMaps": "No maps found. Run <code>npm run prepare-maps</code> to build them.",
-  "home.autoDetectHint": "(open the game's map with <kbd>Tab</kbd>)",
-  "home.autoDetect.locked": "Needed for the points on the game's map, so it stays on.",
   "home.fullscreenNotice": "For the map to stay on top of the game, set the game's display mode to <strong>Borderless Windowed</strong>. A window with a border or a title bar also stops the points being drawn on the game's map. More in the FAQ.",
 
   "detector.off": "Off",
@@ -138,6 +136,7 @@
   "settings.where.both": "Both",
   "settings.where.both.help": "The map in the corner, plus the points on the game's map.",
   "settings.autoDetect": "Recognise the map automatically",
+  "settings.autoDetect.on": "On",
   "settings.autoDetect.help": "The first time you open the game's map, the app works out where you are playing and shows the right map.",
   "settings.autoDetect.lockedHelp": "This is what puts the points on the game's map, so it stays on.",
   "settings.autoDetect.blockedHelp": "What you chose above needs this, and it is off right now.",

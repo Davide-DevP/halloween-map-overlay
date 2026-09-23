@@ -19,13 +19,13 @@ class Detector {
         this.statusListeners = [];
         /**
          * A placement that *needs* detection must not be breakable from here:
-         * disabled, with the reason beside it. `Options.syncPlacement` owns it.
+         * a plain "On" instead of the switch. `Options.syncPlacement` owns it.
          */
         this.placementLocked = false;
         onChange(() => this.render(this.lastStatus));
     }
 
-    /** @param {boolean} locked from `autoDetectSwitchState(...).disabled` */
+    /** @param {boolean} locked `autoDetectSwitchState(...).control === 'status'` */
     setPlacementLock(locked) {
         const on = locked === true;
         if (on === this.placementLocked) return;
@@ -34,7 +34,7 @@ class Detector {
     }
 
     applyLock() {
-        $("#mapDetectionCheck").prop("disabled", this.placementLocked);
+        $("#mapDetectionSwitch").toggleClass('d-none', this.placementLocked);
         $("#mapDetectionLocked").toggleClass('d-none', !this.placementLocked);
     }
 
@@ -75,8 +75,7 @@ class Detector {
                 this.render({running: false});
             }
         } finally {
-            // Back to whatever the placement says, not unconditionally on.
-            $check.prop("disabled", this.placementLocked);
+            $check.prop("disabled", false);
         }
     }
 

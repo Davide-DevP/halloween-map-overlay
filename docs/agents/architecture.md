@@ -60,6 +60,9 @@ src/shared/map-state.js         → PURE `reduceMapState(state, intent, ctx)` �
 src/shared/window-unload.js     → PURE `shouldUnloadMainWindow()` — may the
                                   main window be destroyed right now, and if
                                   not, why not. Tested.
+src/shared/window-size.js       → PURE main-window size: the default, the
+                                  minimum, `clampWindowSize` against the work
+                                  area, `sizeToPersist`. Tested.
 src/core/overlay-window.js      → Transparent click-through always-on-top window.
 src/core/overlay-position.js    → PURE positioning math (corner preset + glide %
                                   + rotated bounding box). Unit tested.
@@ -432,7 +435,7 @@ test/                           → node:test unit tests for the pure modules.
 - **Pure vs impure**: every module in `src/shared/` (among them
   `hotkeys-constants.js`, `hotkeys-rules.js`, `hotkey-migration.js`,
   `settings-defaults.js`, `map-placement.js`, `onboarding-rules.js`,
-  `i18n.js`, `map-state.js`, `window-unload.js`, `update-message.js`,
+  `i18n.js`, `map-state.js`, `window-unload.js`, `window-size.js`, `update-message.js`,
   `detector-rules.js`, `detector-status.js`, `detector-worker-rules.js`,
   `tab-mode-rules.js`, `marker-rules.js`, `marker-geometry.js`,
   `key-codes.js`, `pad-codes.js`, `redact.js`, `map-pack-rules.js`,

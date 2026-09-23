@@ -91,7 +91,9 @@ class Maps {
 
     /** A map name is never translated; only the "nothing showing" word is. */
     renderCurrent() {
-        $("#currentMap").text(this.currentKey ? this.currentKey.split("/").pop() : t('home.none'));
+        $("#currentMap")
+            .text(this.currentKey ? this.currentKey.split("/").pop() : t('home.none'))
+            .toggleClass('is-showing', !!this.currentKey);
     }
 
     send(intent) {

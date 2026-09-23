@@ -143,8 +143,8 @@ are written once on first run — <kbd>Ctrl</kbd> + <kbd>Alt</kbd> +
 nine maps in gallery order, so maps added in a later version get their own
 number automatically — and are yours to edit or delete afterwards.
 
-Any of the system hotkeys can also be switched off entirely: **Remove key**
-leaves that action with no key, so the keys go back to the game and
+Any of the system hotkeys can also be switched off entirely: press **Edit** on
+its row, then **Remove key** in the dialog. That leaves the action with no key, so the keys go back to the game and
 to every other program. The row then reads *no key*, **Reset** puts the
 default back (unless something else has taken it meanwhile) and **Edit** binds
 it again. For the five that have no default, **Reset** is the same thing as

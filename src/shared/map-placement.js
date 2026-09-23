@@ -51,21 +51,20 @@ function placementSections(placement) {
 }
 
 /**
- * The *Recognise the map automatically* switch, wherever it is drawn.
- * `blocked` is a stored game's-map placement with the loop **off**: nothing may
- * switch a screen capture on without a click (AGENTS.md rule 1), so it reports
- * the truth and invites one. A literal key per branch — `test/i18n.test.js`
- * finds a key held as data by the `…Key: '<dotted>'` shape.
+ * *Recognise the map automatically*, wherever it is drawn: `control` is
+ * `'switch'` or `'status'` (a plain "On" — never a disabled switch). `blocked`
+ * is a game's-map placement with the loop off: only a click may start a capture
+ * (AGENTS.md rule 1). Literal keys: `test/i18n.test.js` reads `…Key: '<dotted>'`.
  */
 function autoDetectSwitchState(placement, running) {
     const on = running === true;
     if (!placementNeedsDetection(placement)) {
-        return {checked: on, disabled: false, blocked: false, reasonKey: 'settings.autoDetect.help'};
+        return {control: 'switch', checked: on, blocked: false, reasonKey: 'settings.autoDetect.help'};
     }
     if (on) {
-        return {checked: true, disabled: true, blocked: false, reasonKey: 'settings.autoDetect.lockedHelp'};
+        return {control: 'status', checked: true, blocked: false, reasonKey: 'settings.autoDetect.lockedHelp'};
     }
-    return {checked: false, disabled: false, blocked: true, reasonKey: 'settings.autoDetect.blockedHelp'};
+    return {control: 'switch', checked: false, blocked: true, reasonKey: 'settings.autoDetect.blockedHelp'};
 }
 
 /** Never stops a detector switched on for its own sake. */

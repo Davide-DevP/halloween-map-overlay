@@ -140,25 +140,24 @@
                     <option value="" data-i18n="home.allCreators">All creators</option>
                 </select>
             </div>
-            <button class="btn btn-accent" type="button" id="obsOpen" data-i18n="home.obsOpen">Open OBS window</button>
+            <button class="btn btn-quiet" type="button" id="obsOpen" data-i18n="home.obsOpen">Open OBS window</button>
             <button class="btn btn-quiet" type="button" id="hide" data-i18n="home.hideMap">Hide the map</button>
         </div>
     </header>
 
     <div class="detector-bar">
-        <div class="form-check form-switch detector-switch">
+        <!-- A switch, or a plain "On" when the placement needs it (the reason is
+             in Settings): `autoDetectSwitchState` in src/shared/map-placement.js. -->
+        <div class="form-check form-switch detector-switch" id="mapDetectionSwitch">
             <input class="form-check-input" type="checkbox" id="mapDetectionCheck" role="switch">
             <label class="form-check-label" for="mapDetectionCheck">
                 <span class="detector-switch-name" data-i18n="settings.autoDetect">Recognise the map automatically</span>
-                <span class="detector-hint" data-i18n-html="home.autoDetectHint">(open the game's map with
-                    <kbd>Tab</kbd>)</span>
             </label>
         </div>
-        <!-- A placement may *need* this, and the home page must not silently
-             break it: the switch is disabled with the reason beside it.
-             `autoDetectSwitchState` in src/shared/map-placement.js. -->
-        <small class="help-text d-none" id="mapDetectionLocked" data-i18n="home.autoDetect.locked">Needed for the points on the
-            game's map, so it stays on.</small>
+        <p class="locked-status d-none" id="mapDetectionLocked">
+            <span data-i18n="settings.autoDetect">Recognise the map automatically</span>
+            <em class="tag tag-on" data-i18n="settings.autoDetect.on">On</em>
+        </p>
         <!-- `data-state` is written by src/js/detector.js from the same status
              push that fills the text: off / watching / menu / detected. -->
         <span class="detector-readout" id="detectorReadout" data-state="off" aria-live="polite">
@@ -336,14 +335,20 @@
                                     </div>
                                 </label>
                             </div>
-                            <div class="form-check form-switch setting-switch" id="autoDetectSwitch">
-                                <input class="form-check-input" type="checkbox" id="autoDetectCheck" role="switch">
-                                <label class="form-check-label" for="autoDetectCheck" data-i18n="settings.autoDetect">Recognise the map
-                                    automatically</label>
+                            <!-- Three states, all from `autoDetectSwitchState`: a switch, a plain "On"
+                                 the placement keeps (never a disabled switch), or a switch that is off
+                                 with a button — nothing may start a screen capture without a click. -->
+                            <div id="autoDetectSwitch">
+                                <div class="form-check form-switch setting-switch" id="autoDetectSwitchControl">
+                                    <input class="form-check-input" type="checkbox" id="autoDetectCheck" role="switch">
+                                    <label class="form-check-label" for="autoDetectCheck" data-i18n="settings.autoDetect">Recognise the map
+                                        automatically</label>
+                                </div>
+                                <p class="locked-status d-none" id="autoDetectLocked">
+                                    <span data-i18n="settings.autoDetect">Recognise the map automatically</span>
+                                    <em class="tag tag-on" data-i18n="settings.autoDetect.on">On</em>
+                                </p>
                             </div>
-                            <!-- Three states, all from `autoDetectSwitchState`. The button shows only
-                                 for a stored game's-map placement whose loop is off: nothing may start a
-                                 screen capture without a click. -->
                             <small class="help-text" id="autoDetectHelp" data-i18n="settings.autoDetect.help">The first time you open the
                                 game's map, the app works out where you are playing and shows the
                                 right map.</small>
@@ -652,6 +657,11 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <!-- Only while a system hotkey is being edited; the table rows keep
+                     Edit and Reset. Why: docs/agents/hotkeys.md § Unbinding. -->
+                <button type="button" class="btn btn-quiet me-auto d-none" id="unbindHotkeyBtn"
+                        data-i18n="hotkeys.unbind" data-i18n-title="hotkeys.unbindTitle"
+                        title="Leave this action with no key">Remove key</button>
                 <!-- No data-bs-dismiss: the modal is closed from JS only once
                      the main process has accepted the binding, so a validation
                      error can still be shown with the recorded key intact. -->
@@ -979,8 +989,8 @@
                     </div>
                 </section>
 
-                <!-- 4 ── What to show. The switch's three states are
-                     `autoDetectSwitchState`, as in Settings and on the home page. -->
+                <!-- 4 ── What to show. The switch's three states (switch, plain "On",
+                     off with a button) are `autoDetectSwitchState`, as in Settings and on the home page. -->
                 <section class="tour-step d-none" data-tour-step="layers">
                     <h2 class="tour-title" data-i18n="onboarding.layers.title">What do you want to see on the map?</h2>
                     <p class="tour-lead" data-i18n-html="onboarding.layers.body">These are the places where something

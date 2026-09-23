@@ -27,8 +27,6 @@
   "home.onOverlay": "Zu sehen",
   "home.empty.title": "Keine Karten vorhanden",
   "home.noMaps": "Keine Karten gefunden. Führe <code>npm run prepare-maps</code> aus, um sie zu erzeugen.",
-  "home.autoDetectHint": "(öffne im Spiel die Karte mit <kbd>Tab</kbd>)",
-  "home.autoDetect.locked": "Nötig für die Punkte auf der Karte im Spiel, darum bleibt es an.",
   "home.fullscreenNotice": "Damit die Karte über dem Spiel bleibt, stell das Spiel auf <strong>Borderless Windowed</strong> (randloses Fenster). Ein Fenster mit Rahmen oder Titelleiste verhindert außerdem die Punkte auf der Karte im Spiel. Mehr dazu in den FAQ.",
 
   "detector.off": "Aus",
@@ -138,6 +136,7 @@
   "settings.where.both": "Beides",
   "settings.where.both.help": "Die Karte in der Ecke und die Punkte auf der Karte im Spiel.",
   "settings.autoDetect": "Karte automatisch erkennen",
+  "settings.autoDetect.on": "An",
   "settings.autoDetect.help": "Wenn du die Karte im Spiel zum ersten Mal öffnest, findet die App heraus, wo du spielst, und zeigt die richtige Karte.",
   "settings.autoDetect.lockedHelp": "Das setzt die Punkte auf die Karte im Spiel, darum bleibt es an.",
   "settings.autoDetect.blockedHelp": "Deine Wahl oben braucht das, und es ist gerade aus.",

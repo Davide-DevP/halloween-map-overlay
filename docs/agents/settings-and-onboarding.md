@@ -201,6 +201,10 @@ or user text, which is why `core/settings.js` may log every change.
   (`app.disableHardwareAcceleration()` is ignored once the app is ready), which
   is why `useHardwareAcceleration` treats any non-boolean as the shipped
   default: a hand-edited file must not put the app in a third state.
+- **`mainWindowSize` ships `null`** (= the 1100x820 default): the main
+  window's last settled `{width, height}`, never a position, never written while
+  maximised, and checked against the screen before use —
+  [overlay-windows.md § The main window's size](overlay-windows.md#the-main-windows-size).
 - **`language` is `'system'` or a catalogue code**, resolved once in main against
   `app.getLocale()` — [i18n.md](i18n.md). `mapLabel` is the `MAP_LABEL_MODES`
   enum (`auto`/`always`/`never`), normalised by `mapLabelMode` so a file
@@ -249,13 +253,21 @@ where 0.7 had three independent switches (`tabMarkers`, `tabHidesMinimap` and
   the Map tab's `#autoDetectCheck` (which the tutorial's layers step borrows —
   it is the same element) and the home page's. Both go
   through `Detector.setEnabled`, and both draw from the pure
-  `autoDetectSwitchState(placement, running)`, which has **three** states:
+  `autoDetectSwitchState(placement, running)`, which has **three** states
+  and a `control` of `'switch'` or `'status'`:
   - `corner` → an ordinary switch.
-  - `tab`/`both` **and the loop running** → on and `disabled`, with the reason
-    on screen. The home page's is the one that could silently break the
-    placement, so it is locked the same way (`Detector.setPlacementLock`, with
-    `#mapDetectionLocked` carrying the one-line reason) — *not* reverted to
-    `corner` behind the user's back from a different page.
+  - `tab`/`both` **and the loop running** → `control: 'status'`: **no switch
+    at all**, the name as plain text with a small *On* tag
+    (`settings.autoDetect.on`, `.tag.tag-on`) and, in Settings and the
+    tutorial, the reason (`settings.autoDetect.lockedHelp`). Up to 1.3.0 this
+    was a disabled switch, and a switch that cannot be switched reads as broken
+    (owner, 2026-09-23). The home page is the one place that could silently
+    break the placement, so it gets the same status
+    (`Detector.setPlacementLock` swaps `#mapDetectionSwitch` for
+    `#mapDetectionLocked`) with **no** sentence — the reason lives once, in
+    Settings — and is *not* reverted to `corner` behind the user's back from a
+    different page. The home bar is only this and the status pill; the pill's
+    `detector.watching` already names the key, so the bar has no Tab hint.
   - `tab`/`both` **and the loop off** → `blocked`: off, still usable, with its
     own reason and a *Switch it on* button. 0.7 could store
     `{tabMarkers: true, mapDetection: false}`, and **nothing may start a screen

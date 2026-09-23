@@ -10,6 +10,7 @@ const {markerGeometry, markerReach} = require('../shared/marker-geometry');
 const {shouldUnloadMainWindow, UNLOAD_GRACE_MS} = require('../shared/window-unload');
 const {errorMessage} = require('../shared/errors');
 const {clearTimer, unrefTimer} = require('../shared/timers');
+const {clampWindowSize, minimumSize, sizeToPersist} = require('../shared/window-size');
 const {markQuitting, isQuitting} = require('./quitting');
 const Updater = require('./updater');
 const appLog = require('./app-log');
@@ -33,10 +34,11 @@ const TOAST_FLUSH_GAP_MS = 2500;
 const OVERLAY_WIDTH_SLACK_PX = 5;
 const OVERLAY_HEIGHT_SLACK = 1.1;
 
-/** The main window's first size, and the colour it paints before the page loads. */
-const MAIN_WINDOW_WIDTH = 1000;
-const MAIN_WINDOW_HEIGHT = 720;
+/** The colour the main window paints before the page loads. */
 const MAIN_WINDOW_BACKGROUND = '#14100f';
+
+/** A resize is stored once it has settled, not on every drag tick. */
+const SIZE_SAVE_DELAY_MS = 500;
 
 class MainWindow {
 
@@ -65,6 +67,7 @@ class MainWindow {
     /** `cleanStaleUpdateHelpers` + `checkUpdates` run on the first build only. */
     startupTasksDone = false;
     toastQueue = [];
+    sizeSaveTimer = null;
 
     constructor(obsWindow, overlayWindow, settings, mapLibrary, language) {
         this.obsWindow = obsWindow;
@@ -355,6 +358,22 @@ class MainWindow {
         appLog.event('map-change', {key, source});
     }
 
+    /** Debounced; a failed write warns through `Settings.write()`, as the overlay drag does. */
+    scheduleSizeSave(window) {
+        this.sizeSaveTimer = clearTimer(this.sizeSaveTimer);
+        this.sizeSaveTimer = unrefTimer(setTimeout(() => {
+            this.sizeSaveTimer = null;
+            if (!window || window.isDestroyed()) return;
+            const [width, height] = window.getSize();
+            const next = sizeToPersist({width, height}, {
+                maximized: window.isMaximized(),
+                minimized: window.isMinimized(),
+                fullScreen: window.isFullScreen()
+            }, this.settings.get('mainWindowSize'));
+            if (next) this.settings.set('mainWindowSize', next);
+        }, SIZE_SAVE_DELAY_MS));
+    }
+
     /**
      * **Everything that rebuilds this window is a user action.** One nobody
      * asked for either costs a renderer build mid-match or steals the
@@ -375,9 +394,16 @@ class MainWindow {
         const wasUnloaded = this.unloaded;
         this.unloaded = false;
         this.cancelUnload();
+        // Size only, checked against the screen it opens on; never position.
+        // Why: docs/agents/overlay-windows.md § The main window's size.
+        const workArea = screen.getPrimaryDisplay().workArea;
+        const size = clampWindowSize(this.settings.get('mainWindowSize'), workArea);
+        const min = minimumSize(workArea);
         this.window = new BrowserWindow({
-            width: MAIN_WINDOW_WIDTH,
-            height: MAIN_WINDOW_HEIGHT,
+            width: size.width,
+            height: size.height,
+            minWidth: min.width,
+            minHeight: min.height,
             backgroundColor: MAIN_WINDOW_BACKGROUND,
             show: true,
             webPreferences: webPreferences(),
@@ -396,6 +422,7 @@ class MainWindow {
             // shuts the app down, but *our own* teardown must not take the
             // overlay with it mid-match. The flag is on the **window object**
             // because `closed` may not be synchronous with `destroy()`.
+            this.sizeSaveTimer = clearTimer(this.sizeSaveTimer);
             if (window.__hmoUnloading) return;
             // A real close shuts down **explicitly**, never via
             // `window-all-closed`: that needs *every* window gone, and the lazy
@@ -415,6 +442,7 @@ class MainWindow {
             this.cancelUnload();
             this.flushToastQueue();
         });
+        window.on('resize', () => this.scheduleSizeSave(window));
         window.on("minimize", (event) => {
             if (settings.get('minimizeToTray')) {
                 event.preventDefault();

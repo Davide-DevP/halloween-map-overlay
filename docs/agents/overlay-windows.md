@@ -66,6 +66,34 @@ player sees.
   re-created; making *it* lazy saves nothing in the state that matters and would
   break the focus rule below.
 
+## The main window's size
+
+- **1100x820 by default, 900x640 at least** (2026-09-23; it was a fixed
+  1000x720 up to 1.3.0, which left the home page's gallery one row short and
+  Settings squeezed). The numbers are `MAIN_WINDOW_DEFAULT` / `MAIN_WINDOW_MIN`
+  in the pure `src/shared/window-size.js`; `src/css/app.css` sizes the main
+  column and `.modal-lg` from the viewport, not from these numbers.
+- **The size is remembered, the position is not.** A settled resize (debounced
+  500 ms, `MainWindow.scheduleSizeSave`) writes `mainWindowSize` `{width,
+  height}` — the outer size, what `BrowserWindow`'s `width`/`height` take.
+  `sizeToPersist` skips a maximised, minimised or full-screen window (a
+  maximised 1920x1040 is not a size the user chose, and restoring it
+  un-maximised would cover the screen) and an unchanged size, so a tray
+  unload/rebuild does not log a write. No rollback, as for the overlay drag: the
+  value is where the window already is; a failed write warns through
+  `Settings.write()`'s throttled toast.
+- **Restored only after `clampWindowSize`** against the primary display's work
+  area (Electron opens a window with no position there): anything that is not
+  two positive numbers is the default; the result is held between the minimum
+  and the work area, so a size saved on a monitor that is gone cannot open off
+  screen, and on a work area smaller than the default (a 1366x768 laptop) even
+  the default shrinks. `minimumSize` lowers `minWidth`/`minHeight` on a work
+  area smaller than 900x640. Position is left to Electron: a remembered
+  position is the one that lands on an unplugged monitor.
+- The themed updater helper opens at the window's **live** bounds
+  (`helperBounds`, [updater-and-installer.md](updater-and-installer.md)) with
+  its own 560x380 minimum and work-area clamp; nothing in it assumes 1000x720.
+
 ## Focus
 
 - The overlay window cannot steal the foreground from the game, and that is

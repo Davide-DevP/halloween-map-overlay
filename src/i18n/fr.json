@@ -27,8 +27,6 @@
   "home.onOverlay": "Affichée",
   "home.empty.title": "Aucune carte à afficher",
   "home.noMaps": "Aucune carte trouvée. Lance <code>npm run prepare-maps</code> pour les générer.",
-  "home.autoDetectHint": "(ouvre la carte du jeu avec <kbd>Tab</kbd>)",
-  "home.autoDetect.locked": "Nécessaire pour les points sur la carte du jeu, donc ça reste activé.",
   "home.fullscreenNotice": "Pour que la carte reste au-dessus du jeu, mets le mode d'affichage du jeu sur <strong>Borderless Windowed</strong> (fenêtre sans bordure). Une fenêtre avec une bordure ou une barre de titre empêche aussi de dessiner les points sur la carte du jeu. Plus d'infos dans la FAQ.",
 
   "detector.off": "Désactivé",
@@ -138,6 +136,7 @@
   "settings.where.both": "Les deux",
   "settings.where.both.help": "La carte dans le coin, plus les points sur la carte du jeu.",
   "settings.autoDetect": "Reconnaître la carte automatiquement",
+  "settings.autoDetect.on": "Activé",
   "settings.autoDetect.help": "La première fois que tu ouvres la carte du jeu, l'app comprend où tu joues et affiche la bonne carte.",
   "settings.autoDetect.lockedHelp": "C'est ce qui met les points sur la carte du jeu, donc ça reste activé.",
   "settings.autoDetect.blockedHelp": "Ce que tu as choisi au-dessus en a besoin, et c'est désactivé en ce moment.",
