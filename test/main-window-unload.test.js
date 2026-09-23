@@ -30,7 +30,6 @@ const APP = {
     getVersion: () => '0.7.0',
     getLocale: () => 'en-GB',
     isPackaged: false,
-    isQuiting: false,
     quitCalls: 0,
     on() {},
     quit() { this.quitCalls += 1; }
@@ -95,6 +94,7 @@ Module._load = function (request) {
 };
 
 const MainWindow = require(path.join(ROOT, 'src/core/main-window'));
+const quitting = require(path.join(ROOT, 'src/core/quitting'));
 const {UNLOAD_GRACE_MS} = require(path.join(ROOT, 'src/shared/window-unload'));
 const {DEFAULT_SETTINGS} = require(path.join(ROOT, 'src/shared/settings-defaults'));
 
@@ -112,7 +112,7 @@ function fakeSettings(over) {
 }
 
 function build(over) {
-    APP.isQuiting = false;
+    quitting.clearQuitting();
     APP.quitCalls = 0;
     WINDOWS.length = 0;
     const overlay = fakeWindowDouble();
@@ -130,8 +130,8 @@ function build(over) {
         hotkeys: {suspended: false}
     });
     // The update check is the one thing `show()` does that talks to the world.
-    mainWindow.checkUpdates = () => {};
-    mainWindow.cleanStaleUpdateHelpers = () => {};
+    mainWindow.updater.checkUpdates = () => {};
+    mainWindow.updater.cleanStaleUpdateHelpers = () => {};
     return {mainWindow, overlay, obs, hooks};
 }
 
@@ -157,7 +157,7 @@ test('closing the window shuts the app down explicitly, even with a third window
 
     mainWindow.window.close();
 
-    assert.strictEqual(APP.isQuiting, true, 'the app must know it is quitting');
+    assert.strictEqual(quitting.isQuitting(), true, 'the app must know it is quitting');
     assert.strictEqual(APP.quitCalls, 1, 'app.quit() was not called');
     assert.strictEqual(overlay.closed, 1, 'the overlay was not closed');
     assert.strictEqual(obs.closed, 1, 'the OBS window was not closed');
@@ -201,13 +201,13 @@ test('a tray unload destroys the window and leaves the overlay alone', () => {
     assert.strictEqual(hooks.detectorStopped, 0);
     assert.strictEqual(hooks.trayDestroyed, 0);
     assert.strictEqual(APP.quitCalls, 0, 'the app must not quit');
-    assert.strictEqual(APP.isQuiting, false);
+    assert.strictEqual(quitting.isQuitting(), false);
 });
 
 test('an unloaded window is rebuilt by show(), and the startup work is not repeated', () => {
     const {mainWindow} = build();
     let checks = 0;
-    mainWindow.checkUpdates = () => { checks += 1; };
+    mainWindow.updater.checkUpdates = () => { checks += 1; };
     mainWindow.show('startup');
     assert.strictEqual(checks, 1);
 
@@ -294,7 +294,7 @@ test('an unloading window is not reported as a renderer crash', () => {
 
 test('nothing builds a window on the way out', () => {
     const {mainWindow} = build();
-    APP.isQuiting = true;
+    quitting.markQuitting();
     mainWindow.show('second-instance');
     assert.strictEqual(mainWindow.window, null,
         'a window was built while the installer was taking over');
@@ -344,8 +344,8 @@ test('a recording bind dialog keeps the window, and lifting it re-asks', () => {
 test('a downloaded update keeps the window until the banner has been seen', () => {
     const {mainWindow} = build();
     mainWindow.show('startup');
-    mainWindow.pendingUpdateVersion = '0.7.1';
-    mainWindow.updateBannerShown = false;
+    mainWindow.updater.pendingUpdateVersion = '0.7.1';
+    mainWindow.updater.updateBannerShown = false;
     mainWindow.window.hide();
     agePastGrace(mainWindow);
     mainWindow.scheduleUnload('test');
@@ -360,7 +360,7 @@ test('a downloaded update keeps the window until the banner has been seen', () =
 test('"Later" is remembered in main, so the banner does not come back on every reopen', async () => {
     const {mainWindow} = build();
     mainWindow.show('startup');
-    mainWindow.pendingUpdateVersion = '0.7.1';
+    mainWindow.updater.pendingUpdateVersion = '0.7.1';
     assert.deepStrictEqual(await IPC.handlers.get('get-pending-update')(),
         {version: '0.7.1', dismissed: false});
     IPC.listeners.get('update-banner-dismissed')({});
@@ -412,8 +412,11 @@ test('the queue is flushed one at a time, not five into a single toast element',
 
 test('nothing is flushed into a window nobody can see', () => {
     const {mainWindow} = build();
-    mainWindow.sendUpdate({key: 'a.b'}, {keep: true});
-    mainWindow.show('test', {show: false});
+    mainWindow.show('startup');
+    mainWindow.window.hide();
+    // Queued while the window is hidden, as a toast from before a rebuild is.
+    mainWindow.toastQueue.push({key: 'a.b'});
+    mainWindow.flushToastQueue();
     assert.strictEqual(mainWindow.window.sent.filter(m => m.channel === 'update-message').length, 0);
     assert.strictEqual(mainWindow.toastQueue.length, 1, 'the queue must be kept, not spent');
     // …and showing it later delivers.
@@ -440,4 +443,32 @@ test('unloadState is what system.txt prints', () => {
     mainWindow.scheduleUnload('test');
     assert.deepStrictEqual(mainWindow.unloadState(),
         {loaded: false, unloaded: true, busy: []});
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The update flow, wired through `core/updater.js`
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+test('a downloaded update reaches the window, the tray and the unload inputs', () => {
+    const {mainWindow} = build();
+    mainWindow.show('startup');
+    let trayVersion = null;
+    mainWindow.setShutdownHooks(Object.assign({}, mainWindow.shutdownHooks, {
+        tray: {setUpdatePending(v) { trayVersion = v; }, destroy() {}}
+    }));
+    mainWindow.updater.updateDismissed = true;
+    mainWindow.updater.onDownloaded({version: '0.7.1', downloadedFile: 'x.exe'});
+    assert.strictEqual(trayVersion, '0.7.1');
+    assert.deepStrictEqual(mainWindow.updater.pendingUpdate(), {version: '0.7.1', dismissed: false},
+        'a new version is news even after a "Later"');
+    assert.ok(mainWindow.window.sent.some(m => m.channel === 'update-ready'));
+    assert.deepStrictEqual(mainWindow.updater.unloadInputs(),
+        {updatePending: true, updateBannerShown: false, installing: false});
+});
+
+test('an install with nothing pending does nothing and quits nothing', async () => {
+    const {mainWindow} = build();
+    assert.deepStrictEqual(await mainWindow.installUpdate(), {ok: false, themed: false});
+    assert.strictEqual(quitting.isQuitting(), false);
+    assert.strictEqual(mainWindow.updater.installInFlight, null);
 });

@@ -5,6 +5,13 @@ const PadInput = require('./pad-input');
 const {KEY_POLL_INTERVAL, PAD_RECORD_TIMEOUT, keyHintFor, foldMapInputs} = require('../shared/tab-mode-rules');
 const {VK_MENU, resolveMapVk} = require('../shared/key-codes');
 const {resolveMapPad, padLabel, heldPadButtons} = require('../shared/pad-codes');
+const {errorMessage} = require('../shared/errors');
+const {clearTimer, unrefTimer} = require('../shared/timers');
+
+/** Zeroed at construction and on every `start()`; `status()` prints them. */
+function freshCounters() {
+    return {polls: 0, downs: 0, ups: 0, errors: 0};
+}
 
 /**
  * ELECTRON tier: Tab-map mode's **key-state trigger** — koffi → `user32`
@@ -65,12 +72,15 @@ class KeyTrigger {
         /** The game's process id, from the detector's window read. */
         this.gamePid = null;
         /** Counters for `system.txt`. */
-        this.counters = {polls: 0, downs: 0, ups: 0, errors: 0};
-        /** So the "it works" line is written once, not on every `probe()`. */
+        this.counters = freshCounters();
+        /** So the "it works" line is written once, not on every `open()`. */
         this.loggedAvailable = false;
     }
 
-    /** Load koffi and bind `user32`. Idempotent, and it never throws. */
+    /**
+     * Load koffi and bind `user32`. Idempotent, never throws, and **does not
+     * start the poll**: availability is not "running".
+     */
     open() {
         if (this.fn) return {ok: true, reason: null};
         if (this.usable === false) return {ok: false, reason: this.reason};
@@ -112,11 +122,6 @@ class KeyTrigger {
         return {ok: true, reason: null};
     }
 
-    /** Probe **without starting the poll**: availability is not "running". */
-    probe() {
-        return this.open();
-    }
-
     /** Record why the trigger is unusable, once, and answer no. */
     fail(where, err) {
         this.fn = null;
@@ -127,7 +132,7 @@ class KeyTrigger {
         appLog.warn('tab-key-trigger', {
             available: 'no',
             where,
-            message: (err && err.message) || String(err)
+            message: errorMessage(err)
         });
         console.error(`Tab markers: the key trigger is unavailable (${where}):`, err && err.message);
         return {ok: false, reason: where};
@@ -243,14 +248,13 @@ class KeyTrigger {
         if (this.mapPad !== null) this.probePad();
         this.running = true;
         this.wasDown = false;
-        this.counters = {polls: 0, downs: 0, ups: 0, errors: 0};
+        this.counters = freshCounters();
         this.schedule(0);
         return true;
     }
 
     stop() {
-        if (this.timer) clearTimeout(this.timer);
-        this.timer = null;
+        this.timer = clearTimer(this.timer);
         if (!this.running) return;
         this.running = false;
         // A key held when the loop stops must not look held when it starts.
@@ -262,10 +266,8 @@ class KeyTrigger {
     /** `setTimeout` chaining, never `setInterval` — the project-wide rule. */
     schedule(delay) {
         if (!this.running) return;
-        if (this.timer) clearTimeout(this.timer);
-        this.timer = setTimeout(() => this.tick(), delay);
-        // The loop must never be the reason the process stays alive.
-        if (this.timer.unref) this.timer.unref();
+        clearTimer(this.timer);
+        this.timer = unrefTimer(setTimeout(() => this.tick(), delay));
     }
 
     /**
@@ -351,31 +353,30 @@ class KeyTrigger {
         if (!opened.ok) return Promise.resolve({ok: false, reason: 'unavailable'});
         const timeoutMs = typeof o.timeoutMs === 'number' && o.timeoutMs > 0 ? o.timeoutMs : PAD_RECORD_TIMEOUT;
         const intervalMs = typeof o.intervalMs === 'number' && o.intervalMs > 0 ? o.intervalMs : this.intervalMs;
-        const self = this;
         return new Promise((resolve) => {
             const rec = {timer: null, seenPad: false, done: false};
             const finish = (result) => {
                 if (rec.done) return;
                 rec.done = true;
-                if (rec.timer) clearTimeout(rec.timer);
-                if (self.recording === rec) self.recording = null;
+                rec.timer = clearTimer(rec.timer);
+                if (this.recording === rec) this.recording = null;
                 // The outcome and counters only — which button is never logged.
                 appLog.event('tab-markers', {
                     action: 'map-pad-record',
                     result: result.ok ? 'ok' : result.reason,
                     padSeen: rec.seenPad ? 'yes' : 'no',
-                    reads: self.pad.counters.reads
+                    reads: this.pad.counters.reads
                 });
                 resolve(result);
             };
             rec.cancel = (why) => finish({ok: false, reason: why || 'cancelled'});
-            const deadline = self.now() + timeoutMs;
+            const deadline = this.now() + timeoutMs;
             const step = () => {
                 rec.timer = null;
                 if (rec.done) return;
-                const readings = self.pad.readAll();
+                const readings = this.pad.readAll();
                 if (readings === null) {
-                    self.pad.fail('call', new Error('an XInput call failed'));
+                    this.pad.fail('call', new Error('an XInput call failed'));
                     return finish({ok: false, reason: 'unavailable'});
                 }
                 if (readings.length) rec.seenPad = true;
@@ -384,13 +385,12 @@ class KeyTrigger {
                     // Exactly one: two at once is a hand on the way somewhere.
                     if (held.length === 1) return finish({ok: true, code: held[0], label: padLabel(held[0])});
                 }
-                if (self.now() >= deadline) {
+                if (this.now() >= deadline) {
                     return finish({ok: false, reason: rec.seenPad ? 'timeout' : 'no-controller'});
                 }
-                rec.timer = setTimeout(step, intervalMs);
-                if (rec.timer.unref) rec.timer.unref();
+                rec.timer = unrefTimer(setTimeout(step, intervalMs));
             };
-            self.recording = rec;
+            this.recording = rec;
             step();
         });
     }

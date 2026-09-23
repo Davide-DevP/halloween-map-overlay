@@ -3,6 +3,7 @@
 const {BrowserWindow} = require('electron');
 const {webPreferences} = require('../shared/web-preferences');
 const appLog = require('./app-log');
+const {errorMessage} = require('../shared/errors');
 
 /**
  * ELECTRON tier: the second transparent window, laid over the **game's own
@@ -70,7 +71,7 @@ class TabOverlayWindow {
             });
         } catch (err) {
             console.error('Tab markers: could not create the window:', err && err.message);
-            appLog.error('tab-markers', {action: 'create-failed', message: (err && err.message) || String(err)});
+            appLog.error('tab-markers', {action: 'create-failed', message: errorMessage(err)});
             this.window = null;
             return false;
         }

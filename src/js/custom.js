@@ -3,6 +3,7 @@ const {debugLog} = require("./logger");
 const {escapeHtml} = require("../shared/escape-html");
 const {setBusy} = require("./busy");
 const {t, onChange} = require("./i18n");
+const {showStatus} = require("./status");
 
 /** Image MIME type → the extension the imported file is stored under. */
 const MIME_EXTENSIONS = {
@@ -29,10 +30,25 @@ function extensionFor(file) {
 /** "Add your own map" modal: import, list and delete user map images. */
 class Custom {
 
-    constructor(maps) {
+    /** @param {function(): void} [onCatalogChange] after an import or a delete (the hotkey map picker) */
+    constructor(maps, onCatalogChange) {
         this.maps = maps;
+        this.onCatalogChange = typeof onCatalogChange === "function" ? onCatalogChange : () => {};
+        this.bind();
         // The list's "no images yet" row and its Delete buttons are built here
         onChange(() => this.generateCustomList());
+    }
+
+    bind() {
+        $("#customAddBtn").on("click", async () => {
+            await this.addCustomMap();
+            this.onCatalogChange();
+        });
+        // Delegated: the rows are rebuilt on every change and every language switch.
+        $("#customList").on("click", "button[data-img]", async (event) => {
+            await this.deleteCustomMap($(event.currentTarget).attr("data-img"));
+            this.onCatalogChange();
+        });
     }
 
     async getFileAsBase64($file) {
@@ -81,7 +97,7 @@ class Custom {
             await this.generateCustomList();
         } catch (e) {
             debugLog("custom::addCustomMap::error", e);
-            alert(t('common.error', {message: e}));
+            showStatus(t('common.error', {message: e}));
         } finally {
             setBusy('import', false);
             $('#loadingOverlay').slideUp();
@@ -96,7 +112,7 @@ class Custom {
             await this.generateCustomList();
         } catch (e) {
             debugLog("custom::deleteCustomMap::error", e);
-            alert(t('common.error', {message: e}));
+            showStatus(t('common.error', {message: e}));
         }
     }
 
@@ -117,7 +133,7 @@ class Custom {
                     <td>${escapeHtml(name)}</td>
                     <td>
                         <span class="row-actions">
-                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteImage(this)" data-img="${escapeHtml(file)}">${escapeHtml(t('common.delete'))}</button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" data-img="${escapeHtml(file)}">${escapeHtml(t('common.delete'))}</button>
                         </span>
                     </td>
                 </tr>`);

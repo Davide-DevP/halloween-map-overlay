@@ -55,7 +55,6 @@ Module._load = function (request) {
                 getVersion: () => '0.7.0',
                 getLocale: () => 'en-GB',
                 isPackaged: false,
-                isQuiting: false,
                 on() {},
                 quit() {}
             },
@@ -194,8 +193,9 @@ function lastOverlayChange() {
     for (let i = overlay.sent.length - 1; i >= 0; i--) {
         const entry = overlay.sent[i];
         if (entry.channel !== 'map-change') continue;
-        const [img, size, opacity, draggable, rotation, mapLabel, labelMode, markers, lang] = entry.args;
-        return {img, size, opacity, draggable, rotation, mapLabel, labelMode, markers, lang};
+        // One object, never positional arguments.
+        assert.strictEqual(entry.args.length, 1);
+        return entry.args[0];
     }
     return null;
 }
@@ -204,8 +204,8 @@ function lastObsChange() {
     for (let i = obs.sent.length - 1; i >= 0; i--) {
         const entry = obs.sent[i];
         if (entry.channel !== 'map-change') continue;
-        const [img, size, mapLabel, labelMode, markers, lang] = entry.args;
-        return {img, size, mapLabel, labelMode, markers, lang};
+        assert.strictEqual(entry.args.length, 1);
+        return entry.args[0];
     }
     return null;
 }
@@ -234,12 +234,12 @@ test('a detector match reaches the overlay AND the OBS window, with the label an
 
     const change = lastOverlayChange();
     assert.ok(change, 'the overlay received no map-change');
-    assert.ok(change.img.length > 1000, 'the image payload is not a real PNG');
+    assert.ok(change.image.length > 1000, 'the image payload is not a real PNG');
     assert.strictEqual(change.size, DEFAULT_SETTINGS.size);
     assert.strictEqual(change.opacity, DEFAULT_SETTINGS.opacity);
     assert.strictEqual(change.rotation, DEFAULT_SETTINGS.rotation);
     // An automatic switch names the map, and the name is the catalogue's.
-    assert.strictEqual(change.mapLabel, 'Haddonfield Heights');
+    assert.strictEqual(change.label, 'Haddonfield Heights');
     assert.strictEqual(change.labelMode, 'auto');
     assert.strictEqual(change.lang, 'en');
     // The markers ride on the same payload, and this map has data.
@@ -252,8 +252,8 @@ test('a detector match reaches the overlay AND the OBS window, with the label an
 
     // The stream shows what the player sees.
     const stream = lastObsChange();
-    assert.strictEqual(stream.img, change.img);
-    assert.strictEqual(stream.mapLabel, 'Haddonfield Heights');
+    assert.strictEqual(stream.image, change.image);
+    assert.strictEqual(stream.label, 'Haddonfield Heights');
     assert.deepStrictEqual(stream.markers, change.markers);
 
     // The overlay was sized and placed by main.
@@ -272,7 +272,7 @@ test('next-map walks the catalogue and each step really reaches the overlay', as
     for (let i = 0; i < 3; i++) {
         controller.action('next-map');
         await settle();
-        seen.push(lastOverlayChange().img.slice(0, 64));
+        seen.push(lastOverlayChange().image.slice(0, 64));
     }
     assert.strictEqual(new Set(seen).size, 3, 'three different maps should have been sent');
     assert.strictEqual(browserWindowAttempts, 0);
@@ -288,7 +288,7 @@ test('opacity and size hotkeys re-send the map with the new values', async () =>
     await settle();
     const louder = lastOverlayChange();
     assert.ok(louder.opacity > before.opacity, 'the opacity did not move');
-    assert.strictEqual(louder.img, before.img, 'the same map should be re-sent');
+    assert.strictEqual(louder.image, before.image, 'the same map should be re-sent');
 
     controller.action('size-up');
     await settle();
@@ -326,7 +326,7 @@ test('toggle-map hides both windows and brings the same map back', async () => {
     controller.action('toggle-map');
     await settle();
     assert.ok(overlay.sent.length > hidden);
-    assert.ok(lastOverlayChange().img.length > 1000, 'the map did not come back');
+    assert.ok(lastOverlayChange().image.length > 1000, 'the map did not come back');
 });
 
 test('the menu clear takes the map off both windows', async () => {
@@ -374,24 +374,24 @@ test('`hideOverlay` sends an empty image and no markers, and still keeps OBS wor
     build({hideOverlay: true});
     controller.select(EAST, 'click');
     await settle();
-    assert.strictEqual(lastOverlayChange().img, '');
+    assert.strictEqual(lastOverlayChange().image, '');
     assert.strictEqual(lastOverlayChange().markers, null);
-    assert.ok(lastObsChange().img.length > 1000, 'the OBS window is not affected by hideOverlay');
+    assert.ok(lastObsChange().image.length > 1000, 'the OBS window is not affected by hideOverlay');
 });
 
 test('`mapLabel: always` names a hand-picked map from the catalogue', async () => {
     build({mapLabel: 'always'});
     controller.select(EAST, 'click');
     await settle();
-    assert.strictEqual(lastOverlayChange().mapLabel, 'East Haddonfield');
-    assert.strictEqual(lastObsChange().mapLabel, 'East Haddonfield');
+    assert.strictEqual(lastOverlayChange().label, 'East Haddonfield');
+    assert.strictEqual(lastObsChange().label, 'East Haddonfield');
 });
 
 test('`mapLabel: never` sends an empty label even for a detector switch', async () => {
     build({mapLabel: 'never'});
     controller.detected(HEIGHTS);
     await settle();
-    assert.strictEqual(lastOverlayChange().mapLabel, '');
+    assert.strictEqual(lastOverlayChange().label, '');
 });
 
 test('a per-map hotkey for a map that is gone touches neither window', async () => {
@@ -400,14 +400,14 @@ test('a per-map hotkey for a map that is gone touches neither window', async () 
     await settle();
     assert.deepStrictEqual(overlay.sent, []);
     assert.deepStrictEqual(obs.sent, []);
-    assert.strictEqual(controller.currentKey(), '');
+    assert.strictEqual(controller.status().currentKey, '');
 });
 
 test('a map file that vanishes under the app rolls the state back', async () => {
     build();
     controller.select(EAST, 'click');
     await settle();
-    assert.strictEqual(controller.currentKey(), EAST);
+    assert.strictEqual(controller.status().currentKey, EAST);
 
     // The catalogue still says the map is there; the read fails.
     const realRead = fs.promises.readFile;
@@ -425,7 +425,7 @@ test('a map file that vanishes under the app rolls the state back', async () => 
 
     // Nothing new reached the overlay, and the state, the gallery highlight
     // and the detector all still name the map that IS on screen.
-    assert.strictEqual(controller.currentKey(), EAST,
+    assert.strictEqual(controller.status().currentKey, EAST,
         'a failed read must not leave the state naming a map that is not showing');
     assert.strictEqual(detector.shown[detector.shown.length - 1], EAST);
 });
@@ -453,12 +453,12 @@ test('a later map change wins over an earlier one that is still reading', async 
         release();
         await settle();
         // The slow first call came back last and must have dropped everything.
-        assert.strictEqual(lastOverlayChange().img, won.img,
+        assert.strictEqual(lastOverlayChange().image, won.image,
             'a stale map change put the previous map back on the overlay');
     } finally {
         fs.promises.readFile = realRead;
     }
-    assert.strictEqual(controller.currentKey(), HEIGHTS);
+    assert.strictEqual(controller.status().currentKey, HEIGHTS);
 });
 
 test('the settings preview never reaches the OBS window', async () => {
@@ -468,7 +468,7 @@ test('the settings preview never reaches the OBS window', async () => {
     const obsBefore = obs.sent.length;
     await mainWindow.applyMapChange(png, {preview: true, mapLabel: 'Sample'});
     assert.strictEqual(obs.sent.length, obsBefore, 'the preview leaked into the stream');
-    assert.strictEqual(lastOverlayChange().mapLabel, 'Sample');
+    assert.strictEqual(lastOverlayChange().label, 'Sample');
     assert.strictEqual(lastOverlayChange().markers, null, 'the preview is not a catalogue map');
 });
 

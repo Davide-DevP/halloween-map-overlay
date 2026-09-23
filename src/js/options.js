@@ -92,40 +92,42 @@ class Options {
         this.placementSeq = 0;
         /** Serialises the writes — see `applyPlacement`. */
         this.placementChain = null;
-        const classInstance = this;
+        /** Called once a card's writes have landed (the tutorial re-renders). */
+        this.placementListeners = [];
+        /** A flag, never `disabled`: that blurs the switch and drops the tutorial's focus trap. */
+        this.detectBusy = false;
 
-        const refreshOverlay = () => {
-            if (classInstance.previewActive) {
-                classInstance.sendPreview();
-            } else {
-                // 'settings', not 'click': app.log collapses repeats of one key
-                // from one source. No fallback to `lastKey`: a hidden map stays hidden.
-                maps.send({type: 'refresh', source: 'settings'});
-            }
-        };
+        this.bindGeneral();
+        this.bindMap();
+        this.bindOverlay();
+        this.bindMarkers();
+        this.bindUpdates();
+        this.bindHelp();
+        this.bindModalEvents();
+        this.syncReadouts();
+        onChange(() => this.syncReadouts());
+    }
 
-        // The env vars survive the x11 relaunch (index.js).
-        if (isWayland()) {
-            $("#waylandWarning").removeClass("d-none");
+    refreshOverlay() {
+        if (this.previewActive) {
+            this.sendPreview();
+        } else {
+            // 'settings', not 'click': app.log collapses repeats of one key
+            // from one source. No fallback to `lastKey`: a hidden map stays hidden.
+            this.maps.send({type: 'refresh', source: 'settings'});
         }
+    }
+
+    /* ── General tab ─────────────────────────────────────────────────────── */
+
+    bindGeneral() {
+        const settings = this.settings;
 
         $("#minimizeToTrayCheck").prop("checked", settings.raw("minimizeToTray") === true);
-        $("#hiddenCheck").prop("checked", settings.raw("hideOverlay") === true);
         $("#disableFaqPopupCheck").prop("checked", settings.raw("disableFaqPopup") === true);
-        // `=== true` here, `!== false` below: the shipped default decides which.
+        // `=== true` here, `!== false` elsewhere: the shipped default decides which.
         // Why: the doc § Settings reference.
         $("#hardwareAccelerationCheck").prop("checked", settings.raw("hardwareAcceleration") === true);
-
-        // `.val()`/`.text()`: no OS string is interpolated into markup.
-        const populateMonitors = async () => {
-            const displays = await ipcRenderer.invoke('get-displays');
-            const select = $("#monitorSelect");
-            select.empty();
-            displays.forEach(d => select.append($('<option>').val(d.index).text(displayLabel(d))));
-            const saved = settings.raw('monitor');
-            select.val(saved !== null && saved !== undefined ? saved : 0);
-        };
-        populateMonitors();
 
         // Its own handler: main resolves "system" once and pushes it everywhere.
         $("#languageSelect").on("input", async function () {
@@ -134,12 +136,6 @@ class Options {
             i18n.setLanguage(resolved);
         }).val(settings.raw("language") || 'system');
 
-        onChange(() => populateMonitors());
-
-        $("#hiddenCheck").on("input", async function () {
-            await settings.set("hideOverlay", $(this).prop('checked'));
-            refreshOverlay();
-        });
         $("#minimizeToTrayCheck").on("input", async function () {
             await settings.set("minimizeToTray", $(this).prop('checked'));
         });
@@ -152,149 +148,207 @@ class Options {
             showStatus(t('settings.hardwareAcceleration.restart'));
         });
 
-        /* ── Where do you want to see the map? ───────────────────────────── */
+        if (settings.raw("disableFaqPopup") !== true) {
+            $("#warning").removeClass("d-none").addClass("show").slideDown();
+        }
+    }
+
+    /* ── Map tab: where do you want to see the map? ──────────────────────── */
+
+    bindMap() {
+        const self = this;
 
         $('#placementCards input[name="mapPlacement"]').on('change', async function () {
-            await classInstance.applyPlacement($(this).val());
+            await self.applyPlacement($(this).val());
+            for (const listener of self.placementListeners) listener();
         });
         // One setting in three places — always through `Detector.setEnabled`.
+        // A re-entrant click is dropped, never disabled (see `detectBusy`).
         $("#autoDetectCheck").on("change", async function () {
-            if (!classInstance.detector) return;
-            await classInstance.detector.setEnabled($(this).prop('checked'));
+            if (!self.detector) return;
+            if (self.detectBusy) {
+                $(this).prop('checked', self.detectorRunning());
+                return;
+            }
+            self.detectBusy = true;
+            try {
+                await self.detector.setEnabled($(this).prop('checked'));
+            } finally {
+                self.detectBusy = false;
+            }
         });
         if (this.detector && typeof this.detector.onStatus === 'function') {
             this.detector.onStatus(() => {
-                classInstance.syncPlacement();
-                classInstance.refreshTabMarkerMethod();
+                self.syncPlacement();
+                self.refreshTabMarkerMethod();
             });
         }
         // Only a user click may start a capture (AGENTS.md rule 1).
         $("#autoDetectStart").on('click', async function () {
-            if (!classInstance.detector) return;
-            await classInstance.detector.setEnabled(true);
+            if (!self.detector) return;
+            await self.detector.setEnabled(true);
         });
         this.syncPlacement();
+    }
 
-        /* ── The map in the corner ───────────────────────────────────────── */
+    /* ── Map tab: the map in the corner, and Other adjustments ───────────── */
+
+    bindOverlay() {
+        const self = this;
+        const settings = this.settings;
+
+        // The env vars survive the x11 relaunch (index.js).
+        if (isWayland()) {
+            $("#waylandWarning").removeClass("d-none");
+        }
+
+        $("#hiddenCheck").prop("checked", settings.raw("hideOverlay") === true);
+        $("#hiddenCheck").on("input", async function () {
+            await settings.set("hideOverlay", $(this).prop('checked'));
+            self.refreshOverlay();
+        });
+
+        this.populateMonitors();
+        onChange(() => self.populateMonitors());
+        $("#monitorSelect").on("input", async function () {
+            await settings.set("monitor", parseInt($(this).val(), 10));
+            self.refreshOverlay();
+        });
 
         // `parseInt`, not the raw `.val()`: a range input hands back a string
         // and main writes a number. Why: the doc § Settings reference.
         $("#sizeRange").on("input", async function () {
-            classInstance.syncReadouts();
+            self.syncReadouts();
             await settings.set("size", parseInt($(this).val(), 10) || 0);
-            refreshOverlay();
+            self.refreshOverlay();
         }).val(settings.raw("size"));
-
-        // The corner preset doubles as a glide shortcut: it snaps both sliders.
-        const snapGlideToPreset = async () => {
-            const corner = presetToGlide(settings.raw("position"));
-            $("#glideXRange").val(corner.x);
-            $("#glideYRange").val(corner.y);
-            classInstance.syncReadouts();
-            await settings.set("glideX", corner.x);
-            await settings.set("glideY", corner.y);
-        };
 
         $("#positionLabel").on("input", async function () {
             await settings.set("position", $(this).val());
-            await snapGlideToPreset();
-            refreshOverlay();
+            await self.snapGlideToPreset();
+            self.refreshOverlay();
         }).val(settings.raw("position"));
         $("#opacityRange").on("input", async function () {
-            classInstance.syncReadouts();
+            self.syncReadouts();
             await settings.set("opacity", parseFloat($(this).val()) || 0);
-            refreshOverlay();
+            self.refreshOverlay();
         }).val(settings.raw("opacity"));
 
         // Snapped to the nearest quarter turn, in case a stray one was saved.
         const savedRotation = (Math.round((parseInt(settings.raw("rotation"), 10) || 0) / 90) * 90) % 360;
         $("#rotationSelect").on("input", async function () {
             await settings.set("rotation", parseInt($(this).val(), 10) || 0);
-            refreshOverlay();
+            self.refreshOverlay();
         }).val(String(savedRotation));
 
         $("#mapLabelSelect").on("input", async function () {
             await settings.set("mapLabel", mapLabelMode($(this).val()));
-            refreshOverlay();
+            self.refreshOverlay();
         }).val(mapLabelMode(settings.raw("mapLabel")));
-
-        $("#monitorSelect").on("input", async function () {
-            await settings.set("monitor", parseInt($(this).val(), 10));
-            refreshOverlay();
-        });
 
         // `raw`, not `get`: a saved 0 must mean 0, not "follow the preset".
         const initialCorner = presetToGlide(settings.raw("position"));
         const savedGlideX = settings.raw('glideX');
         const savedGlideY = settings.raw('glideY');
         $("#glideXRange").on("input", async function () {
-            classInstance.syncReadouts();
+            self.syncReadouts();
             await settings.set("glideX", parseInt($(this).val(), 10) || 0);
-            refreshOverlay();
+            self.refreshOverlay();
         }).val(savedGlideX !== null && savedGlideX !== undefined ? savedGlideX : initialCorner.x);
         $("#glideYRange").on("input", async function () {
-            classInstance.syncReadouts();
+            self.syncReadouts();
             await settings.set("glideY", parseInt($(this).val(), 10) || 0);
-            refreshOverlay();
+            self.refreshOverlay();
         }).val(savedGlideY !== null && savedGlideY !== undefined ? savedGlideY : initialCorner.y);
 
-        // *Set position* turns `draggable` on and lets the overlay catch the
-        // mouse; `#glideReset` is the only way back to the corner preset.
+        this.bindDrag();
+    }
+
+    /** `.val()`/`.text()`: no OS string is interpolated into markup. */
+    async populateMonitors() {
+        const displays = await ipcRenderer.invoke('get-displays');
+        const select = $("#monitorSelect");
+        select.empty();
+        displays.forEach(d => select.append($('<option>').val(d.index).text(displayLabel(d))));
+        const saved = this.settings.raw('monitor');
+        select.val(saved !== null && saved !== undefined ? saved : 0);
+    }
+
+    /** The corner preset doubles as a glide shortcut: it snaps both sliders. */
+    async snapGlideToPreset() {
+        const corner = presetToGlide(this.settings.raw("position"));
+        $("#glideXRange").val(corner.x);
+        $("#glideYRange").val(corner.y);
+        this.syncReadouts();
+        await this.settings.set("glideX", corner.x);
+        await this.settings.set("glideY", corner.y);
+    }
+
+    /**
+     * *Set position* turns `draggable` on and lets the overlay catch the
+     * mouse; `#glideReset` is the only way back to the corner preset.
+     */
+    bindDrag() {
+        const self = this;
+        const settings = this.settings;
         this.applyDragState(settings.raw("draggable") === true);
         $("#unset-pos").hide();
         $("#set-pos").on("click", async function () {
             await settings.set("draggable", true);
             ipcRenderer.send('set-mouse-drag', true);
-            classInstance.applyDragState(true);
+            self.applyDragState(true);
             $("#unset-pos").show();
             $("#set-pos").hide();
-            classInstance.setting = true;
-            refreshOverlay();
+            self.setting = true;
+            self.refreshOverlay();
         });
         $("#unset-pos").on("click", function () {
             ipcRenderer.send('set-mouse-drag', false);
             $("#unset-pos").hide();
             $("#set-pos").show();
-            classInstance.setting = false;
+            self.setting = false;
         });
         $("#glideReset").on("click", async function () {
             // Also the escape hatch out of "moved by hand", so it ends the drag.
             ipcRenderer.send('set-mouse-drag', false);
-            classInstance.setting = false;
+            self.setting = false;
             $("#unset-pos").hide();
             $("#set-pos").show();
             await settings.set("draggable", false);
-            classInstance.applyDragState(false);
-            await snapGlideToPreset();
-            refreshOverlay();
+            self.applyDragState(false);
+            await self.snapGlideToPreset();
+            self.refreshOverlay();
         });
+    }
 
-        /* ── What to show ────────────────────────────────────────────────── */
+    /* ── Map tab: what to show, the game's map key, the trouble fold ─────── */
+
+    bindMarkers() {
+        const self = this;
+        const settings = this.settings;
 
         // Only a setting and a re-send: main rebuilds the marker payload.
         for (const [selector, key] of MARKER_CHIPS) {
             $(selector).prop('checked', settings.raw(key) !== false);
             $(selector).on('change', async function () {
                 await settings.set(key, $(this).prop('checked'));
-                refreshOverlay();
+                self.refreshOverlay();
             });
         }
         // The master switch is Ctrl+Alt+M only — see `syncMarkerMaster`.
         $("#markersShowBtn").on('click', async function () {
             await settings.set('markers', true);
-            classInstance.syncMarkerMaster();
-            refreshOverlay();
+            self.syncMarkerMaster();
+            self.refreshOverlay();
         });
         this.syncMarkerMaster();
 
         $("#markerOpacityRange").on("input", async function () {
-            classInstance.syncReadouts();
+            self.syncReadouts();
             await settings.set("markerOpacity", parseFloat($(this).val()));
-            refreshOverlay();
+            self.refreshOverlay();
         }).val(settings.raw("markerOpacity") !== null && settings.raw("markerOpacity") !== undefined
             ? settings.raw("markerOpacity") : 0.9);
-
-        /* ── The game's map key ──────────────────────────────────────────── */
 
         this.attachMapKeyRecorder('#tabMarkerKeyBtn', '#tabMarkerKeyValue');
         this.attachMapKeyReset('#tabMarkerKeyReset');
@@ -313,110 +367,119 @@ class Options {
         $("#markerTriggerPollingCheck").on("input", async function () {
             await ipcRenderer.invoke('set-marker-trigger', $(this).prop('checked') ? 'polling' : 'auto');
             await settings.refresh();
-            classInstance.refreshTabMarkerMethod();
+            self.refreshTabMarkerMethod();
         });
         this.refreshTabMarkerMethod();
         onChange(() => {
-            classInstance.renderMapKey();
-            classInstance.renderMapPad();
-            classInstance.refreshTabMarkerMethod();
-            classInstance.syncPlacement();
+            self.renderMapKey();
+            self.renderMapPad();
+            self.refreshTabMarkerMethod();
+            self.syncPlacement();
         });
+    }
 
-        /* ── Updates: one switch, one button, both checks ────────────────── */
+    /* ── General tab: one switch, one button, both checks ────────────────── */
+
+    bindUpdates() {
+        const self = this;
+        const settings = this.settings;
 
         // One switch, two keys: on while **either** request is still made.
         $("#checkForUpdatesCheck").prop("checked", newsCheckState(settings.all()).checked);
         $("#checkForUpdatesCheck").on("input", async function () {
             const target = settingsForNewsCheck($(this).prop('checked'));
             for (const [key, value] of Object.entries(target)) await settings.set(key, value);
-            classInstance.refreshMapPackStatus();
+            self.refreshMapPackStatus();
         });
         // Works with the switch above off — the click is the consent — and
         // never touches it. Main decides with the pure `planManualUpdateCheck`.
-        $("#checkUpdatesNowBtn").on("click", async function () {
-            // `checkingNow` holds the button down for the **whole** flow: a
-            // second click during the pause starts a flow that answers `busy`.
-            if (classInstance.checkingNow) return;
-            classInstance.checkingNow = true;
-            $(this).prop('disabled', true);
-            classInstance.manualUpdateCheck = true;
-            try {
-                try {
-                    classInstance.renderUpdateCheckState(
-                        await ipcRenderer.invoke('check-for-updates-now'), true);
-                } catch (err) {
-                    // A rejected `invoke` would leave the button disabled
-                    // forever: the push that re-enables it is never coming.
-                    console.error('options::check-for-updates-now', err && err.message);
-                    classInstance.renderUpdateCheckState({state: 'failed'}, false);
-                    showStatus(t('update.manual.failed'));
-                }
-                // Then the maps, after a readable pause: the toast replaces
-                // rather than queues, so only the second outcome would show.
-                await new Promise(resolve => setTimeout(resolve, TOAST_READ_MS));
-                try {
-                    await ipcRenderer.invoke('check-map-packs');
-                } catch (err) {
-                    console.error('options::check-map-packs', err && err.message);
-                }
-                classInstance.refreshMapPackStatus();
-            } finally {
-                // The real state, not this flag, decides if the button comes back.
-                classInstance.checkingNow = false;
-                classInstance.refreshUpdateCheckState();
-            }
+        $("#checkUpdatesNowBtn").on("click", function () {
+            self.checkNow(this);
         });
         // The startup check moves the same state, so it disables the button too.
         ipcRenderer.on('update-check-state', (event, info) => {
-            classInstance.renderUpdateCheckState(info, true);
+            self.renderUpdateCheckState(info, true);
         });
         this.refreshUpdateCheckState();
         // Rebuilt on a language change, without toasting again.
-        onChange(() => classInstance.renderUpdateCheckState(classInstance.updateCheckInfo, false));
+        onChange(() => self.renderUpdateCheckState(self.updateCheckInfo, false));
         this.refreshMapPackStatus();
-        onChange(() => classInstance.refreshMapPackStatus());
+        onChange(() => self.refreshMapPackStatus());
+    }
 
-        /* ── Help ────────────────────────────────────────────────────────── */
+    /** *Check now*: the app update, then — after a readable pause — the maps. */
+    async checkNow(button) {
+        // `checkingNow` holds the button down for the **whole** flow: a
+        // second click during the pause starts a flow that answers `busy`.
+        if (this.checkingNow) return;
+        this.checkingNow = true;
+        $(button).prop('disabled', true);
+        this.manualUpdateCheck = true;
+        try {
+            try {
+                this.renderUpdateCheckState(await ipcRenderer.invoke('check-for-updates-now'), true);
+            } catch (err) {
+                // A rejected `invoke` would leave the button disabled
+                // forever: the push that re-enables it is never coming.
+                console.error('options::check-for-updates-now', err && err.message);
+                this.renderUpdateCheckState({state: 'failed'}, false);
+                showStatus(t('update.manual.failed'));
+            }
+            // The toast replaces rather than queues, so only the second
+            // outcome would show without the pause.
+            await new Promise(resolve => setTimeout(resolve, TOAST_READ_MS));
+            try {
+                await ipcRenderer.invoke('check-map-packs');
+            } catch (err) {
+                console.error('options::check-map-packs', err && err.message);
+            }
+            this.refreshMapPackStatus();
+        } finally {
+            // The real state, not this flag, decides if the button comes back.
+            this.checkingNow = false;
+            this.refreshUpdateCheckState();
+        }
+    }
 
+    /* ── General tab: help ───────────────────────────────────────────────── */
+
+    bindHelp() {
         // Main opens userData: the renderer never learns the path, it just asks.
         $("#openLogFolder").on("click", async function () {
             const result = await ipcRenderer.invoke('open-log-folder');
             if (!result || !result.ok) showStatus(t('settings.openLogFolder.failed'));
         });
         $("#openFaqBtn").on('click', () => openFaq(null));
-        // Delegated: the tutorial has a copy of this link, built before it shows.
+        // Delegated: the link can be inside the tutorial as well as in Settings.
         $(document).on('click', '.faq-link', function () {
             openFaq($(this).attr('data-faq') || null);
         });
+    }
 
-        if (settings.raw("disableFaqPopup") !== true) {
-            $("#warning").removeClass("d-none").addClass("show").slideDown();
-        }
+    /* ── The modal itself: the sample map and the busy reason ────────────── */
 
-        this.syncReadouts();
-        onChange(() => classInstance.syncReadouts());
-
+    bindModalEvents() {
+        const self = this;
         // Native listeners, not jQuery's: `.on()` would treat ".bs.tab" as an
         // event namespace and never fire.
         const mapTab = document.getElementById('map-tab');
         const settingsModal = document.getElementById('settings');
-        mapTab.addEventListener('shown.bs.tab', () => classInstance.startPreview());
-        mapTab.addEventListener('hidden.bs.tab', () => classInstance.stopPreview());
+        mapTab.addEventListener('shown.bs.tab', () => self.startPreview());
+        mapTab.addEventListener('hidden.bs.tab', () => self.stopPreview());
         settingsModal.addEventListener('shown.bs.modal', () => {
             // Bootstrap keeps the last active tab across modal open/close.
-            if (mapTab.classList.contains('active')) classInstance.startPreview();
+            if (mapTab.classList.contains('active')) self.startPreview();
             // State main must not tear down — `shared/window-unload.js`.
             setBusy('settings', true);
         });
-        settingsModal.addEventListener('hide.bs.modal', () => classInstance.stopPreview());
+        settingsModal.addEventListener('hide.bs.modal', () => self.stopPreview());
         settingsModal.addEventListener('hidden.bs.modal', () => setBusy('settings', false));
         // Minimize-to-tray leaves the modal open; the sample must leave the overlay.
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
-                classInstance.stopPreview();
+                self.stopPreview();
             } else if (settingsModal.classList.contains('show') && mapTab.classList.contains('active')) {
-                classInstance.startPreview();
+                self.startPreview();
             }
         });
     }
@@ -426,6 +489,11 @@ class Options {
     detectorRunning() {
         const status = this.detector && this.detector.lastStatus;
         return !!(status && status.running);
+    }
+
+    /** @param {function(): void} callback after a card's writes have landed */
+    onPlacementApplied(callback) {
+        if (typeof callback === 'function') this.placementListeners.push(callback);
     }
 
     /** The single source of truth, re-read rather than cached. */
@@ -491,7 +559,14 @@ class Options {
         $('#gameMapKeyBlock').toggleClass('d-none', !sections.gameMap);
         $('#gameMapTroubleFold').toggleClass('d-none', !sections.troubleshooting);
         const auto = autoDetectSwitchState(placement, this.detectorRunning());
-        $('#autoDetectCheck').prop('checked', auto.checked).prop('disabled', auto.disabled);
+        const check = document.getElementById('autoDetectCheck');
+        // Disabling the focused element blurs it: hand focus to its dialog first,
+        // or the tutorial's focus trap loses it. Why: docs/agents/settings-and-onboarding.md.
+        if (auto.disabled && check && check === document.activeElement) {
+            const dialog = check.closest('#tour, .modal');
+            if (dialog) dialog.focus();
+        }
+        $(check).prop('checked', auto.checked).prop('disabled', auto.disabled);
         $('#autoDetectHelp').text(t(auto.reasonKey));
         $('#autoDetectStart').toggleClass('d-none', !auto.blocked);
         if (this.detector && typeof this.detector.setPlacementLock === 'function') {

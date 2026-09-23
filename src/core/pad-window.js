@@ -5,6 +5,8 @@ const {webPreferences} = require('../shared/web-preferences');
 const appLog = require('./app-log');
 const {PAD_RECORD_TIMEOUT} = require('../shared/tab-mode-rules');
 const {resolveMapPad, padLabel} = require('../shared/pad-codes');
+const {errorMessage} = require('../shared/errors');
+const {clearTimer, unrefTimer} = require('../shared/timers');
 
 /**
  * ELECTRON tier: the **hidden window that reads the controller** through the
@@ -46,25 +48,24 @@ class PadWindow {
 
     listen() {
         if (this.handlers) return;
-        const self = this;
         this.handlers = {
             edge: (event, down) => {
-                if (!self.fromMe(event)) return;
-                self.counters.edges++;
-                if (typeof self.onEdge === 'function') {
-                    try { self.onEdge(down === true); } catch (err) {
+                if (!this.fromMe(event)) return;
+                this.counters.edges++;
+                if (typeof this.onEdge === 'function') {
+                    try { this.onEdge(down === true); } catch (err) {
                         console.error('Controller: edge handler failed:', err && err.message);
                     }
                 }
             },
             recorded: (event, code) => {
-                if (!self.fromMe(event)) return;
+                if (!this.fromMe(event)) return;
                 const resolved = resolveMapPad(code);
-                if (self.recording && resolved !== null) self.recording.finish({ok: true, code: resolved, label: padLabel(resolved)});
+                if (this.recording && resolved !== null) this.recording.finish({ok: true, code: resolved, label: padLabel(resolved)});
             },
             seen: (event, count) => {
-                if (!self.fromMe(event)) return;
-                self.counters.padsSeen = typeof count === 'number' ? count : 0;
+                if (!this.fromMe(event)) return;
+                this.counters.padsSeen = typeof count === 'number' ? count : 0;
             }
         };
         ipcMain.on('pad-edge', this.handlers.edge);
@@ -91,30 +92,29 @@ class PadWindow {
             });
         } catch (err) {
             console.error('Controller: could not create the input window:', err && err.message);
-            appLog.error('pad-window', {action: 'create-failed', message: (err && err.message) || String(err)});
+            appLog.error('pad-window', {action: 'create-failed', message: errorMessage(err)});
             this.window = null;
             return false;
         }
         this.listen();
         this.counters.created++;
-        const self = this;
         this.window.webContents.on('did-finish-load', () => {
-            self.ready = true;
+            this.ready = true;
             // Re-send what it should be doing: a reload forgets everything.
-            const wanted = self.watch;
-            self.watch = {on: false, code: null};
-            self.setWatch(wanted.on, wanted.code);
-            if (self.recording) self.send('pad-record', {on: true});
+            const wanted = this.watch;
+            this.watch = {on: false, code: null};
+            this.setWatch(wanted.on, wanted.code);
+            if (this.recording) this.send('pad-record', {on: true});
         });
         this.window.webContents.on('render-process-gone', (event, details) => {
             const reason = (details && details.reason) || 'unknown';
             appLog.error('render-process-gone', {where: 'pad-window', reason, exitCode: details && details.exitCode});
-            self.ready = false;
-            if (typeof self.onEdge === 'function') self.onEdge(false);
+            this.ready = false;
+            if (typeof this.onEdge === 'function') this.onEdge(false);
             if (reason === 'clean-exit') return;
             setTimeout(() => {
                 try {
-                    if (self.window && !self.window.isDestroyed()) self.window.reload();
+                    if (this.window && !this.window.isDestroyed()) this.window.reload();
                 } catch (err) {
                     console.error('Controller: reload failed:', err && err.message);
                 }
@@ -158,23 +158,21 @@ class PadWindow {
         if (this.recording) this.recording.finish({ok: false, reason: 'replaced'});
         if (!this.ensure()) return Promise.resolve({ok: false, reason: 'unavailable'});
         const timeoutMs = typeof o.timeoutMs === 'number' && o.timeoutMs > 0 ? o.timeoutMs : PAD_RECORD_TIMEOUT;
-        const self = this;
         return new Promise((resolve) => {
             const rec = {timer: null, done: false};
             rec.finish = (result) => {
                 if (rec.done) return;
                 rec.done = true;
-                if (rec.timer) clearTimeout(rec.timer);
-                if (self.recording === rec) self.recording = null;
-                self.send('pad-record', {on: false});
+                rec.timer = clearTimer(rec.timer);
+                if (this.recording === rec) this.recording = null;
+                this.send('pad-record', {on: false});
                 resolve(result);
             };
-            rec.timer = setTimeout(() => {
-                rec.finish({ok: false, reason: self.counters.padsSeen > 0 ? 'timeout' : 'no-controller'});
-            }, timeoutMs);
-            if (rec.timer.unref) rec.timer.unref();
-            self.recording = rec;
-            self.send('pad-record', {on: true});
+            rec.timer = unrefTimer(setTimeout(() => {
+                rec.finish({ok: false, reason: this.counters.padsSeen > 0 ? 'timeout' : 'no-controller'});
+            }, timeoutMs));
+            this.recording = rec;
+            this.send('pad-record', {on: true});
         });
     }
 

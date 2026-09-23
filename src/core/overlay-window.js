@@ -9,14 +9,9 @@ class OverlayWindow {
 
     constructor(settings) {
         this.settings = settings || null;
-        let classInstance = this;
         ipcMain.on('set-mouse-drag', async (event, drag) => {
-            if (!classInstance.window) return
-            if (drag) {
-                classInstance.window.setIgnoreMouseEvents(false);
-            } else {
-                classInstance.window.setIgnoreMouseEvents(true);
-            }
+            if (!this.window) return
+            this.window.setIgnoreMouseEvents(!drag);
         });
     }
 

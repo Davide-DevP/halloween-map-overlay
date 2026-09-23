@@ -68,10 +68,10 @@
                 <!-- `id` so the tutorial has something visible to hand the
                      keyboard back to: it opens over the Settings modal it just
                      closed, and the control that opened it is hidden by then. -->
-                <li class="nav-item"><a class="nav-link" role="button" id="settingsLink" data-bs-toggle="modal" data-bs-target="#settings" data-i18n="nav.settings">Settings</a></li>
-                <li class="nav-item"><a class="nav-link" role="button" data-bs-toggle="modal" data-bs-target="#custom_modal" data-i18n="nav.custom">Add your own map</a></li>
-                <li class="nav-item"><a class="nav-link" role="button" data-bs-toggle="modal" data-bs-target="#faqModal" data-i18n="nav.faq">FAQ</a></li>
-                <li class="nav-item"><a class="nav-link" role="button" data-bs-toggle="modal" data-bs-target="#credits" data-i18n="nav.credits">Credits</a></li>
+                <li class="nav-item"><button type="button" class="nav-link" id="settingsLink" data-bs-toggle="modal" data-bs-target="#settings" data-i18n="nav.settings">Settings</button></li>
+                <li class="nav-item"><button type="button" class="nav-link" data-bs-toggle="modal" data-bs-target="#custom_modal" data-i18n="nav.custom">Add your own map</button></li>
+                <li class="nav-item"><button type="button" class="nav-link" data-bs-toggle="modal" data-bs-target="#faqModal" data-i18n="nav.faq">FAQ</button></li>
+                <li class="nav-item"><button type="button" class="nav-link" data-bs-toggle="modal" data-bs-target="#credits" data-i18n="nav.credits">Credits</button></li>
             </ul>
         </div>
     </div>
@@ -161,7 +161,7 @@
             game's map, so it stays on.</small>
         <!-- `data-state` is written by src/js/detector.js from the same status
              push that fills the text: off / watching / menu / detected. -->
-        <span class="detector-readout" id="detectorReadout" data-state="off">
+        <span class="detector-readout" id="detectorReadout" data-state="off" aria-live="polite">
             <span class="detector-dot" aria-hidden="true"></span>
             <span id="detectorStatus">Off</span>
         </span>
@@ -175,7 +175,7 @@
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h1 class="modal-title" data-i18n="settings.title">Settings</h1>
+                <h2 class="modal-title" data-i18n="settings.title">Settings</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -336,7 +336,7 @@
                                     </div>
                                 </label>
                             </div>
-                            <div class="form-check form-switch setting-switch">
+                            <div class="form-check form-switch setting-switch" id="autoDetectSwitch">
                                 <input class="form-check-input" type="checkbox" id="autoDetectCheck" role="switch">
                                 <label class="form-check-label" for="autoDetectCheck" data-i18n="settings.autoDetect">Recognise the map
                                     automatically</label>
@@ -347,7 +347,7 @@
                             <small class="help-text" id="autoDetectHelp" data-i18n="settings.autoDetect.help">The first time you open the
                                 game's map, the app works out where you are playing and shows the
                                 right map.</small>
-                            <div class="setting-actions mt-2">
+                            <div class="setting-actions mt-2" id="autoDetectActions">
                                 <button type="button" class="btn btn-secondary btn-sm d-none"
                                         id="autoDetectStart" data-i18n="settings.autoDetect.start">Switch it on</button>
                             </div>
@@ -355,7 +355,7 @@
 
                         <div class="setting" id="cornerBlock">
                             <p class="setting-group-title" data-i18n="settings.corner.title">The map in the corner</p>
-                            <div class="field-row">
+                            <div class="field-row" id="cornerPickers">
                                 <div>
                                     <label for="monitorSelect" class="form-label" data-i18n="settings.monitor">Screen</label>
                                     <select class="form-select" id="monitorSelect">
@@ -372,25 +372,27 @@
                                     </select>
                                 </div>
                             </div>
-                            <div class="setting-head mt-3">
-                                <label for="sizeRange" class="form-label" data-i18n="settings.size">Size</label>
-                                <span class="setting-value num" id="sizeValue"></span>
+                            <div id="cornerSizeOpacity">
+                                <div class="setting-head mt-3">
+                                    <label for="sizeRange" class="form-label" data-i18n="settings.size">Size</label>
+                                    <span class="setting-value num" id="sizeValue"></span>
+                                </div>
+                                <input type="range" class="form-range" min="50" max="800" step="25" id="sizeRange">
+                                <div class="setting-head">
+                                    <label for="opacityRange" class="form-label" data-i18n="settings.opacity">Visibility</label>
+                                    <span class="setting-value num" id="opacityValue"></span>
+                                </div>
+                                <input type="range" class="form-range" min="0.1" max="1" step="0.1" id="opacityRange">
                             </div>
-                            <input type="range" class="form-range" min="50" max="800" step="25" id="sizeRange">
-                            <div class="setting-head">
-                                <label for="opacityRange" class="form-label" data-i18n="settings.opacity">Visibility</label>
-                                <span class="setting-value num" id="opacityValue"></span>
-                            </div>
-                            <input type="range" class="form-range" min="0.1" max="1" step="0.1" id="opacityRange">
                             <!-- "Set position" turns `draggable` on AND lets the
                                  overlay catch the mouse; "Leave it there" only gives
                                  the clicks back. `#glideReset` goes back to the preset. -->
                             <div class="setting-actions mt-2">
-                                <button class="btn btn-secondary btn-sm" id="set-pos" data-i18n="settings.moveByMouse">Move it with the mouse…</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="set-pos" data-i18n="settings.moveByMouse">Move it with the mouse…</button>
                                 <!-- display:none stays inline: src/js/options.js toggles these
                                      two with jQuery .show()/.hide(). -->
-                                <button class="btn btn-warning btn-sm" id="unset-pos" style="display: none" data-i18n="settings.moveByMouse.done">Leave it there</button>
-                                <button class="btn btn-quiet btn-sm" id="glideReset" data-i18n="settings.backToCorner">Put it back in the corner</button>
+                                <button type="button" class="btn btn-warning btn-sm" id="unset-pos" style="display: none" data-i18n="settings.moveByMouse.done">Leave it there</button>
+                                <button type="button" class="btn btn-quiet btn-sm" id="glideReset" data-i18n="settings.backToCorner">Put it back in the corner</button>
                             </div>
                             <small class="help-text d-block" id="moveByMouseHelp" data-i18n="settings.moveByMouse.help">Drag the map where you want
                                 it, then press Leave it there. While you are moving it, the map
@@ -416,7 +418,7 @@
                                             id="markersShowBtn" data-i18n="settings.showPoints">Show the points</button>
                                 </div>
                             </div>
-                            <div class="chips">
+                            <div class="chips" id="markerChips">
                                 <label>
                                     <input type="checkbox" id="markerCellarCheck">
                                     <span class="marker-dot marker-dot-cellar" aria-hidden="true"></span>
@@ -448,32 +450,36 @@
                              GetAsyncKeyState, which must never go near globalShortcut or the hotkey
                              tables. docs/agents/markers-and-tab-mode.md. -->
                         <div class="setting" id="gameMapKeyBlock">
-                            <div class="setting-head">
-                                <label for="tabMarkerKeyBtn" class="form-label" data-i18n="settings.tabMarkers.mapKey">The game's map key</label>
-                                <kbd class="num" id="tabMarkerKeyValue"></kbd>
-                            </div>
-                            <div class="setting-actions">
-                                <button type="button" class="btn btn-secondary btn-sm" id="tabMarkerKeyBtn" data-i18n="settings.tabMarkers.mapKey.change">Change key…</button>
-                                <button type="button" class="btn btn-quiet btn-sm" id="tabMarkerKeyReset" data-i18n="common.reset">Reset</button>
+                            <div id="mapKeyControls">
+                                <div class="setting-head">
+                                    <label for="tabMarkerKeyBtn" class="form-label" data-i18n="settings.tabMarkers.mapKey">The game's map key</label>
+                                    <kbd class="num" id="tabMarkerKeyValue"></kbd>
+                                </div>
+                                <div class="setting-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="tabMarkerKeyBtn" data-i18n="settings.tabMarkers.mapKey.change">Change key…</button>
+                                    <button type="button" class="btn btn-quiet btn-sm" id="tabMarkerKeyReset" data-i18n="common.reset">Reset</button>
+                                </div>
                             </div>
                             <small class="help-text d-block mb-3" data-i18n-html="settings.tabMarkers.mapKey.help">If you changed the key that
                                 opens the map inside the game, set the same one here.</small>
                             <!-- The map key's second input: one controller button, an XInput code read
                                  by main (the renderer cannot see the pad). Same rules as the key above:
                                  never an accelerator, never the hotkey tables. -->
-                            <div class="setting-head">
-                                <label for="tabMarkerPadBtn" class="form-label" data-i18n="settings.tabMarkers.pad">Controller button</label>
-                                <kbd class="num" id="tabMarkerPadValue"></kbd>
+                            <div id="mapPadControls">
+                                <div class="setting-head">
+                                    <label for="tabMarkerPadBtn" class="form-label" data-i18n="settings.tabMarkers.pad">Controller button</label>
+                                    <kbd class="num" id="tabMarkerPadValue"></kbd>
+                                </div>
+                                <div class="setting-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="tabMarkerPadBtn" data-i18n="settings.tabMarkers.pad.change">Choose button…</button>
+                                    <button type="button" class="btn btn-quiet btn-sm" id="tabMarkerPadReset" data-i18n="settings.tabMarkers.pad.remove">Remove</button>
+                                </div>
+                                <small class="help-text d-block mb-1" data-i18n-html="settings.tabMarkers.pad.help">Playing with a controller? Set the
+                                    button that opens the map in the game: normally View, which is the touchpad
+                                    on a PlayStation controller. The key above keeps working too.</small>
+                                <button type="button" class="btn btn-link btn-sm p-0 linkish faq-link"
+                                        data-faq="faqReads" data-i18n="settings.whatDoesItRead">What does the app read?</button>
                             </div>
-                            <div class="setting-actions">
-                                <button type="button" class="btn btn-secondary btn-sm" id="tabMarkerPadBtn" data-i18n="settings.tabMarkers.pad.change">Choose button…</button>
-                                <button type="button" class="btn btn-quiet btn-sm" id="tabMarkerPadReset" data-i18n="settings.tabMarkers.pad.remove">Remove</button>
-                            </div>
-                            <small class="help-text d-block mb-1" data-i18n-html="settings.tabMarkers.pad.help">Playing with a controller? Set the
-                                button that opens the map in the game: normally View, which is the touchpad
-                                on a PlayStation controller. The key above keeps working too.</small>
-                            <button type="button" class="btn btn-link btn-sm p-0 linkish faq-link"
-                                    data-faq="faqReads" data-i18n="settings.whatDoesItRead">What does the app read?</button>
                         </div>
 
                         <details class="adv">
@@ -576,7 +582,7 @@
                         <div class="table-section">
                             <div class="section-head">
                                 <h2 class="section-title" data-i18n="hotkeys.maps">One particular map</h2>
-                                <button class="btn btn-accent btn-sm" data-bs-toggle="modal"
+                                <button type="button" class="btn btn-accent btn-sm" data-bs-toggle="modal"
                                         data-bs-target="#addHotkeyModal" data-i18n="hotkeys.add">Add a key</button>
                             </div>
                             <table class="table table-sm align-middle">
@@ -626,7 +632,7 @@
                 <!-- Retitled from JS when a system hotkey is being edited, so
                      it carries no data-i18n: `Hotkeys.restoreModalDefaults()`
                      puts the translated default back. -->
-                <h5 class="modal-title" data-i18n-ignore>Bind a map hotkey</h5>
+                <h2 class="modal-title" data-i18n-ignore>Bind a map hotkey</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -645,7 +651,7 @@
                      the main process has accepted the binding, so a validation
                      error can still be shown with the recorded key intact. -->
                 <button type="button" class="btn btn-primary" id="saveHotkeyBtn"
-                        onclick="this.blur()" data-i18n="hotkeys.modal.save">Save</button>
+                        data-i18n="hotkeys.modal.save">Save</button>
             </div>
         </div>
     </div>
@@ -656,7 +662,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h1 class="modal-title" data-i18n="custom.title">Add your own map</h1>
+                <h2 class="modal-title" data-i18n="custom.title">Add your own map</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -671,7 +677,7 @@
                     </div>
                     <input id="custom_file" class="form-control mb-3" type="file" accept="image/png,image/jpeg,image/webp">
                     <div class="setting-actions">
-                        <button class="btn btn-accent" onclick="addCustomMap()" data-i18n="custom.add">Add the map</button>
+                        <button type="button" class="btn btn-accent" id="customAddBtn" data-i18n="custom.add">Add the map</button>
                     </div>
                 </div>
                 <div class="table-section mt-3">
@@ -690,7 +696,7 @@
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" data-i18n="faq.title">Frequently asked questions</h5>
+                <h2 class="modal-title" data-i18n="faq.title">Frequently asked questions</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
             <!-- Every answer carries markup (<kbd>, <em>, <code>), so these are
@@ -872,7 +878,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h1 class="modal-title" data-i18n="credits.title">Credits</h1>
+                <h2 class="modal-title" data-i18n="credits.title">Credits</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-aria-label="common.close" aria-label="Close"></button>
             </div>
             <div class="modal-body credits">
@@ -916,9 +922,11 @@
             </div>
             <div class="modal-body tour-body">
 
-                <!-- 1 ── Welcome + language. The picker writes through the real
-                     one in Settings › General, so there is one code path and one
-                     setting; see `mirror` in src/js/onboarding.js. -->
+                <!-- Steps 1–4 and 6 hold no controls of their own: each `<template data-borrow>`
+                     is where `Onboarding.borrowControls()` moves the real Settings control while
+                     the tutorial is open. docs/agents/settings-and-onboarding.md § The first-run setup tutorial. -->
+
+                <!-- 1 ── Welcome + language. -->
                 <section class="tour-step d-none" data-tour-step="welcome">
                     <h2 class="tour-title" data-i18n="onboarding.welcome.title">Welcome. Which language do you prefer?</h2>
                     <p class="tour-lead" data-i18n="onboarding.welcome.body">The guide starts in your computer's
@@ -926,167 +934,59 @@
                         settings.</p>
                     <div class="setting">
                         <div class="setting-head">
-                            <label for="tourLanguage" class="form-label" data-i18n="settings.language">Language</label>
+                            <label for="languageSelect" class="form-label" data-i18n="settings.language">Language</label>
                         </div>
-                        <!-- Filled by cloning the options of #languageSelect. -->
-                        <select class="form-select mb-2" id="tourLanguage"></select>
+                        <template data-borrow="languageSelect"></template>
                     </div>
                 </section>
 
-                <!-- 2 ── Where the map goes: the same three cards as Settings,
-                     over the same pure pair (`shared/map-placement.js`). -->
+                <!-- 2 ── Where the map goes: the three cards over the pure pair
+                     (`shared/map-placement.js`). -->
                 <section class="tour-step d-none" data-tour-step="where">
                     <h2 class="tour-title" data-i18n="onboarding.where.title">Where do you want to see the map?</h2>
                     <p class="tour-lead" data-i18n="onboarding.where.body">You can change your mind whenever you like.</p>
-                    <div class="where" id="tourPlacementCards">
-                        <label>
-                            <input type="radio" name="tourMapPlacement" value="corner" id="tourPlacementCorner">
-                            <div>
-                                <strong data-i18n="settings.where.corner">In a corner of the screen</strong>
-                                <span data-i18n="settings.where.corner.help">A small map you can always see while you
-                                    play.</span>
-                            </div>
-                        </label>
-                        <label>
-                            <input type="radio" name="tourMapPlacement" value="tab" id="tourPlacementTab">
-                            <div>
-                                <strong data-i18n="settings.where.tab">On the game's map</strong><em class="tag" data-i18n="settings.where.tag">in testing</em>
-                                <span data-i18n-html="settings.where.tab.help">Hold <kbd>Tab</kbd> down: the useful
-                                    points appear right on the game's map, and go away when you let
-                                    go.</span>
-                            </div>
-                        </label>
-                        <label>
-                            <input type="radio" name="tourMapPlacement" value="both" id="tourPlacementBoth">
-                            <div>
-                                <strong data-i18n="settings.where.both">Both</strong>
-                                <span data-i18n="settings.where.both.help">The map in the corner, plus the points on
-                                    the game's map.</span>
-                            </div>
-                        </label>
-                    </div>
+                    <template data-borrow="placementCards"></template>
                 </section>
 
                 <!-- 3 ── Set it up. Which half is shown follows step 2
-                     (`placementSections`); the key recorder is the same one
-                     Settings uses, never a second one. -->
+                     (`placementSections`). -->
                 <section class="tour-step d-none" data-tour-step="setup">
                     <h2 class="tour-title" data-i18n="onboarding.setup.title">Set it up the way you like</h2>
                     <div id="tourCornerBlock">
                         <p class="tour-lead" data-i18n="onboarding.setup.body">A test map is already on your screen:
                             look at it while you adjust.</p>
-                        <div class="field-row">
-                            <div>
-                                <label for="tourMonitor" class="form-label" data-i18n="settings.monitor">Screen</label>
-                                <select class="form-select" id="tourMonitor"></select>
-                            </div>
-                            <div>
-                                <label for="tourCorner" class="form-label" data-i18n="settings.corner">Corner</label>
-                                <select class="form-select" id="tourCorner"></select>
-                            </div>
-                        </div>
+                        <template data-borrow="cornerPickers"></template>
                         <!-- Shown only while the picker above is disabled: a
                              greyed-out control needs its explanation. -->
                         <small class="help-text mt-2 d-none" id="tourCornerLocked"
                                data-i18n="settings.movedByHand">The map is where you put it
                             with the mouse, so the screen and the corner above do not apply.</small>
-                        <div class="setting-head mt-3">
-                            <label for="tourSize" class="form-label" data-i18n="settings.size">Size</label>
-                            <span class="setting-value num" id="tourSizeValue"></span>
-                        </div>
-                        <!-- min/max/step are set from SIZE_MIN/SIZE_MAX/SIZE_STEP
-                             in src/js/onboarding.js rather than written here: the
-                             three numbers already live in two places (this file's
-                             #sizeRange and hotkeys-constants) and a third copy
-                             would be one more thing to keep in step. -->
-                        <input type="range" class="form-range" id="tourSize">
-                        <div class="setting-head">
-                            <label for="tourOpacity" class="form-label" data-i18n="settings.opacity">Visibility</label>
-                            <span class="setting-value num" id="tourOpacityValue"></span>
-                        </div>
-                        <input type="range" class="form-range" min="0.1" max="1" step="0.1" id="tourOpacity">
+                        <template data-borrow="cornerSizeOpacity"></template>
                     </div>
                     <div id="tourKeyBlock" class="d-none">
                         <p class="tour-lead mt-4" data-i18n="onboarding.setup.key">Which key opens the map inside the
                             game?</p>
-                        <div class="setting-head">
-                            <label for="tourMapKeyBtn" class="form-label" data-i18n="settings.tabMarkers.mapKey">The game's map key</label>
-                            <kbd class="num" id="tourMapKeyValue"></kbd>
-                        </div>
-                        <div class="setting-actions">
-                            <button type="button" class="btn btn-secondary btn-sm" id="tourMapKeyBtn" data-i18n="settings.tabMarkers.mapKey.change">Change key…</button>
-                            <button type="button" class="btn btn-quiet btn-sm" id="tourMapKeyReset" data-i18n="common.reset">Reset</button>
-                        </div>
+                        <template data-borrow="mapKeyControls"></template>
                         <small class="help-text d-block mb-3" data-i18n-html="onboarding.setup.key.help">If you have never changed it
                             inside the game, leave <kbd>Tab</kbd>.</small>
-                        <div class="setting-head">
-                            <label for="tourMapPadBtn" class="form-label" data-i18n="settings.tabMarkers.pad">Controller button</label>
-                            <kbd class="num" id="tourMapPadValue"></kbd>
-                        </div>
-                        <div class="setting-actions">
-                            <button type="button" class="btn btn-secondary btn-sm" id="tourMapPadBtn" data-i18n="settings.tabMarkers.pad.change">Choose button…</button>
-                            <button type="button" class="btn btn-quiet btn-sm" id="tourMapPadReset" data-i18n="settings.tabMarkers.pad.remove">Remove</button>
-                        </div>
-                        <small class="help-text d-block mb-1" data-i18n-html="settings.tabMarkers.pad.help">Playing with a controller? Set the
-                                button that opens the map in the game: normally View, which is the touchpad
-                                on a PlayStation controller. The key above keeps working too.</small>
-                        <button type="button" class="btn btn-link btn-sm p-0 linkish faq-link"
-                                data-faq="faqReads" data-i18n="settings.whatDoesItRead">What does the app read?</button>
+                        <template data-borrow="mapPadControls"></template>
                     </div>
                 </section>
 
-                <!-- 4 ── What to show. Mirrors of the real chips and the real switch; the switch's
-                     three states are `autoDetectSwitchState`, as in Settings and on the home page. -->
+                <!-- 4 ── What to show. The switch's three states are
+                     `autoDetectSwitchState`, as in Settings and on the home page. -->
                 <section class="tour-step d-none" data-tour-step="layers">
                     <h2 class="tour-title" data-i18n="onboarding.layers.title">What do you want to see on the map?</h2>
                     <p class="tour-lead" data-i18n-html="onboarding.layers.body">These are the places where something
                         <em>may</em> be, not where it is for sure. Tap to drop what you do not need.</p>
-                    <div class="chips">
-                        <label>
-                            <input type="checkbox" id="tourChipCellar">
-                            <span class="marker-dot marker-dot-cellar" aria-hidden="true"></span>
-                            <span data-i18n="markers.chip.cellar">Cellars</span>
-                        </label>
-                        <label>
-                            <input type="checkbox" id="tourChipGate">
-                            <span class="marker-dot marker-dot-gate" aria-hidden="true"></span>
-                            <span data-i18n="markers.chip.gate">Gates</span>
-                        </label>
-                        <label>
-                            <input type="checkbox" id="tourChipCar">
-                            <span class="marker-dot marker-dot-car" aria-hidden="true"></span>
-                            <span data-i18n="markers.chip.car">Cars</span>
-                        </label>
-                        <label>
-                            <input type="checkbox" id="tourChipGas">
-                            <span class="marker-dot marker-dot-gas" aria-hidden="true"></span>
-                            <span data-i18n="markers.chip.gas">Gas</span>
-                        </label>
-                        <label>
-                            <input type="checkbox" id="tourChipLegend">
-                            <span data-i18n="markers.chip.legend">Legend</span>
-                        </label>
-                    </div>
-                    <div class="alert note-warn d-none mt-2 mb-2" id="tourMarkersHidden">
-                        <div class="banner-row">
-                            <span data-i18n="settings.markers.hidden">The points are hidden right now.</span>
-                            <button type="button" class="btn btn-outline-warning btn-sm"
-                                    id="tourMarkersShowBtn" data-i18n="settings.showPoints">Show the points</button>
-                        </div>
-                    </div>
+                    <template data-borrow="markerChips"></template>
+                    <template data-borrow="markersHiddenNotice"></template>
                     <div class="setting">
-                        <div class="form-check form-switch setting-switch">
-                            <input class="form-check-input" type="checkbox" id="tourDetectCheck" role="switch">
-                            <label class="form-check-label" for="tourDetectCheck" data-i18n="settings.autoDetect">Recognise the map
-                                automatically</label>
-                        </div>
+                        <template data-borrow="autoDetectSwitch"></template>
                         <small class="help-text" id="tourDetectHelp" data-i18n="onboarding.layers.detect.help">Open the game's map once at
                             the start of a match: the app works out where you are and shows the
                             right map.</small>
-                        <div class="setting-actions mt-2">
-                            <button type="button" class="btn btn-secondary btn-sm d-none"
-                                    id="tourDetectStart" data-i18n="settings.autoDetect.start">Switch it on</button>
-                        </div>
+                        <template data-borrow="autoDetectActions"></template>
                     </div>
                 </section>
 
@@ -1119,8 +1019,8 @@
                     <p class="tour-lead" data-i18n="onboarding.done.body">One last thing, then you can play.</p>
                     <div class="setting">
                         <div class="form-check form-switch setting-switch">
-                            <input class="form-check-input" type="checkbox" id="tourUpdatesCheck" role="switch">
-                            <label class="form-check-label" for="tourUpdatesCheck" data-i18n="onboarding.done.updates">Check for new versions and new
+                            <template data-borrow="checkForUpdatesCheck"></template>
+                            <label class="form-check-label" for="checkForUpdatesCheck" data-i18n="onboarding.done.updates">Check for new versions and new
                                 maps automatically</label>
                         </div>
                         <small class="help-text mb-3 d-block" data-i18n="onboarding.done.updates.help">It is the only thing the app
@@ -1151,7 +1051,7 @@
 <!-- A direct child of <body>, not of the Hotkeys tab: everything outside the
      tutorial's exemption list goes `inert` while the panel is up.
      INERT_EXEMPT_IDS in src/shared/onboarding-rules.js. -->
-<div id="hotkeyToast" class="toast align-items-center border-0 position-fixed bottom-0 end-0 mb-3 me-3"
+<div id="hotkeyToast" class="toast align-items-center position-fixed bottom-0 end-0 mb-3 me-3"
      role="alert" aria-live="assertive" aria-atomic="true">
     <div class="d-flex">
         <div class="toast-body" id="hotkeyToastBody"></div>

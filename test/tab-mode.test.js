@@ -104,7 +104,7 @@ function fakeTrigger() {
         stopped: 0,
         probes: 0,
         /** Load + bind + one harmless call. Never starts the poll. */
-        probe() {
+        open() {
             this.probes++;
             return this.usable === false
                 ? {ok: false, reason: this.reason}

@@ -55,11 +55,13 @@ function renderMarkers() {
         markerState.markers.legend);
 }
 
-ipcRenderer.on('map-change', async (event, img, size, opacity, draggable, rotation, mapLabel, labelMode, markers, lang) => {
+/** `{image, size, opacity, draggable, rotation, label, labelMode, markers, lang}` — `MainWindow.applyMapChange`. */
+ipcRenderer.on('map-change', async (event, change) => {
+    const {image, size, opacity, draggable, rotation, label, labelMode, markers, lang} = change || {};
     if (url !== null) {
         URL.revokeObjectURL(url)
     }
-    let imgData = Buffer.from(img, "base64");
+    let imgData = Buffer.from(image || '', "base64");
     let blob = new Blob([imgData]);
     url = URL.createObjectURL(blob);
     // Width and rotation on the wrapper, so the markers rotate *with* the map.
@@ -80,7 +82,7 @@ ipcRenderer.on('map-change', async (event, img, size, opacity, draggable, rotati
         : null;
     renderMarkers();
     // Settled on every change, so no label is left over from the last map.
-    showLabel(mapLabel, opacity, labelMode);
+    showLabel(label, opacity, labelMode);
 });
 
 ipcRenderer.on('map-hide', async (event) => {

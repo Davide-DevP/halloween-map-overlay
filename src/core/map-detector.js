@@ -11,11 +11,12 @@ const DetectorWorkerHost = require('./map-detector/worker-host');
 // must not sit in the startup path of users who have detection switched off.
 let gc = null;
 const appLog = require('./app-log');
+const {errorMessage} = require('../shared/errors');
+const {clearTimer, unrefTimer} = require('../shared/timers');
 const {CUSTOM_CREATOR} = require('./map-catalog');
 const {
     GAME_INTERVAL, IDLE_INTERVAL, MENU_TICKS_TO_HIDE, SEND_THROTTLE, SLOW_TICK_MS,
-    GAME_NAME, OWN_NAME, MIN_WINDOW,
-    tickInterval, shouldWatchMenu, pickGameWindow, MenuStreak, SendThrottle
+    tickInterval, shouldWatchMenu, MenuStreak, SendThrottle
 } = require('../shared/detector-rules');
 const {DETECT_INTERVAL: TAB_DETECT_INTERVAL} = require('../shared/tab-mode-rules');
 const rules = require('../shared/map-pack-rules');
@@ -23,9 +24,6 @@ const {mergeTemplateSources} = rules;
 const TEMPLATE_FILE = require('./map-detector/templates.json');
 
 const debug = process.env.DEBUG === 'true';
-
-/** Re-exported; the reasoning is in `map-detector/frame-source.js`. */
-const CAPTURE_WIDTH = 640;
 
 /** "Game not running" and capture errors are states, not events: log sparsely. */
 const STATE_LOG_INTERVAL = 60000;
@@ -139,18 +137,17 @@ class MapDetector {
         });
         this.loadTemplates();
 
-        const self = this;
         ipcMain.handle('map-detector-start', async () => {
-            self.settings.set('mapDetection', true);
-            self.start();
-            return self.status();
+            this.settings.set('mapDetection', true);
+            this.start();
+            return this.status();
         });
         ipcMain.handle('map-detector-stop', async () => {
-            self.settings.set('mapDetection', false);
-            self.stop();
-            return self.status();
+            this.settings.set('mapDetection', false);
+            this.stop();
+            return this.status();
         });
-        ipcMain.handle('map-detector-status', async () => self.status());
+        ipcMain.handle('map-detector-status', async () => this.status());
         // `resetLastDetected()`, `noteApplied()` and `noteShown()` have no
         // channels: `MapController` calls them. See `docs/SPEC-MAP-STATE.md` §2.2.
     }
@@ -413,7 +410,7 @@ class MapDetector {
         let previous = Date.now();
         let peak = 0;
         let reportedAt = Date.now();
-        this.lagTimer = setInterval(() => {
+        this.lagTimer = unrefTimer(setInterval(() => {
             const now = Date.now();
             const drift = now - previous - 200;
             previous = now;
@@ -423,13 +420,11 @@ class MapDetector {
                 peak = 0;
                 reportedAt = now;
             }
-        }, 200);
-        if (this.lagTimer.unref) this.lagTimer.unref();
+        }, 200));
     }
 
     stop() {
-        if (this.timer) clearTimeout(this.timer);
-        this.timer = null;
+        this.timer = clearTimer(this.timer);
         if (this.lagTimer) clearInterval(this.lagTimer);
         this.lagTimer = null;
         if (!this.running) return;
@@ -470,7 +465,7 @@ class MapDetector {
 
     schedule(delay) {
         if (!this.running) return;
-        if (this.timer) clearTimeout(this.timer);
+        clearTimer(this.timer);
         this.timer = setTimeout(() => this.tick(), delay);
     }
 
@@ -648,8 +643,8 @@ class MapDetector {
             this.notifyTabMode('onMatch', match.key, gameRect, win.captured || null, started);
             this.sendStatus({state: 'detected', key: match.key, at: this.detectedSince, score: match.score});
         } catch (err) {
-            this.log.write('error', {message: (err && err.message) || String(err)});
-            this.logState('lastErrorAt', (err && err.message) || String(err), 'error');
+            this.log.write('error', {message: errorMessage(err)});
+            this.logState('lastErrorAt', errorMessage(err), 'error');
             // A tick that threw is no answer about the Tab screen, and no
             // answer means take the markers down.
             this.notifyTabMode('onLost', 'detector-error');
@@ -758,13 +753,3 @@ class MapDetector {
 }
 
 module.exports = MapDetector;
-// Re-exports: these all live in the pure `shared/detector-rules.js`, shared
-// with `core/foreground.js` so the two cannot disagree about the game's window.
-module.exports.GAME_INTERVAL = GAME_INTERVAL;
-module.exports.IDLE_INTERVAL = IDLE_INTERVAL;
-module.exports.SEND_THROTTLE = SEND_THROTTLE;
-module.exports.CAPTURE_WIDTH = CAPTURE_WIDTH;
-module.exports.MENU_TICKS_TO_HIDE = MENU_TICKS_TO_HIDE;
-module.exports.GAME_NAME = GAME_NAME;
-module.exports.OWN_NAME = OWN_NAME;
-module.exports.MIN_WINDOW = MIN_WINDOW;

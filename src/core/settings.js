@@ -10,6 +10,7 @@ const {DEFAULT_SETTINGS: defaultConfig} = require("../shared/settings-defaults")
 const {TOUR_VERSION} = require("../shared/onboarding-rules");
 const {msg} = require("../shared/i18n");
 const appLog = require("./app-log");
+const {errorMessage} = require("../shared/errors");
 
 /** Write-failure warnings, ms between them. Why: the doc § Writing settings. */
 const WRITE_WARN_INTERVAL = 30000;
@@ -60,41 +61,40 @@ class Settings {
             this.settings.onboardingPending = true;
             this.write();
         }
-        let classInstance = this;
         ipcMain.handle('get-settings', async (event) => {
-            return classInstance.settings
+            return this.settings
         })
         // One key at a time, never the renderer's whole cached object.
         // Why: the doc § Writing settings.
         ipcMain.handle('set-setting', async (event, key, value) => {
             if (typeof key !== 'string' || !key) return null;
-            classInstance.set(key, value);
-            return classInstance.settings;
+            this.set(key, value);
+            return this.settings;
         })
         // The tutorial's own handlers: `set-setting` answers with the settings
         // object and so cannot say "that did not reach the disk".
         ipcMain.handle('get-onboarding-state', async () => ({
-            onboardingPending: classInstance.settings.onboardingPending === true,
-            onboardingDone: classInstance.settings.onboardingDone === true,
-            tourSeenVersion: classInstance.settings.tourSeenVersion
+            onboardingPending: this.settings.onboardingPending === true,
+            onboardingDone: this.settings.onboardingDone === true,
+            tourSeenVersion: this.settings.tourSeenVersion
         }));
         ipcMain.handle('set-onboarding-done', async (event, value) => {
             const done = value === true;
-            const ok = classInstance.set('onboardingDone', done);
+            const ok = this.set('onboardingDone', done);
             // Only the first write's success is reported: the rest would fail
             // the same way.
             if (done) {
-                classInstance.set('onboardingPending', false);
+                this.set('onboardingPending', false);
                 // The once-per-version stamp, on Finish *and* on Skip.
-                classInstance.set('tourSeenVersion', TOUR_VERSION);
+                this.set('tourSeenVersion', TOUR_VERSION);
             }
             return {ok};
         });
         ipcMain.handle('save-settings', async (event, settings) => {
             if (settings && typeof settings === 'object') {
-                classInstance.merge(settings);
+                this.merge(settings);
             }
-            return classInstance.settings;
+            return this.settings;
         })
     }
 
@@ -214,7 +214,7 @@ class Settings {
             return true;
         } catch (err) {
             console.error('Settings could not be written:', err && err.message);
-            appLog.error('setting-write-failed', {message: (err && err.message) || String(err)});
+            appLog.error('setting-write-failed', {message: errorMessage(err)});
             this.warnWriteFailed();
             return false;
         }

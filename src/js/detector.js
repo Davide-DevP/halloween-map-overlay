@@ -1,6 +1,7 @@
 const {ipcRenderer} = require("electron");
 const {debugLog} = require("./logger");
 const {t, onChange} = require("./i18n");
+const {detectorStatusView, emptyDetectorMemory} = require("../shared/detector-status");
 
 /**
  * Home-page switch and status line for the automatic map detection. All the
@@ -10,10 +11,8 @@ class Detector {
 
     constructor(settings) {
         this.settings = settings;
-        this.lastKey = null;
-        this.lastAt = null;
-        /** True between "the menu cleared the map" and the next detection. */
-        this.inMenu = false;
+        /** What the line remembers between pushes — `shared/detector-status.js`. */
+        this.memory = emptyDetectorMemory();
         /** The last status seen, so the line can be re-rendered in a new language. */
         this.lastStatus = null;
         /** Anything else that draws this switch — see `onStatus`. */
@@ -116,53 +115,11 @@ class Detector {
         this.applyLock();
         this.notifyStatus(!!s.running);
 
-        if (s.lastDetected) {
-            this.lastKey = s.lastDetected;
-            this.lastAt = s.lastAt;
-            this.inMenu = false;
-        } else if (s.state === 'menu') {
-            this.lastKey = null;
-            this.lastAt = null;
-            this.inMenu = true;
-        } else if (s.state === 'watching') {
-            // The clear hotkey dropped the last detection; go back to watching.
-            this.lastKey = null;
-            this.lastAt = null;
-            this.inMenu = false;
-        } else if (s.inMenu !== undefined) {
-            // The one `invoke` at startup, which carries no `state`.
-            this.inMenu = !!s.inMenu;
-        }
-        if (!s.running) {
-            this.lastKey = null;
-            this.lastAt = null;
-            this.inMenu = false;
-            this.setState('off');
-            $("#detectorStatus").text(t('detector.off'));
-            return;
-        }
-        if (this.inMenu && !this.lastKey) {
-            this.setState('menu');
-            $("#detectorStatus").text(t('detector.menu'));
-            return;
-        }
-        if (!this.lastKey) {
-            this.setState('watching');
-            $("#detectorStatus").text(t('detector.watching'));
-            return;
-        }
-        this.setState('detected');
-        const at = this.lastAt ? new Date(this.lastAt) : null;
-        // The map name is never translated; only the sentence around it is.
-        const map = this.lastKey.split("/").pop();
-        const text = at
-            ? t('detector.detectedAt', {
-                map,
-                time: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`
-            })
-            : t('detector.detected', {map});
+        const view = detectorStatusView(this.memory, s);
+        this.memory = view.memory;
+        this.setState(view.state);
         // .text(): no map name ever reaches innerHTML unescaped.
-        $("#detectorStatus").text(text);
+        $("#detectorStatus").text(t(view.messageKey, view.params));
     }
 }
 

@@ -314,6 +314,10 @@ file — see [markers-and-tab-mode.md](markers-and-tab-mode.md).
      translates the event and refuses unmapped keys *and* modifier-less ones.
   2. `Hotkeys.rejectIfUnregisterable` dry-runs `globalShortcut.register` in a
      try/catch before anything is written to settings or `hotkeys.json`.
+     When the probe *throws* it calls `loadKeys()` before returning the
+     error: Electron can drop an already-registered shortcut mid-throw, and a
+     full re-register is the only cheap way back to a known state (a 1.2.x
+     refactor removed that call as "undocumented"; it is deliberate).
   3. `Hotkeys.safeRegister` wraps every real `register` call, so even a file
      hand-edited to garbage only loses that one binding.
 

@@ -29,8 +29,10 @@ const {
     planPackMapHotkey,
     hotkeysShouldBeRegistered
 } = require("../shared/hotkeys-rules");
-const {HOTKEY_DEFAULTS_VERSION, planHotkeyDefaultsMigration} = require("../shared/hotkey-migration");
+const {planHotkeyDefaultsMigration} = require("../shared/hotkey-migration");
 const {msg} = require("../shared/i18n");
+const {errorMessage} = require("../shared/errors");
+const {clearTimer, unrefTimer} = require("../shared/timers");
 const appLog = require("./app-log");
 
 const hotkeyFilePath = path.join(app.getPath('userData'), 'hotkeys.json');
@@ -82,198 +84,214 @@ class Hotkeys {
         this.mainWindow = mainWindow;
         this.settings = settings;
         this.mapLibrary = mapLibrary;
-        const classInstance = this;
 
         // Before anything reads a binding.
         this.migrateDefaultHotkeys();
 
-        // `loadKeys()` pushes the banner before the window finishes loading, so
-        // the renderer asks as well as listens.
-        ipcMain.handle('get-hotkey-conflicts', async () => classInstance.getConflicts());
+        // `handle`: the renderer awaits the answer. `loadKeys()` pushes the
+        // banner before the window finishes loading, so it asks as well as listens.
+        const handlers = {
+            'get-hotkey-conflicts': () => this.getConflicts(),
+            'get-hotkey-notice': () => this.takePendingNotice(),
+            'set-hotkeys-game-only': (value) => this.setGameOnly(value),
+            'suspend-hotkeys': (on) => this.suspendFromRenderer(on),
+            'save-hotkeys': (payload) => this.saveMapHotkey(payload),
+            'get-system-hotkeys': () => this.getSystemHotkeys(),
+            'save-system-hotkey': (payload) => this.saveSystemHotkey(payload)
+        };
+        const listeners = {
+            'load-hotkeys': () => this.reloadFromRenderer(),
+            'delete-hotkey': (id) => this.deleteMapHotkey(id),
+            'reset-system-hotkey': (payload) => this.resetSystemHotkey(payload),
+            'unbind-system-hotkey': (payload) => this.unbindSystemHotkey(payload)
+        };
+        for (const [channel, fn] of Object.entries(handlers)) {
+            ipcMain.handle(channel, async (event, ...args) => fn(...args));
+        }
+        for (const [channel, fn] of Object.entries(listeners)) {
+            ipcMain.on(channel, (event, ...args) => fn(...args));
+        }
+    }
 
-        ipcMain.handle('get-hotkey-notice', async () => {
-            const notice = classInstance.pendingNotice;
-            classInstance.pendingNotice = null;
-            return notice;
-        });
+    takePendingNotice() {
+        const notice = this.pendingNotice;
+        this.pendingNotice = null;
+        return notice;
+    }
 
-        // Its own handler, not `set-setting`: main has to act on it.
-        // Why: docs/agents/settings-and-onboarding.md § Writing settings.
-        ipcMain.handle('set-hotkeys-game-only', async (event, value) => {
-            const on = value !== false;
-            // Rolled back, or main polls for a setting the file does not hold.
-            if (!classInstance.settings.set('hotkeysGameOnly', on, {rollback: true})) {
-                return {ok: false, gameOnly: !on, active: classInstance.active};
-            }
-            if (classInstance.onGameOnlyChanged) classInstance.onGameOnlyChanged(on);
-            return {ok: true, gameOnly: on, active: classInstance.active};
-        });
+    /**
+     * Its own handler, not `set-setting`: main has to act on it.
+     * Why: docs/agents/settings-and-onboarding.md § Writing settings.
+     */
+    setGameOnly(value) {
+        const on = value !== false;
+        // Rolled back, or main polls for a setting the file does not hold.
+        if (!this.settings.set('hotkeysGameOnly', on, {rollback: true})) {
+            return {ok: false, gameOnly: !on, active: this.active};
+        }
+        if (this.onGameOnlyChanged) this.onGameOnlyChanged(on);
+        return {ok: true, gameOnly: on, active: this.active};
+    }
 
-        // `handle`: the renderer must know the suspension is in force before it
-        // starts listening for keystrokes.
-        ipcMain.handle('suspend-hotkeys', async (event, on) => {
-            classInstance.setSuspended(on !== false);
-            return {ok: true, suspended: classInstance.suspended};
-        });
+    /** The renderer must know the suspension is in force before it records. */
+    suspendFromRenderer(on) {
+        this.setSuspended(on !== false);
+        return {ok: true, suspended: this.suspended};
+    }
 
-        // `handle`: the modal stays open until the binding is accepted.
-        ipcMain.handle('save-hotkeys', async (event, payload) => {
-            const {hotkey, mapkey, id: incomingId} = payload || {};
-            if (!hotkey || !mapkey) {
-                return classInstance.fail(msg('hotkeys.error.pickBoth'));
-            }
+    /** A fresh renderer is not recording: one of the nets for a lost "resume". */
+    reloadFromRenderer() {
+        this.setSuspended(false);
+        this.loadKeys();
+    }
 
-            if (!hasModifier(hotkey)) {
-                return classInstance.fail(msg('hotkeys.error.noModifier'));
-            }
-
-            const conflict = classInstance.systemConflict(hotkey);
-            if (conflict) return classInstance.fail(conflict);
-
-            const invalid = classInstance.rejectIfUnregisterable(hotkey);
-            if (invalid) return classInstance.fail(invalid);
-
-            const saved = classInstance.readHotkeyFile();
-            // A re-bind replaces the *equivalent* entry, not the one spelled
-            // identically. Why: the doc § Priority, conflicts and registration.
-            const existingKey = findMapConflict(saved, hotkey);
-            const id = incomingId || (existingKey && saved[existingKey] && saved[existingKey].id) || randomUUID();
-            if (existingKey && existingKey !== hotkey) delete saved[existingKey];
-            saved[hotkey] = {id, mapKey: mapkey};
-
-            if (!classInstance.writeHotkeyFile(saved, 'save')) {
-                return classInstance.fail(msg('hotkeys.error.saveFailed'));
-            }
-            console.log(`Saved hotkey [${id}]: ${hotkey} → ${mapkey}`);
-            classInstance.loadKeys();
-            return classInstance.ok(msg('hotkeys.saved'));
-        });
-
-        ipcMain.on('load-hotkeys', () => {
-            // A fresh renderer is not recording: one of the nets for a
-            // suspension whose "resume" never arrived.
-            classInstance.setSuspended(false);
-            classInstance.loadKeys();
-        });
-
-        ipcMain.on('delete-hotkey', (event, id) => {
-            const saved = classInstance.readHotkeyFile();
-            const keyToDelete = Object.keys(saved).find(hk => saved[hk].id === id);
-
-            if (keyToDelete) {
-                delete saved[keyToDelete];
-                if (!classInstance.writeHotkeyFile(saved, 'delete')) {
-                    classInstance.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
-                    return;
-                }
-                console.log(`Removed hotkey: ${keyToDelete} (id: ${id})`);
-                classInstance.mainWindow.sendUpdate(msg('hotkeys.deleted'));
-                classInstance.loadKeys();
-            } else {
-                console.warn(`No hotkey found for id ${id}`);
-            }
-        });
-
-        ipcMain.handle('get-system-hotkeys', async () => {
-            return classInstance.getSystemHotkeys();
-        });
-
-        ipcMain.handle('save-system-hotkey', async (event, payload) => {
-            const {actionId, accelerator} = payload || {};
-            if (!actionId || !accelerator) {
-                return classInstance.fail(msg('hotkeys.error.missingData'));
-            }
-
-            const settingKey = ACTION_TO_SETTING_KEY[actionId];
-            if (!settingKey) {
-                console.warn(`save-system-hotkey: unknown actionId "${actionId}"`);
-                return classInstance.fail(msg('hotkeys.error.unknownAction'));
-            }
-
-            if (!hasModifier(accelerator)) {
-                return classInstance.fail(msg('hotkeys.error.noModifier'));
-            }
-
-            const systemTaken = classInstance.systemConflict(accelerator, actionId);
-            if (systemTaken) return classInstance.fail(systemTaken);
-
+    /**
+     * The checks every new combination passes, in this order.
+     * @param {{exceptActionId?: string, againstMaps?: boolean}} [opts]
+     * @returns {?{key: string, params?: Object}} the refusal, or null when usable
+     */
+    validateAccelerator(accelerator, opts = {}) {
+        if (!hasModifier(accelerator)) return msg('hotkeys.error.noModifier');
+        const conflict = this.systemConflict(accelerator, opts.exceptActionId || null);
+        if (conflict) return conflict;
+        if (opts.againstMaps) {
             // Normalised, so a stored `Ctrl+R` is found by `CommandOrControl+R`.
-            const usedByMap = findMapConflict(classInstance.readHotkeyFile(), accelerator);
+            const usedByMap = findMapConflict(this.readHotkeyFile(), accelerator);
             if (usedByMap) {
-                return classInstance.fail(msg('hotkeys.error.usedByMap',
-                    {accelerator: acceleratorToDisplay(usedByMap)}));
+                return msg('hotkeys.error.usedByMap', {accelerator: acceleratorToDisplay(usedByMap)});
             }
+        }
+        return this.rejectIfUnregisterable(accelerator);
+    }
 
-            const invalid = classInstance.rejectIfUnregisterable(accelerator);
-            if (invalid) return classInstance.fail(invalid);
+    /**
+     * @param {string} channel for the console line
+     * @returns {?{settingKey: string, def: Object}} null for an unknown action
+     */
+    systemAction(actionId, channel) {
+        const settingKey = ACTION_TO_SETTING_KEY[actionId];
+        const def = SYSTEM_HOTKEY_DEFS[actionId];
+        if (!settingKey || !def) {
+            console.warn(`${channel}: unknown actionId "${actionId}"`);
+            return null;
+        }
+        return {settingKey, def};
+    }
 
-            // `rollback`, or the next `loadKeys()` registers the binding the
-            // user was just told could not be saved.
-            if (!classInstance.settings.set(settingKey, accelerator, {rollback: true})) {
-                return classInstance.fail(msg('hotkeys.error.saveFailed'));
-            }
-            classInstance.loadKeys();
-            return classInstance.ok(msg('hotkeys.savedSystem'));
+    /**
+     * `rollback`, or the next `loadKeys()` registers a binding the user was
+     * just told could not be saved.
+     * @returns {boolean} whether it reached the disk
+     */
+    writeSystemHotkey(settingKey, accelerator) {
+        return this.settings.set(settingKey, accelerator, {rollback: true});
+    }
+
+    /** The bind dialog's save; the modal stays open until this answers. */
+    saveMapHotkey(payload) {
+        const {hotkey, id: incomingId} = payload || {};
+        const mapKey = payload ? payload.mapKey : null;
+        if (!hotkey || !mapKey) return this.fail(msg('hotkeys.error.pickBoth'));
+
+        const refusal = this.validateAccelerator(hotkey);
+        if (refusal) return this.fail(refusal);
+
+        const saved = this.readHotkeyFile();
+        // A re-bind replaces the *equivalent* entry, not the one spelled
+        // identically. Why: the doc § Priority, conflicts and registration.
+        const existingKey = findMapConflict(saved, hotkey);
+        const id = incomingId || (existingKey && saved[existingKey] && saved[existingKey].id) || randomUUID();
+        if (existingKey && existingKey !== hotkey) delete saved[existingKey];
+        saved[hotkey] = {id, mapKey};
+
+        if (!this.writeHotkeyFile(saved, 'save')) {
+            return this.fail(msg('hotkeys.error.saveFailed'));
+        }
+        console.log(`Saved hotkey [${id}]: ${hotkey} → ${mapKey}`);
+        this.loadKeys();
+        return this.ok(msg('hotkeys.saved'));
+    }
+
+    deleteMapHotkey(id) {
+        const saved = this.readHotkeyFile();
+        const keyToDelete = Object.keys(saved).find(hk => saved[hk].id === id);
+        if (!keyToDelete) {
+            console.warn(`No hotkey found for id ${id}`);
+            return;
+        }
+        delete saved[keyToDelete];
+        if (!this.writeHotkeyFile(saved, 'delete')) {
+            this.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
+            return;
+        }
+        console.log(`Removed hotkey: ${keyToDelete} (id: ${id})`);
+        this.mainWindow.sendUpdate(msg('hotkeys.deleted'));
+        this.loadKeys();
+    }
+
+    saveSystemHotkey(payload) {
+        const {actionId, accelerator} = payload || {};
+        if (!actionId || !accelerator) return this.fail(msg('hotkeys.error.missingData'));
+        const action = this.systemAction(actionId, 'save-system-hotkey');
+        if (!action) return this.fail(msg('hotkeys.error.unknownAction'));
+
+        const refusal = this.validateAccelerator(accelerator, {exceptActionId: actionId, againstMaps: true});
+        if (refusal) return this.fail(refusal);
+
+        if (!this.writeSystemHotkey(action.settingKey, accelerator)) {
+            return this.fail(msg('hotkeys.error.saveFailed'));
+        }
+        this.loadKeys();
+        return this.ok(msg('hotkeys.savedSystem'));
+    }
+
+    /** The default is not guaranteed free, so Reset can be refused. Why: the doc § Unbinding, rule 3. */
+    resetSystemHotkey(payload) {
+        const {actionId} = payload || {};
+        const action = this.systemAction(actionId, 'reset-system-hotkey');
+        if (!action) return;
+        const {settingKey, def} = action;
+
+        const verdict = canResetToDefault({
+            effective: this.getSystemHotkeys(),
+            mapHotkeys: this.readHotkeyFile(),
+            actionId,
+            defaultAccelerator: def.defaultAccelerator
         });
+        if (!verdict.ok) {
+            this.mainWindow.sendUpdate(verdict.kind === 'system'
+                ? conflictMessage(def.defaultAccelerator, verdict.actionId)
+                : msg('hotkeys.error.usedByMap', {accelerator: acceleratorToDisplay(verdict.accelerator)}));
+            return;
+        }
 
-        ipcMain.on('reset-system-hotkey', (event, payload) => {
-            const {actionId} = payload || {};
-            const settingKey = ACTION_TO_SETTING_KEY[actionId];
-            const def = SYSTEM_HOTKEY_DEFS[actionId];
-            if (!settingKey || !def) {
-                console.warn(`reset-system-hotkey: unknown actionId "${actionId}"`);
-                return;
-            }
+        if (!this.writeSystemHotkey(settingKey, def.defaultAccelerator)) {
+            this.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
+            return;
+        }
+        // Five actions ship with no key, so a Reset can *be* an unbind;
+        // its own line, or `value=` reads like a write that lost its value.
+        if (isUnbound(def.defaultAccelerator)) appLog.event('hotkey-unbound', {action: actionId});
+        this.mainWindow.sendUpdate(msg('hotkeys.resetToDefault'));
+        this.loadKeys();
+    }
 
-            // The default is not guaranteed free, so Reset can be refused.
-            // Why: the doc § Unbinding, rule 3.
-            const verdict = canResetToDefault({
-                effective: classInstance.getSystemHotkeys(),
-                mapHotkeys: classInstance.readHotkeyFile(),
-                actionId,
-                defaultAccelerator: def.defaultAccelerator
-            });
-            if (!verdict.ok) {
-                classInstance.mainWindow.sendUpdate(verdict.kind === 'system'
-                    ? conflictMessage(def.defaultAccelerator, verdict.actionId)
-                    : msg('hotkeys.error.usedByMap', {accelerator: acceleratorToDisplay(verdict.accelerator)}));
-                return;
-            }
-
-            if (!classInstance.settings.set(settingKey, def.defaultAccelerator, {rollback: true})) {
-                classInstance.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
-                return;
-            }
-            // Five actions ship with no key, so a Reset can *be* an unbind;
-            // its own line, or `value=` reads like a write that lost its value.
-            if (isUnbound(def.defaultAccelerator)) appLog.event('hotkey-unbound', {action: actionId});
-            classInstance.mainWindow.sendUpdate(msg('hotkeys.resetToDefault'));
-            classInstance.loadKeys();
-        });
-
-        // Unbound is the *stored* empty string, never a deleted key.
-        // Why: the doc § Unbinding.
-        ipcMain.on('unbind-system-hotkey', (event, payload) => {
-            const {actionId} = payload || {};
-            const settingKey = ACTION_TO_SETTING_KEY[actionId];
-            const def = SYSTEM_HOTKEY_DEFS[actionId];
-            if (!settingKey || !def) {
-                console.warn(`unbind-system-hotkey: unknown actionId "${actionId}"`);
-                return;
-            }
-
-            // Rolled back: an unbind that missed the disk must not leave the
-            // action dead for the session.
-            if (!classInstance.settings.set(settingKey, UNBOUND_ACCELERATOR, {rollback: true})) {
-                classInstance.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
-                return;
-            }
-            // Its own line: `setting key=hotkeyRotateMap value=` reads like a
-            // write that lost its value.
-            appLog.event('hotkey-unbound', {action: actionId});
-            classInstance.mainWindow.sendUpdate(msg('hotkeys.unbound'));
-            classInstance.loadKeys();
-        });
+    /** Unbound is the *stored* empty string, never a deleted key. Why: the doc § Unbinding. */
+    unbindSystemHotkey(payload) {
+        const {actionId} = payload || {};
+        const action = this.systemAction(actionId, 'unbind-system-hotkey');
+        if (!action) return;
+        // Rolled back: an unbind that missed the disk must not leave the
+        // action dead for the session.
+        if (!this.writeSystemHotkey(action.settingKey, UNBOUND_ACCELERATOR)) {
+            this.mainWindow.sendUpdate(msg('hotkeys.error.saveFailed'));
+            return;
+        }
+        // Its own line: `setting key=hotkeyRotateMap value=` reads like a
+        // write that lost its value.
+        appLog.event('hotkey-unbound', {action: actionId});
+        this.mainWindow.sendUpdate(msg('hotkeys.unbound'));
+        this.loadKeys();
     }
 
     /** The message also goes to the status toast. */
@@ -296,20 +314,15 @@ class Hotkeys {
     /** Composes with the foreground rather than replacing it. */
     setSuspended(suspended) {
         const next = !!suspended;
-        if (this.suspendTimer) {
-            clearTimeout(this.suspendTimer);
-            this.suspendTimer = null;
-        }
+        this.suspendTimer = clearTimer(this.suspendTimer);
         if (next) {
-            this.suspendTimer = setTimeout(() => {
+            this.suspendTimer = unrefTimer(setTimeout(() => {
                 this.suspendTimer = null;
                 if (!this.suspended) return;
                 appLog.warn('hotkeys-suspend', {action: 'watchdog', ms: SUSPEND_MAX_MS});
                 this.suspended = false;
                 this.applyRegistration('watchdog');
-            }, SUSPEND_MAX_MS);
-            // `unref` so a forgotten watchdog cannot hold the process open.
-            if (this.suspendTimer.unref) this.suspendTimer.unref();
+            }, SUSPEND_MAX_MS));
         }
         if (next === this.suspended) return;
         this.suspended = next;
@@ -397,7 +410,8 @@ class Hotkeys {
             registered = globalShortcut.register(accelerator, () => {});
         } catch (err) {
             console.warn(`Rejected accelerator "${accelerator}": ${err.message}`);
-            // A throw mid-register may have dropped one of our bindings.
+            // A throw mid-register may have dropped one of our bindings:
+            // re-register them all. Why: docs/agents/hotkeys.md § Priority, conflicts and registration.
             this.loadKeys();
             return msg('hotkeys.error.unregisterable', {accelerator});
         }
@@ -437,7 +451,7 @@ class Hotkeys {
             return true;
         } catch (err) {
             console.error(`Failed to write hotkeys.json (${action}):`, err && err.message);
-            appLog.error('hotkey-write-failed', {action, message: (err && err.message) || String(err)});
+            appLog.error('hotkey-write-failed', {action, message: errorMessage(err)});
             return false;
         }
     }
@@ -702,5 +716,3 @@ class Hotkeys {
 }
 
 module.exports = Hotkeys;
-module.exports.HOTKEY_DEFAULTS_VERSION = HOTKEY_DEFAULTS_VERSION;
-module.exports.DEFAULTS_VERSION_KEY = DEFAULTS_VERSION_KEY;

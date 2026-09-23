@@ -191,8 +191,8 @@ test('the language setting agrees with the catalogues it can choose from', () =>
 });
 
 test('the language picker offers exactly the languages that exist', () => {
-    // Settings › General. The setup tutorial's own select is filled by cloning
-    // these options (`Onboarding.mirror`), so it cannot drift on its own.
+    // Settings › General. The setup tutorial borrows this very select
+    // (`Onboarding.borrowControls`), so there is no second list to drift.
     const html = fs.readFileSync(path.join(ROOT, 'src', 'index.html'), 'utf-8');
     const select = html.match(/<select[^>]*id="languageSelect"[\s\S]*?<\/select>/);
     assert.ok(select, 'no #languageSelect in src/index.html');

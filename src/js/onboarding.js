@@ -14,10 +14,8 @@ const {
     shouldRecaptureFocus,
     tabWrapTarget
 } = require('../shared/onboarding-rules');
-const {
-    placementFromSettings, placementSections, autoDetectSwitchState, markerMasterNotice
-} = require('../shared/map-placement');
-const {SIZE_MIN, SIZE_MAX, SIZE_STEP, acceleratorToDisplay} = require('../shared/hotkeys-constants');
+const {placementFromSettings, placementSections, autoDetectSwitchState} = require('../shared/map-placement');
+const {acceleratorToDisplay} = require('../shared/hotkeys-constants');
 const {escapeHtml} = require('../shared/escape-html');
 const {acceleratorKbd} = require('./hotkeys');
 const {setBusy} = require('./busy');
@@ -26,8 +24,9 @@ const {debugLog} = require('./logger');
 
 /**
  * The setup tutorial: a panel over the home page, **not** a Bootstrap modal.
- * Every control *mirrors* the real one in Settings and writes only on user
- * input — pressing Next changes nothing. docs/agents/settings-and-onboarding.md.
+ * Its controls are the real Settings controls, moved in while it is open
+ * (`borrowControls`), and they write only on user input — pressing Next
+ * changes nothing. docs/agents/settings-and-onboarding.md.
  */
 class Onboarding {
 
@@ -42,10 +41,10 @@ class Onboarding {
         this.done = false;
         /** Whatever had focus before the tutorial opened, so it can be given back. */
         this.returnFocus = null;
-        /** A flag, never `disabled`: that blurs and kills the focus trap. */
-        this.detectBusy = false;
         /** Exactly the elements this instance made `inert`, so it can undo it. */
         this.inerted = [];
+        /** `{control, slot, home}` for each Settings control moved into the panel. */
+        this.borrowed = [];
         /**
           * The dialogs the tutorial opened. While one is up it owns focus and
           * Esc. A Set, not a flag: two of them must not clear each other, and
@@ -62,82 +61,42 @@ class Onboarding {
     }
 
     async init() {
-        const self = this;
         const panel = document.getElementById('tour');
         if (!panel) return;
+        this.bindNavigation();
+        this.bindSettingsFollowers();
+        this.bindHotkeysStep();
+        this.bindDialogs(panel);
+        this.bindFocusTrap(panel);
+    }
 
-        // From the shared constants, not a fourth copy of 50/800/25.
-        $('#tourSize').attr({min: SIZE_MIN, max: SIZE_MAX, step: SIZE_STEP});
-
-        $('#tourNext').on('click', () => self.advance());
-        $('#tourBack').on('click', () => self.back());
-        $('#tourSkip, #tourClose').on('click', () => self.close({done: true}));
-        $('#showTourBtn').on('click', () => self.open(ONBOARDING_STEPS[0]));
-
-        // One write path per setting: the real control in Settings owns it.
-        this.mirror('#tourLanguage', '#languageSelect');
-        this.mirror('#tourMonitor', '#monitorSelect');
-        this.mirror('#tourCorner', '#positionLabel');
-        $('#tourSize').on('input', function () {
-            $('#tourSizeValue').text(t('settings.value.px', {value: Math.round(Number($(this).val()) || 0)}));
-            $('#sizeRange').val($(this).val()).trigger('input');
+    bindNavigation() {
+        $('#tourNext').on('click', () => this.advance());
+        $('#tourBack').on('click', () => this.back());
+        $('#tourSkip, #tourClose').on('click', () => this.close({done: true}));
+        $('#showTourBtn').on('click', () => this.open(ONBOARDING_STEPS[0]));
+        // A full re-render: a monitor may have been unplugged while the window was away.
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && this.isOpen) this.render();
         });
-        $('#tourOpacity').on('input', function () {
-            $('#tourOpacityValue').text(t('settings.value.percent', {
-                value: Math.round((Number($(this).val()) || 0) * 100)
-            }));
-            $('#opacityRange').val($(this).val()).trigger('input');
-        });
+    }
 
-        // `Options.applyPlacement` owns the order the writes have to happen in.
-        $('#tourPlacementCards input[name="tourMapPlacement"]').on('change', async function () {
-            if (!self.options) return;
-            await self.options.applyPlacement($(this).val());
-            if (self.isOpen) self.render();
-        });
-
-        // The same recorder Settings uses — not a second one.
-        if (this.options && typeof this.options.attachMapKeyRecorder === 'function') {
-            this.options.attachMapKeyRecorder('#tourMapKeyBtn', '#tourMapKeyValue');
-            this.options.attachMapKeyReset('#tourMapKeyReset');
-            this.options.renderMapKey();
-            this.options.attachMapPadRecorder('#tourMapPadBtn', '#tourMapPadValue');
-            this.options.attachMapPadRemove('#tourMapPadReset');
-            this.options.renderMapPad();
+    /** The borrowed controls write through `Options`; the steps only follow them. */
+    bindSettingsFollowers() {
+        if (this.options && typeof this.options.onPlacementApplied === 'function') {
+            this.options.onPlacementApplied(() => {
+                if (this.isOpen) this.render();
+            });
         }
-
-        // A re-entrant click is dropped, never disabled (see `detectBusy`).
-        $('#tourDetectCheck').on('change', async function () {
-            if (self.detectBusy) {
-                $(this).prop('checked', self.detectorRunning());
-                return;
-            }
-            self.detectBusy = true;
-            try {
-                await self.detector.setEnabled($(this).prop('checked'));
-            } finally {
-                self.detectBusy = false;
-            }
-        });
-        // Follows every status push, not just its own click: a start main
-        // refuses must not leave a ticked box behind.
+        // Every status push, not just a click: a start main refuses must not
+        // leave a stale reason under the switch.
         this.detector.onStatus(() => {
-            if (self.isOpen && self.step === 'layers') self.renderLayersStep();
+            if (this.isOpen && this.step === 'layers') this.renderLayersStep();
         });
+    }
 
-        // Through the real chips in Settings, which own the writes.
-        this.mirrorCheck('#tourChipCellar', '#markerCellarCheck');
-        this.mirrorCheck('#tourChipGate', '#markerGateCheck');
-        this.mirrorCheck('#tourChipCar', '#markerCarCheck');
-        this.mirrorCheck('#tourChipGas', '#markerGasCheck');
-        this.mirrorCheck('#tourChipLegend', '#markerLegendCheck');
-        this.mirrorCheck('#tourUpdatesCheck', '#checkForUpdatesCheck');
-        $('#tourMarkersShowBtn').on('click', () => {
-            $('#markersShowBtn').trigger('click');
-            if (self.isOpen && self.step === 'layers') self.renderLayersStep();
-        });
-        $('#tourDetectStart').on('click', () => $('#autoDetectStart').trigger('click'));
-
+    bindHotkeysStep() {
+        const self = this;
         // `hotkey-action` is a **notification**: the toggle happens in main.
         ipcRenderer.on('hotkey-action', (event, info) => {
             if (!info || info.action !== 'toggle-map') return;
@@ -163,6 +122,10 @@ class Onboarding {
             self.dialogAction = actionId;
             self.hotkeys.startSystemHotkeyEdit(actionId);
         });
+    }
+
+    bindDialogs(panel) {
+        const self = this;
         // `show`, not `shown`: Bootstrap moves focus into the dialog *before*
         // `shown`, so a guard armed there still pulls it back and Esc is dead.
         for (const id of ['addHotkeyModal', 'faqModal']) {
@@ -187,7 +150,10 @@ class Onboarding {
                 self.restoreDialogFocus();
             });
         }
+    }
 
+    bindFocusTrap(panel) {
+        const self = this;
         // All key handling on the panel, never on `document`: the hotkey
         // recorder owns a `document` keydown listener while it records.
         panel.addEventListener('keydown', (e) => self.onKeyDown(e));
@@ -216,63 +182,31 @@ class Onboarding {
             })) return;
             self.recaptureFocus();
         });
-
-        // A full re-render: the mirrors also pick up a monitor unplugged while
-        // the window was away.
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && self.isOpen) self.render();
-        });
-    }
-
-    /** @param {string} realId the control in the Settings modal */
-    mirror(mirrorId, realId) {
-        $(mirrorId).on('input', function () {
-            $(realId).val($(this).val()).trigger('input');
-        });
-    }
-
-    /** The real control's handler does the writing; one event, or it writes twice. */
-    mirrorCheck(mirrorId, realId) {
-        $(mirrorId).on('change', function () {
-            const $real = $(realId).prop('checked', $(this).prop('checked'));
-            $real.trigger($real.attr('role') === 'switch' ? 'input' : 'change');
-        });
-    }
-
-    syncCheckMirror(mirrorId, realId) {
-        const $real = $(realId);
-        if (!$real.length) return;
-        $(mirrorId).prop('checked', $real.prop('checked'));
     }
 
     /**
-     * Disable without blurring — see `detectBusy`.
-     * @param {string} fallbackId selector to focus if `$el` had the keyboard
+     * Move each Settings control a `<template data-borrow>` names into that
+     * slot: one control and one handler per setting, never a copy. Settings is
+     * closed before this runs (`open`), so no control is needed in two places.
      */
-    setDisabled($el, disabled, fallbackId) {
-        if (!$el.length) return;
-        if (disabled && $el[0] === document.activeElement) {
-            const $fallback = $(fallbackId);
-            if ($fallback.length) $fallback.trigger('focus');
-            else this.recaptureFocus();
+    borrowControls() {
+        if (this.borrowed.length) return;
+        for (const slot of document.querySelectorAll('#tour template[data-borrow]')) {
+            const control = document.getElementById(slot.getAttribute('data-borrow'));
+            if (!control) continue;
+            const home = document.createComment(`#${control.id} is in #tour`);
+            control.replaceWith(home);
+            slot.replaceWith(control);
+            this.borrowed.push({control, slot, home});
         }
-        $el.prop('disabled', disabled);
     }
 
-    /**
-     * Options, value **and disabled state**: `.trigger()` runs a handler
-     * whether or not its element is disabled, so a mirror that looked enabled
-     * would write a setting the real control is refusing. Options are cloned,
-     * never rebuilt: OS display names must not be interpolated into markup.
-     */
-    syncMirror(mirrorId, realId) {
-        const $real = $(realId);
-        if (!$real.length) return;
-        $(mirrorId)
-            .empty()
-            .append($real.children().clone())
-            .val($real.val())
-            .prop('disabled', $real.prop('disabled'));
+    returnControls() {
+        for (const {control, slot, home} of this.borrowed) {
+            control.replaceWith(slot);
+            home.replaceWith(control);
+        }
+        this.borrowed = [];
     }
 
     /** Open by itself if this install is owed it — `shouldShowOnboarding`. */
@@ -300,6 +234,7 @@ class Onboarding {
         // Step state of its own: main must not tear this window down under it.
         setBusy('tour', true);
         this.step = stepPosition(stepId).id;
+        this.borrowControls();
         $('body').addClass('is-touring');
         this.setBackgroundInert(true);
         $('#tour').removeClass('d-none');
@@ -319,6 +254,7 @@ class Onboarding {
             this.stopPreview();
             $('#tour').addClass('d-none').removeClass('is-open');
             $('body').removeClass('is-touring');
+            this.returnControls();
         } finally {
             // The one line that *must* run: a throw above it would leave the
             // whole page `inert` — no focus, no clicks, only a restart.
@@ -482,11 +418,8 @@ class Onboarding {
         $('#tourNext').text(position.last ? t('onboarding.finish') : t('onboarding.next'));
 
         switch (position.id) {
-            case 'welcome':
-                this.syncMirror('#tourLanguage', '#languageSelect');
-                break;
             case 'where':
-                this.renderWhereStep();
+                if (this.options) this.options.syncPlacement();
                 break;
             case 'setup':
                 this.renderSetupStep();
@@ -528,64 +461,32 @@ class Onboarding {
         });
     }
 
-    renderWhereStep() {
-        $('#tourPlacementCards input[name="tourMapPlacement"]')
-            .prop('checked', false)
-            .filter(`[value="${this.placement()}"]`).prop('checked', true);
-    }
-
     /** Which half of step 3 the choice on step 2 asks for. */
     renderSetupStep() {
         const sections = placementSections(this.placement());
         $('#tourCornerBlock').toggleClass('d-none', !sections.corner);
         $('#tourKeyBlock').toggleClass('d-none', !sections.gameMap);
-        this.syncMirror('#tourMonitor', '#monitorSelect');
-        this.syncMirror('#tourCorner', '#positionLabel');
         // Say *why*: Settings greys the picker out once the map was hand-placed.
-        $('#tourCornerLocked').toggleClass('d-none', !$('#tourCorner').prop('disabled'));
-        $('#tourSize').val($('#sizeRange').val());
-        $('#tourSizeValue').text(t('settings.value.px', {
-            value: Math.round(Number($('#sizeRange').val()) || 0)
-        }));
-        $('#tourOpacity').val($('#opacityRange').val());
-        $('#tourOpacityValue').text(t('settings.value.percent', {
-            value: Math.round((Number($('#opacityRange').val()) || 0) * 100)
-        }));
-        if (this.options && typeof this.options.renderMapKey === 'function') {
-            this.options.renderMapKey();
-        }
+        $('#tourCornerLocked').toggleClass('d-none', !$('#positionLabel').prop('disabled'));
     }
 
     /**
-     * The chips and the auto-recognise switch, all from the **real** controls:
-     * the tutorial holds no opinion of its own. The switch is locked on exactly
-     * when the placement needs it (`autoDetectSwitchState`).
+     * The switch itself is Settings' own (`Options.syncPlacement` draws it);
+     * only the sentence under it is the tutorial's. Locked on exactly when the
+     * placement needs it (`autoDetectSwitchState`).
      */
     renderLayersStep() {
-        this.syncCheckMirror('#tourChipCellar', '#markerCellarCheck');
-        this.syncCheckMirror('#tourChipGate', '#markerGateCheck');
-        this.syncCheckMirror('#tourChipCar', '#markerCarCheck');
-        this.syncCheckMirror('#tourChipGas', '#markerGasCheck');
-        this.syncCheckMirror('#tourChipLegend', '#markerLegendCheck');
-        // Every chip on with nothing on screen: the notice Settings shows.
-        const settings = this.options && this.options.settings;
-        const notice = markerMasterNotice(settings ? settings.raw('markers') : undefined);
-        $('#tourMarkersHidden').toggleClass('d-none', !notice.hidden);
-
+        if (this.options) {
+            this.options.syncMarkerMaster();
+            this.options.syncPlacement();
+        }
         const auto = autoDetectSwitchState(this.placement(), this.detectorRunning());
-        const $check = $('#tourDetectCheck');
-        $check.prop('checked', auto.checked);
-        this.setDisabled($check, auto.disabled, '#tourNext');
-        // The reason, and the button, come straight from the pure state: with a
-        // game's-map placement whose loop is off, only a click may start it.
-        $('#tourDetectHelp').text(auto.blocked
+        $('#tourDetectHelp').text(auto.blocked || auto.disabled
             ? t(auto.reasonKey)
-            : (auto.disabled ? t(auto.reasonKey) : t('onboarding.layers.detect.help')));
-        $('#tourDetectStart').toggleClass('d-none', !auto.blocked);
+            : t('onboarding.layers.detect.help'));
     }
 
     renderDoneStep() {
-        this.syncCheckMirror('#tourUpdatesCheck', '#checkForUpdatesCheck');
         const recap = placementRecap(this.placement());
         $('#tourRecap').text(t('onboarding.done.recap', {placement: t(recap.labelKey)}));
     }

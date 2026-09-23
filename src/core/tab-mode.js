@@ -6,11 +6,11 @@ const appLog = require('./app-log');
 const TabOverlayWindow = require('./tab-overlay-window');
 const KeyTrigger = require('./key-trigger');
 const PadWindow = require('./pad-window');
-const {
-    DEFAULT_SIZE
-} = require('./map-detector/matcher');
+const {abortedReply} = require('./map-detector/worker-host');
 const {tabLayers, markerState, MARKER_LAYERS} = require('../shared/marker-rules');
 const {msg} = require('../shared/i18n');
+const {errorMessage} = require('../shared/errors');
+const {clearTimer, unrefTimer} = require('../shared/timers');
 const {resolveMapVk} = require('../shared/key-codes');
 const {resolveMapPad, padLabel} = require('../shared/pad-codes');
 const {
@@ -32,13 +32,19 @@ const LIVE_MARKER_SETTINGS = ['markers', 'markerOpacity', 'markerLegend', 'tabMa
  */
 const MATCH_OVER_REASONS = ['menu', 'no-window', 'window-gone', 'minimized', 'inactive', 'markers-off'];
 
+/** The longest key name kept; the browser's names for real keys are shorter. */
+const KEY_LABEL_MAX = 16;
+
+/** Capture vs window size (px) still read as one frame; more is a border. */
+const CAPTURE_SIZE_TOLERANCE_PX = 2;
+
 /**
  * A key's on-screen name comes from the browser, so it is text this app did not
  * write: bounded and stripped before it is shown. @returns {?string}
  */
 function sanitiseKeyLabel(value) {
     if (typeof value !== 'string') return null;
-    const cleaned = value.replace(/[^\x20-\x7E -ɏ]/g, '').trim().slice(0, 16);
+    const cleaned = value.replace(/[^\x20-\x7E -ɏ]/g, '').trim().slice(0, KEY_LABEL_MAX);
     return cleaned || null;
 }
 
@@ -46,6 +52,11 @@ const debug = process.env.DEBUG === 'true';
 
 /** How often a repeating condition may reach the log; edges are not throttled. */
 const STATE_LOG_INTERVAL = 30000;
+
+/** Zeroed at construction and on every `start()`; `status()` prints them. */
+function freshCounters() {
+    return {checks: 0, shows: 0, hides: 0, stale: 0, retries: 0, provisional: 0, unconfirmed: 0};
+}
 
 /**
  * ELECTRON tier: **Tab-map mode** (off by default). It owns the periodic check
@@ -88,7 +99,9 @@ class TabMode {
         this.rect = null;
         this.lastStateLogAt = 0;
         this.lastTiming = null;
-        this.counters = {checks: 0, shows: 0, hides: 0, stale: 0, retries: 0, provisional: 0, unconfirmed: 0};
+        this.counters = freshCounters();
+        /** The last capture did not match the window rect; see `noteRect`. */
+        this.sizeMismatch = false;
         this.sizeMismatchLogged = false;
         /** Does the detector see a game window? Edge-reported by it. */
         this.gameWindowPresent = false;
@@ -119,26 +132,25 @@ class TabMode {
         /** When the last confirmation landed, so the memory can go stale. */
         this.confirmedAt = 0;
 
-        const self = this;
         /** Constructed now but **not loaded**: koffi waits for `start()`. */
         this.trigger = d.trigger || new KeyTrigger({
-            onHint: (hint, reason) => self.onKeyHint(hint, reason),
+            onHint: (hint, reason) => this.onKeyHint(hint, reason),
             mapVk: this.mapVk(),
             mapPad: this.mapPad(),
-            log: (event, fields) => self.log(event, fields)
+            log: (event, fields) => this.log(event, fields)
         });
         if (d.trigger) {
             // An injected trigger still has to reach us.
-            this.trigger.onHint = (hint, reason) => self.onKeyHint(hint, reason);
+            this.trigger.onHint = (hint, reason) => this.onKeyHint(hint, reason);
         }
         // The window hides itself on a dead renderer; this tells the class.
         this.overlay.onRendererGone = (reason) => {
-            self.invalidate();
-            self.dispatch({type: 'lost', reason: 'renderer-gone'});
-            self.log('tab-hide', {reason: 'renderer-gone', detail: reason || ''});
+            this.invalidate();
+            this.dispatch({type: 'lost', reason: 'renderer-gone'});
+            this.log('tab-hide', {reason: 'renderer-gone', detail: reason || ''});
         };
         // Fall back mid-session rather than stop reacting to the key.
-        this.trigger.onUnavailable = (why) => self.fallBackToPolling(why);
+        this.trigger.onUnavailable = (why) => this.fallBackToPolling(why);
         /**
          * The Gamepad API half of the controller button: a hidden window that
          * exists only while a button is set, reads only while the game is in
@@ -146,70 +158,77 @@ class TabMode {
          */
         this.padWindow = d.padWindow || new PadWindow();
         this.padWindow.onEdge = (down) => {
-            if (typeof self.trigger.setApiPadDown === 'function') self.trigger.setApiPadDown(down);
+            if (typeof this.trigger.setApiPadDown === 'function') this.trigger.setApiPadDown(down);
         };
         // The same gate as the key read, on the foreground **edge**.
-        this.trigger.onForeground = () => self.syncPadWatch();
+        this.trigger.onForeground = () => this.syncPadWatch();
 
         // The master switch, the layers and the opacity go through the generic
         // `set-setting` (the Show/hide-markers hotkey included), so this hook is
         // the only thing that tells this class.
-        if (settings && typeof settings.onChange === 'function') {
-            settings.onChange((keys) => self.onSettingsChanged(keys));
-        }
+        settings.onChange((keys) => this.onSettingsChanged(keys));
 
-        // Its own handler: main has to *act* on it, not just store it.
-        this.ipcMain.handle('set-tab-markers', async (event, value) => {
-            const on = value === true;
-            if (self.settings) self.settings.set('tabMarkers', on);
-            self.syncWithSettings();
-            return self.status();
-        });
-        this.ipcMain.handle('get-tab-marker-state', async () => self.status());
-        // The renderer's *virtual-key code* is validated here: with
-        // `nodeIntegration: true` it is no trust boundary, and
-        // `GetAsyncKeyState` would answer for a mouse button.
-        this.ipcMain.handle('set-tab-marker-key', async (event, vk, label) => {
-            const resolved = resolveMapVk(vk);
-            if (self.settings) {
-                self.settings.set('tabMarkerKey', resolved);
-                self.settings.set('tabMarkerKeyLabel', sanitiseKeyLabel(label));
-            }
-            self.trigger.setMapVk(resolved);
-            // Markers up at a key change would await an unwatched up-edge.
-            self.invalidate();
-            self.dispatch({type: 'lost', reason: 'key-changed'});
-            appLog.event('tab-markers', {action: 'map-key', vk: resolved});
-            return self.status();
-        });
-        // The controller button: validated here for the same reason, and
-        // `null` clears it. The pad is read only while a button is set.
-        this.ipcMain.handle('set-tab-marker-pad', async (event, code) => {
-            const resolved = resolveMapPad(code);
-            if (self.settings) self.settings.set('tabMarkerPad', resolved);
-            self.trigger.setMapPad(resolved);
-            self.invalidate();
-            self.dispatch({type: 'lost', reason: 'key-changed'});
-            self.syncPadWatch();
-            appLog.event('tab-markers', {action: 'map-pad', set: resolved === null ? 'no' : 'yes'});
-            return self.status();
-        });
-        // *Choose button…*: main reads the pad for the one button the user is
-        // about to press, for at most `PAD_RECORD_TIMEOUT`. The result is only
-        // a code and a label; the renderer then stores it through the handler above.
-        this.ipcMain.handle('record-tab-marker-pad', async () => self.recordPad());
-        this.ipcMain.handle('cancel-tab-marker-pad', async () => {
-            if (typeof self.trigger.cancelPadRecording === 'function') self.trigger.cancelPadRecording('cancelled');
-            self.padWindow.cancelRecord('cancelled');
-            return true;
-        });
-        // "Polling only" — the user's escape hatch; main switches methods here.
-        this.ipcMain.handle('set-marker-trigger', async (event, mode) => {
-            const resolved = triggerMode(mode);
-            if (self.settings) self.settings.set('markerTrigger', resolved);
-            self.applyMethod();
-            return self.status();
-        });
+        // Each its own handler: main has to *act* on these, not just store them.
+        const handlers = {
+            'set-tab-markers': (value) => this.setTabMarkers(value),
+            'get-tab-marker-state': () => this.status(),
+            'set-tab-marker-key': (vk, label) => this.setMapKey(vk, label),
+            'set-tab-marker-pad': (code) => this.setMapPadButton(code),
+            'record-tab-marker-pad': () => this.recordPad(),
+            'cancel-tab-marker-pad': () => this.cancelPadRecord(),
+            'set-marker-trigger': (mode) => this.setTriggerMode(mode)
+        };
+        for (const [channel, fn] of Object.entries(handlers)) {
+            this.ipcMain.handle(channel, async (event, ...args) => fn(...args));
+        }
+    }
+
+    setTabMarkers(value) {
+        this.settings.set('tabMarkers', value === true);
+        this.syncWithSettings();
+        return this.status();
+    }
+
+    /**
+     * The renderer's *virtual-key code* is validated here: with
+     * `nodeIntegration: true` it is no trust boundary, and `GetAsyncKeyState`
+     * would answer for a mouse button.
+     */
+    setMapKey(vk, label) {
+        const resolved = resolveMapVk(vk);
+        this.settings.set('tabMarkerKey', resolved);
+        this.settings.set('tabMarkerKeyLabel', sanitiseKeyLabel(label));
+        this.trigger.setMapVk(resolved);
+        // Markers up at a key change would await an unwatched up-edge.
+        this.invalidate();
+        this.dispatch({type: 'lost', reason: 'key-changed'});
+        appLog.event('tab-markers', {action: 'map-key', vk: resolved});
+        return this.status();
+    }
+
+    /** The controller button, validated for the same reason; `null` clears it. */
+    setMapPadButton(code) {
+        const resolved = resolveMapPad(code);
+        this.settings.set('tabMarkerPad', resolved);
+        this.trigger.setMapPad(resolved);
+        this.invalidate();
+        this.dispatch({type: 'lost', reason: 'key-changed'});
+        this.syncPadWatch();
+        appLog.event('tab-markers', {action: 'map-pad', set: resolved === null ? 'no' : 'yes'});
+        return this.status();
+    }
+
+    cancelPadRecord() {
+        if (typeof this.trigger.cancelPadRecording === 'function') this.trigger.cancelPadRecording('cancelled');
+        this.padWindow.cancelRecord('cancelled');
+        return true;
+    }
+
+    /** "Polling only" — the user's escape hatch; main switches methods here. */
+    setTriggerMode(mode) {
+        this.settings.set('markerTrigger', triggerMode(mode));
+        this.applyMethod();
+        return this.status();
     }
 
     setCornerOverlay(overlayWindow) {
@@ -224,7 +243,7 @@ class TabMode {
     syncCornerOverlay() {
         if (!this.cornerOverlay) return;
         const hide = this.enabled === true && !this.destroyed
-            && !!this.settings && this.settings.get('tabHidesMinimap') === true;
+            && this.settings.get('tabHidesMinimap') === true;
         this.cornerOverlay.setSuppressed(hide);
     }
 
@@ -268,12 +287,12 @@ class TabMode {
     }
 
     mapVk() {
-        return resolveMapVk(this.settings ? this.settings.get('tabMarkerKey') : null);
+        return resolveMapVk(this.settings.get('tabMarkerKey'));
     }
 
     /** @returns {?number} the controller button's code, null = none set. */
     mapPad() {
-        return resolveMapPad(this.settings ? this.settings.get('tabMarkerPad') : null);
+        return resolveMapPad(this.settings.get('tabMarkerPad'));
     }
 
     /**
@@ -301,7 +320,6 @@ class TabMode {
      * `syncPadWatch` when no button comes of it.
      */
     async recordPad() {
-        const self = this;
         const viaXInput = typeof this.trigger.recordPad === 'function'
             ? this.trigger.recordPad({timeoutMs: PAD_RECORD_TIMEOUT})
             : Promise.resolve({ok: false, reason: 'unavailable'});
@@ -321,12 +339,12 @@ class TabMode {
         if (typeof this.trigger.cancelPadRecording === 'function') this.trigger.cancelPadRecording('replaced');
         this.padWindow.cancelRecord('replaced');
         appLog.event('tab-markers', {action: 'map-pad-record', result: first.ok ? 'ok' : first.reason});
-        self.syncPadWatch();
+        this.syncPadWatch();
         return first;
     }
 
     triggerMode() {
-        return triggerMode(this.settings ? this.settings.get('markerTrigger') : null);
+        return triggerMode(this.settings.get('markerTrigger'));
     }
 
     /** @returns {'key'|'key-waiting'|'polling'} the pure `resolveTriggerMethod`. */
@@ -349,7 +367,7 @@ class TabMode {
 
     /** The setting, whatever the detector is doing. */
     wanted() {
-        return !!(this.settings && this.settings.get('tabMarkers') === true
+        return !!(this.settings.get('tabMarkers') === true
             && markerState(this.settings.all()).enabled);
     }
 
@@ -367,10 +385,7 @@ class TabMode {
         this.lastHideAt = this.now();
         this.confirmQueued = false;
         this.confirmAttempts = 0;
-        if (this.confirmTimer) {
-            clearTimeout(this.confirmTimer);
-            this.confirmTimer = null;
-        }
+        this.confirmTimer = clearTimer(this.confirmTimer);
         this.clearProvisionalDeadline();
     }
 
@@ -379,9 +394,7 @@ class TabMode {
      * nothing that leaves the markers up may cancel it (same doc § The reproduced races).
      */
     clearProvisionalDeadline() {
-        if (!this.provisionalTimer) return;
-        clearTimeout(this.provisionalTimer);
-        this.provisionalTimer = null;
+        this.provisionalTimer = clearTimer(this.provisionalTimer);
     }
 
     /**
@@ -392,7 +405,7 @@ class TabMode {
      */
     armProvisionalDeadline() {
         this.clearProvisionalDeadline();
-        this.provisionalTimer = setTimeout(() => {
+        this.provisionalTimer = unrefTimer(setTimeout(() => {
             this.provisionalTimer = null;
             if (!this.state.showing || !this.state.provisional) return;
             this.counters.unconfirmed++;
@@ -403,8 +416,7 @@ class TabMode {
                 this.confirmAttempts = 0;
                 this.confirmNow();
             }
-        }, this.provisionalMs);
-        if (this.provisionalTimer.unref) this.provisionalTimer.unref();
+        }, this.provisionalMs));
     }
 
     /** Up **and** proved by a capture, as against merely provisional. */
@@ -413,7 +425,7 @@ class TabMode {
     }
 
     instantWanted() {
-        return !(this.settings && this.settings.get('tabMarkersInstant') === false);
+        return this.settings.get('tabMarkersInstant') !== false;
     }
 
     /** The detector's `lastDetected` — the half that is **cleared** for us. */
@@ -493,15 +505,11 @@ class TabMode {
     grabWithin(promise, ms) {
         return new Promise((resolve, reject) => {
             let settled = false;
-            const timer = setTimeout(() => {
+            const timer = unrefTimer(setTimeout(() => {
                 if (settled) return;
                 settled = true;
-                resolve({
-                    type: 'grab', aborted: true, reason: 'deadline',
-                    window: null, gate: false, match: null, menu: null, timings: null
-                });
-            }, ms);
-            if (timer.unref) timer.unref();
+                resolve(abortedReply('deadline'));
+            }, ms));
             promise.then(
                 (reply) => {
                     if (settled) return;
@@ -539,7 +547,8 @@ class TabMode {
         this.rect = null;
         this.knownKey = null;
         this.confirmedAt = 0;
-        this.counters = {checks: 0, shows: 0, hides: 0, stale: 0, retries: 0, provisional: 0, unconfirmed: 0};
+        this.sizeMismatch = false;
+        this.counters = freshCounters();
         appLog.event('tab-markers', {action: 'start'});
         // Built now, not on the first press: a BrowserWindow takes tens of ms.
         this.overlay.ensure();
@@ -585,7 +594,7 @@ class TabMode {
             this.trigger.setMapVk(this.mapVk());
             if (typeof this.trigger.setMapPad === 'function') this.trigger.setMapPad(this.mapPad());
             // The notice belongs to a failed probe, not to a closed game.
-            if (!this.trigger.probe().ok) this.noticeFallback(this.trigger.reason || 'unavailable');
+            if (!this.trigger.open().ok) this.noticeFallback(this.trigger.reason || 'unavailable');
         }
         const shouldPoll = wantsKey && this.gameWindowPresent;
         if (!shouldPoll) {
@@ -661,19 +670,17 @@ class TabMode {
 
     clearTimer() {
         this.clearCheckTimer();
-        if (this.confirmTimer) clearTimeout(this.confirmTimer);
-        this.confirmTimer = null;
+        this.confirmTimer = clearTimer(this.confirmTimer);
         this.clearProvisionalDeadline();
     }
 
     /** Only the check timer: a provisional show needs the retries running too. */
     clearCheckTimer() {
-        if (this.timer) clearTimeout(this.timer);
-        this.timer = null;
+        this.timer = clearTimer(this.timer);
     }
 
     keyLabel() {
-        const stored = this.settings ? this.settings.get('tabMarkerKeyLabel') : null;
+        const stored = this.settings.get('tabMarkerKeyLabel');
         return sanitiseKeyLabel(stored) || '';
     }
 
@@ -893,9 +900,7 @@ class TabMode {
     schedule(delay) {
         if (!this.isActive()) return;
         this.clearCheckTimer();
-        this.timer = setTimeout(() => this.check(), delay);
-        // A background poll must never be the reason a process stays alive.
-        if (this.timer.unref) this.timer.unref();
+        this.timer = unrefTimer(setTimeout(() => this.check(), delay));
     }
 
     /* ── The confirming capture (the key trigger's half) ─────────────────── */
@@ -919,14 +924,13 @@ class TabMode {
         if (!this.isActive() || this.settled() || !this.keyStillDown()) return;
         const delay = confirmRetryDelay(this.confirmAttempts);
         if (delay === null) return;
-        this.confirmTimer = setTimeout(() => {
+        this.confirmTimer = unrefTimer(setTimeout(() => {
             this.confirmTimer = null;
             // Re-checked on arrival: the key may have gone up meanwhile.
             if (!this.isActive() || this.settled() || !this.keyStillDown()) return;
             this.counters.retries++;
             this.confirmNow();
-        }, delay);
-        if (this.confirmTimer.unref) this.confirmTimer.unref();
+        }, delay));
     }
 
     async confirm() {
@@ -998,7 +1002,7 @@ class TabMode {
             });
             this.onMatch(match.key, rect, win.captured || null, started);
         } catch (err) {
-            this.logState('confirmation capture failed: ' + ((err && err.message) || String(err)));
+            this.logState('confirmation capture failed: ' + errorMessage(err));
         } finally {
             this.busy = false;
             this.drainQueuedConfirm();
@@ -1090,7 +1094,7 @@ class TabMode {
             this.dispatch({type: 'gate', up: !!reply.gate});
         } catch (err) {
             // A capture that threw is not a negative gate, it is no answer.
-            this.logState('capture failed: ' + ((err && err.message) || String(err)));
+            this.logState('capture failed: ' + errorMessage(err));
             this.dispatch({type: 'lost', reason: 'capture-error'});
         } finally {
             this.busy = false;
@@ -1109,8 +1113,8 @@ class TabMode {
     noteRect(rect, captured) {
         this.rect = rect;
         if (!captured) return true;
-        const off = Math.abs(captured.width - rect.width) > 2
-            || Math.abs(captured.height - rect.height) > 2;
+        const off = Math.abs(captured.width - rect.width) > CAPTURE_SIZE_TOLERANCE_PX
+            || Math.abs(captured.height - rect.height) > CAPTURE_SIZE_TOLERANCE_PX;
         if (!off) {
             this.sizeMismatch = false;
             return true;
@@ -1152,7 +1156,7 @@ class TabMode {
      * @returns {?{layers, legend, opacity, lang}}
      */
     buildPayload(key) {
-        if (!this.mapMarkers || !this.settings) return null;
+        if (!this.mapMarkers) return null;
         const state = markerState(this.settings.all());
         if (!state.enabled) return null;
         const markers = this.mapMarkers.markers(key);
@@ -1188,7 +1192,7 @@ class TabMode {
     status() {
         const info = this.methodInfo();
         return {
-            setting: !!(this.settings && this.settings.get('tabMarkers') === true),
+            setting: this.settings.get('tabMarkers') === true,
             active: this.isActive(),
             showing: this.state.showing,
             key: this.state.key,
@@ -1204,7 +1208,7 @@ class TabMode {
             mapPad: this.mapPad(),
             mapPadLabel: padLabel(this.mapPad()),
             gameWindow: this.gameWindowPresent,
-            sizeMismatch: !!this.sizeMismatch,
+            sizeMismatch: this.sizeMismatch,
             keyMs: KEY_POLL_INTERVAL,
             checkMs: this.checkMs(),
             fastMs: FAST_INTERVAL,

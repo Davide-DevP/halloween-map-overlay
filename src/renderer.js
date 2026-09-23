@@ -86,7 +86,9 @@ ipcRenderer.on("update-install-result", async (event, result) => {
 const settings = new Settings();
 const maps = new Maps(settings);
 const hotkeys = new Hotkeys(maps, settings);
-const custom = new Custom(maps);
+// Importing or removing a custom map changes the catalogue, so the map picker
+// in the "add hotkey" modal has to be rebuilt too.
+const custom = new Custom(maps, () => hotkeys.populateMapSelect());
 const detector = new Detector(settings);
 const diagnostics = new Diagnostics();
 
@@ -171,15 +173,3 @@ window.addEventListener('unhandledrejection', (e) => {
         stack: (e.reason && e.reason.stack) || ''
     });
 });
-
-// Importing or removing a custom map changes the catalogue, so the map picker
-// in the "add hotkey" modal has to be rebuilt too.
-window.addCustomMap = async function () {
-    await custom.addCustomMap();
-    hotkeys.populateMapSelect();
-};
-
-window.deleteImage = async function (button) {
-    await custom.deleteCustomMap($(button).attr("data-img"));
-    hotkeys.populateMapSelect();
-};

@@ -105,8 +105,8 @@ class Hotkeys {
         if (!toastEl || !toastBody) return;
 
         toastBody.textContent = translateMessage(message);
-        toastEl.classList.remove('bg-success', 'bg-danger');
-        toastEl.classList.add(isSuccess ? 'bg-success' : 'bg-danger');
+        toastEl.classList.remove('is-ok', 'is-error');
+        toastEl.classList.add(isSuccess ? 'is-ok' : 'is-error');
 
         bootstrap.Toast.getOrCreateInstance(toastEl).show();
     }
@@ -284,14 +284,14 @@ class Hotkeys {
     }
 
     async saveHotkeyToFile() {
-        const mapkey = $('#selectMap').val();
-        if (!this.recordedAccelerator || !mapkey) {
+        const mapKey = $('#selectMap').val();
+        if (!this.recordedAccelerator || !mapKey) {
             this.showToast(t('hotkeys.error.pickBoth'), false);
             return;
         }
         const result = await ipcRenderer.invoke('save-hotkeys', {
             hotkey: this.recordedAccelerator,
-            mapkey
+            mapKey
         });
         this.showToast(result.message, result.ok);
         if (result.ok) this.closeModal();
@@ -432,6 +432,9 @@ class Hotkeys {
             if (!$(e.target).is('#hotkeyInput')) self.recordingHotkey = false;
         });
 
+        // Native, so the `.off('click')` swaps of the save action never drop it.
+        const saveButton = document.getElementById('saveHotkeyBtn');
+        if (saveButton) saveButton.addEventListener('click', () => saveButton.blur());
         $("#saveHotkeyBtn").on("click", () => this.saveHotkeyToFile());
 
         // Native listeners, not jQuery's: jQuery `.on()` treats ".bs.modal" as

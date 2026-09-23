@@ -145,70 +145,16 @@ function toGrayScaled(pixels, width, height, outWidth, outHeight, order) {
     if (pixels.length < n * 4) {
         throw new Error('toGrayScaled: expected ' + (n * 4) + ' bytes, got ' + pixels.length);
     }
-    const rgba = order === 'rgba';
-    const rOff = rgba ? 0 : 2;
-    const bOff = rgba ? 2 : 0;
-    const out = new Float32Array(outWidth * outHeight);
-
-    // Fast path: whole-number box (1920→640 and 1080→360 are both 3:1). Every
-    // weight is 1 and the divisor constant: 13.5 ms full-frame against 25.8 ms
-    // on the general path, and a test asserts the two agree.
-    if (width % outWidth === 0 && height % outHeight === 0) {
-        const bx = width / outWidth;
-        const by = height / outHeight;
-        const scale = 1 / (bx * by * 255);
-        for (let oy = 0; oy < outHeight; oy++) {
-            const y0 = oy * by, y1 = y0 + by;
-            for (let ox = 0; ox < outWidth; ox++) {
-                const x0 = ox * bx, x1 = x0 + bx;
-                let sum = 0;
-                for (let y = y0; y < y1; y++) {
-                    let p = (y * width + x0) * 4;
-                    for (let x = x0; x < x1; x++, p += 4) {
-                        sum += 0.299 * pixels[p + rOff] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + bOff];
-                    }
-                }
-                out[oy * outWidth + ox] = sum * scale;
-            }
-        }
-        return out;
-    }
-
-    const sx = width / outWidth;
-    const sy = height / outHeight;
-    for (let oy = 0; oy < outHeight; oy++) {
-        const fy0 = oy * sy, fy1 = (oy + 1) * sy;
-        const iy0 = Math.floor(fy0), iy1 = Math.min(height, Math.ceil(fy1));
-        for (let ox = 0; ox < outWidth; ox++) {
-            const fx0 = ox * sx, fx1 = (ox + 1) * sx;
-            const ix0 = Math.floor(fx0), ix1 = Math.min(width, Math.ceil(fx1));
-            let sum = 0, weight = 0;
-            for (let y = iy0; y < iy1; y++) {
-                const wy = Math.min(y + 1, fy1) - Math.max(y, fy0);
-                if (wy <= 0) continue;
-                const row = y * width;
-                for (let x = ix0; x < ix1; x++) {
-                    const wx = Math.min(x + 1, fx1) - Math.max(x, fx0);
-                    if (wx <= 0) continue;
-                    const p = (row + x) * 4;
-                    const luma = 0.299 * pixels[p + rOff] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + bOff];
-                    const wgt = wx * wy;
-                    sum += luma * wgt;
-                    weight += wgt;
-                }
-            }
-            out[oy * outWidth + ox] = weight > 0 ? sum / (weight * 255) : 0;
-        }
-    }
-    return out;
+    return toGrayScaledRegion(pixels, width, height, outWidth, outHeight, order,
+        {x: 0, y: 0, width: outWidth, height: outHeight});
 }
 
 /**
  * `toGrayScaled` for a **rectangle of the output grid** only — the biggest
  * saving in the tick, since the matcher reads at most a third of the frame.
- * **Bit-identical**, because every output cell depends only on its own source
- * box: both loop bodies are verbatim copies of `toGrayScaled`'s, in the same
- * order, and `test/detector-equality.test.js` pins it. Keep them so.
+ * `toGrayScaled` is this with the full box, so a region is bit-identical to
+ * the same cells of the whole frame: each output cell depends only on its own
+ * source box. `test/detector-equality.test.js` pins it.
  * @param {Uint8Array|Buffer} pixels 4 bytes per pixel
  * @param {number} outWidth the **whole** reduced frame's width — it fixes the
  *   sampling grid, so it is not `box.width`
@@ -230,6 +176,9 @@ function toGrayScaledRegion(pixels, width, height, outWidth, outHeight, order, b
     const bOff = rgba ? 2 : 0;
     const out = new Float32Array(outW * (by1 - by0));
 
+    // Fast path: whole-number box (1920→640 and 1080→360 are both 3:1). Every
+    // weight is 1 and the divisor constant: 13.5 ms full-frame against 25.8 ms
+    // on the general path, and a test asserts the two agree.
     if (width % outWidth === 0 && height % outHeight === 0) {
         const bx = width / outWidth;
         const by = height / outHeight;
@@ -348,6 +297,31 @@ function cropWindow(win, rel) {
     return {data: out, width: rect.width, height: rect.height};
 }
 
+/** `resample(cropWindow(win, rel))` without the crop's copy: the same cells
+ * read in the same order, straight out of the window, into `out`. */
+function windowThumbInto(win, rel, outWidth, outHeight, out) {
+    const rect = regionCropRect(win.frameWidth, win.frameHeight, rel);
+    if (rect.x < win.x || rect.y < win.y
+        || rect.x + rect.width > win.x + win.width
+        || rect.y + rect.height > win.y + win.height) {
+        throw new Error('cropWindow: region outside the window');
+    }
+    const base = (rect.y - win.y) * win.width + (rect.x - win.x);
+    return resampleInto(win.data, base, win.width, rect.width, rect.height, outWidth, outHeight, out);
+}
+
+/**
+ * Per-tick scratch for `matchMap` and `matchMenu`: sized once, overwritten in
+ * full before every read and never returned, so nothing outlives the call
+ * that filled it. detection.md § The capture path.
+ */
+const SCRATCH = {map: [], menu: []};
+function scratch(pool, slot, length) {
+    let buf = pool[slot];
+    if (!buf || buf.length !== length) pool[slot] = buf = new Float32Array(length);
+    return buf;
+}
+
 /**
  * Crop a relative region out of a luminance frame.
  * @param {{x:number,y:number,w:number,h:number}} rel fractions of the frame
@@ -366,25 +340,47 @@ function downsample(gray, width, height, size) {
 
 /** The rectangular form of `downsample`: area-average to outWidth x outHeight. */
 function resample(gray, width, height, outWidth, outHeight) {
-    const out = new Float32Array(outWidth * outHeight);
+    return resampleInto(gray, 0, width, width, height, outWidth, outHeight,
+        new Float32Array(outWidth * outHeight));
+}
+
+/**
+ * `resample` of the `width` x `height` rectangle at `base` in a buffer with
+ * row pitch `stride`, into `out` (every cell written). Column weights are
+ * computed once per call, not once per row: same doubles, same summation order,
+ * so bit-identical. detection.md § The capture path.
+ */
+function resampleInto(src, base, stride, width, height, outWidth, outHeight, out) {
     const sx = width / outWidth;
     const sy = height / outHeight;
+    const colStart = new Int32Array(outWidth + 1);
+    const colX = [], colW = [];
+    for (let ox = 0; ox < outWidth; ox++) {
+        colStart[ox] = colX.length;
+        const fx0 = ox * sx, fx1 = (ox + 1) * sx;
+        const ix0 = Math.floor(fx0), ix1 = Math.min(width, Math.ceil(fx1));
+        for (let x = ix0; x < ix1; x++) {
+            const wx = Math.min(x + 1, fx1) - Math.max(x, fx0);
+            if (wx <= 0) continue;
+            colX.push(x);
+            colW.push(wx);
+        }
+    }
+    colStart[outWidth] = colX.length;
+    const cx = Int32Array.from(colX), cw = Float64Array.from(colW);
     for (let oy = 0; oy < outHeight; oy++) {
         const fy0 = oy * sy, fy1 = (oy + 1) * sy;
         const iy0 = Math.floor(fy0), iy1 = Math.min(height, Math.ceil(fy1));
         for (let ox = 0; ox < outWidth; ox++) {
-            const fx0 = ox * sx, fx1 = (ox + 1) * sx;
-            const ix0 = Math.floor(fx0), ix1 = Math.min(width, Math.ceil(fx1));
+            const k0 = colStart[ox], k1 = colStart[ox + 1];
             let sum = 0, weight = 0;
             for (let y = iy0; y < iy1; y++) {
                 const wy = Math.min(y + 1, fy1) - Math.max(y, fy0);
                 if (wy <= 0) continue;
-                const row = y * width;
-                for (let x = ix0; x < ix1; x++) {
-                    const wx = Math.min(x + 1, fx1) - Math.max(x, fx0);
-                    if (wx <= 0) continue;
-                    const wgt = wx * wy;
-                    sum += gray[row + x] * wgt;
+                const row = base + y * stride;
+                for (let k = k0; k < k1; k++) {
+                    const wgt = cw[k] * wy;
+                    sum += src[row + cx[k]] * wgt;
                     weight += wgt;
                 }
             }
@@ -404,16 +400,35 @@ function resample(gray, width, height, outWidth, outHeight) {
 function gradientMagnitude(thumb, width, height) {
     const n = width || Math.round(Math.sqrt(thumb.length));
     const h = height || n;
+    return gradientInto(thumb, n, h, new Float32Array(n * h));
+}
+
+/** `gradientMagnitude` into a caller's buffer (every cell is written). The
+ * interior indexes directly, the border clamps; both keep the exact per-pixel
+ * expression, so the result is bit-identical. detection.md § The capture path. */
+function gradientInto(thumb, n, h, out) {
     const at = (x, y) => thumb[Math.min(h - 1, Math.max(0, y)) * n + Math.min(n - 1, Math.max(0, x))];
-    const out = new Float32Array(n * h);
+    const edge = (x, y) => {
+        const gx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1))
+            - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+        const gy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1))
+            - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+        out[y * n + x] = Math.sqrt(gx * gx + gy * gy);
+    };
     for (let y = 0; y < h; y++) {
-        for (let x = 0; x < n; x++) {
-            const gx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1))
-                - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
-            const gy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1))
-                - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
-            out[y * n + x] = Math.sqrt(gx * gx + gy * gy);
+        if (y === 0 || y === h - 1 || n < 3) {
+            for (let x = 0; x < n; x++) edge(x, y);
+            continue;
         }
+        edge(0, y);
+        for (let x = 1, i = y * n + 1; x < n - 1; x++, i++) {
+            const a = thumb[i - n + 1], b = thumb[i + 1], c = thumb[i + n + 1];
+            const d = thumb[i - n - 1], e = thumb[i - 1], f = thumb[i + n - 1];
+            const gx = (a + 2 * b + c) - (d + 2 * e + f);
+            const gy = (f + 2 * thumb[i + n] + c) - (d + 2 * thumb[i - n] + a);
+            out[i] = Math.sqrt(gx * gx + gy * gy);
+        }
+        edge(n - 1, y);
     }
     return out;
 }
@@ -524,11 +539,8 @@ function rawRegionFraction(pixels, width, height, rel, level, below, order) {
     const rgba = order === 'rgba';
     const rOff = rgba ? 0 : 2;
     const bOff = rgba ? 2 : 0;
-    // Same clamping as `cropRegion`, so the two crop the same rectangle.
-    const x0 = Math.max(0, Math.min(width - 1, Math.round(rel.x * width)));
-    const y0 = Math.max(0, Math.min(height - 1, Math.round(rel.y * height)));
-    const cw = Math.max(1, Math.min(width - x0, Math.round(rel.w * width)));
-    const ch = Math.max(1, Math.min(height - y0, Math.round(rel.h * height)));
+    // The same rectangle `cropRegion` takes.
+    const {x: x0, y: y0, width: cw, height: ch} = regionCropRect(width, height, rel);
     const cut = level * 255;
     let hit = 0;
     for (let y = 0; y < ch; y++) {
@@ -677,9 +689,16 @@ function matchMap(gray, width, height, templates, opts) {
     // With a `window`, `gray` is the window's data while `width`/`height` still
     // describe the **whole** frame, so every fraction and offset is unchanged.
     const win = o.window || frameWindow(gray, width, height, null);
-    const views = offsets.map(offset => {
-        const thumb = frameThumbnail(gray, width, height, Object.assign({}, o, {offset, window: win}));
-        const grad = gradientMagnitude(thumb, size);
+    const cells = size * size;
+    const views = offsets.map((offset, i) => {
+        const thumbBuf = scratch(SCRATCH.map, 2 * i, cells);
+        const shifted = offset
+            ? {x: region.x + offset.dx, y: region.y + offset.dy, w: region.w, h: region.h}
+            : region;
+        const thumb = region
+            ? windowThumbInto(win, shifted, size, size, thumbBuf)
+            : resampleInto(gray, 0, width, width, height, size, size, thumbBuf);
+        const grad = gradientInto(thumb, size, size, scratch(SCRATCH.map, 2 * i + 1, cells));
         return {thumb, grad, offset, thumbStats: nccStats(thumb), gradStats: nccStats(grad)};
     });
 
@@ -770,10 +789,16 @@ function matchMenu(gray, width, height, template, opts) {
     };
     const gradStats = prep.gradStats || nccStats(prep.grad);
 
+    const win = o.window || frameWindow(gray, width, height, null);
+    const thumbBuf = scratch(SCRATCH.menu, 0, tw * th);
+    const gradBuf = scratch(SCRATCH.menu, 1, tw * th);
     let best = -Infinity;
     for (const offset of (o.offsets || MENU_OFFSETS)) {
-        const thumb = menuThumbnail(gray, width, height, {width: tw, height: th, offset, window: o.window});
-        const thumbGrad = gradientMagnitude(thumb, tw, th);
+        const region = offset
+            ? {x: MENU_STRIP_REL.x + offset.dx, y: MENU_STRIP_REL.y + offset.dy, w: MENU_STRIP_REL.w, h: MENU_STRIP_REL.h}
+            : MENU_STRIP_REL;
+        const thumb = windowThumbInto(win, region, tw, th, thumbBuf);
+        const thumbGrad = gradientInto(thumb, tw, th, gradBuf);
         const score = (nccWith(thumb, nccStats(thumb), prep.tpl, prep.tplStats)
             + nccWith(thumbGrad, nccStats(thumbGrad), prep.grad, gradStats)) / 2;
         if (score > best) best = score;

@@ -6,6 +6,7 @@ const path = require('path');
 const appLog = require('../app-log');
 const FrameSource = require('./frame-source');
 const {redactHome} = require('../../shared/redact');
+const {clearTimer, unrefTimer} = require('../../shared/timers');
 const {
     REQUEST_TIMEOUT_MS, ORDINARY_TIMEOUT_MS, START_TIMEOUT_MS, MAX_QUEUED,
     restartDelay, resolveDetectorMode, shouldResetRestarts, isCurrentReply
@@ -256,8 +257,7 @@ class DetectorWorkerHost {
         // live gameplay must not linger, so it would rather hear "no frame".
         const limit = waiter.limitMs || (this.ready ? this.ordinaryTimeoutMs : this.startTimeoutMs);
         waiter.limit = limit;
-        waiter.timer = setTimeout(() => this.onTimeout(waiter), limit);
-        if (waiter.timer.unref) waiter.timer.unref();
+        waiter.timer = unrefTimer(setTimeout(() => this.onTimeout(waiter), limit));
         if (!this.post({id: waiter.id, type: 'grab', want: waiter.want || {}})) {
             this.settle(waiter, abortedReply('post-failed'));
         }
@@ -267,8 +267,7 @@ class DetectorWorkerHost {
     settle(waiter, reply) {
         if (!waiter || waiter.done) return;
         waiter.done = true;
-        if (waiter.timer) clearTimeout(waiter.timer);
-        waiter.timer = null;
+        waiter.timer = clearTimer(waiter.timer);
         if (this.inflight === waiter) this.inflight = null;
         waiter.resolve(reply);
         this.pump();
@@ -321,11 +320,10 @@ class DetectorWorkerHost {
         }
         this.restarts++;
         this.log('worker-restart', {attempt: this.restarts, inMs: delay});
-        this.restartTimer = setTimeout(() => {
+        this.restartTimer = unrefTimer(setTimeout(() => {
             this.restartTimer = null;
             if (!this.stopped && !this.failed && this.wanted !== false) this.start();
-        }, delay);
-        if (this.restartTimer.unref) this.restartTimer.unref();
+        }, delay));
     }
 
     /** Give up on the child for the rest of the session. */
@@ -411,8 +409,7 @@ class DetectorWorkerHost {
     stop() {
         this.wanted = false;
         this.stopping = true;
-        if (this.restartTimer) clearTimeout(this.restartTimer);
-        this.restartTimer = null;
+        this.restartTimer = clearTimer(this.restartTimer);
         if (this.child) {
             this.post({id: this.nextId++, type: 'stop'});
             this.killChild('stop');

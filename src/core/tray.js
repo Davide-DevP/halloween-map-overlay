@@ -1,4 +1,5 @@
 const {app, Menu, Tray} = require('electron');
+const {markQuitting} = require('./quitting');
 const path = require('path');
 const fs = require("fs");
 const {t} = require('../shared/i18n');
@@ -89,7 +90,7 @@ class TrayController {
         template.push({
             label: this.t('tray.quit'),
             click: function () {
-                app.isQuiting = true;
+                markQuitting();
                 app.quit();
             }
         });

@@ -482,6 +482,20 @@ positive line:
   exception — which must not be able to happen during startup for a feature that
   is off by default.
 
+**2026-09-23 dedup/scratch-buffers pass.** `toGrayScaled` now delegates to
+`toGrayScaledRegion`; `gradientMagnitude` indexes the interior directly;
+`matchMap`/`matchMenu` resample straight out of the window into reused scratch
+thumbnails (no crop copy, no per-view allocation, ~0.5 MB held by the matching
+process); `resample` computes column weights once per call. Median ms, measured
+as an interleaved A/B in one process on a loaded machine (compare within this
+note, not with the tables above): gated-in 1919×1079 **21.7 → 18.0**, exact
+1920×1080 **17.3 → 13.1**, `matchMap` fixed cost **10.6 → 5.9**, 4 maps × 2
+**12.1 → 7.5**, menu tick unchanged at 5.4. Split on the general tick: the dedup
+and the gradient −1.9, the scratch buffers −0.9, the column weights −0.9. Every
+score is bit-identical to the pre-pass matcher (90,830 `Object.is` checks); both
+sides of `detector-equality.test.js` share these kernels, so
+`test/matcher-kernels.test.js` pins them against the old loops.
+
 Rules that keep the path from getting heavier still:
 
 - **`toGrayScaled` is the hot spot** — it is the only thing that touches source

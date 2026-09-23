@@ -48,11 +48,13 @@ function renderMarkers() {
         markerState.markers.legend);
 }
 
-ipcRenderer.on('map-change', async (event, img, size, mapLabel, labelMode, markers, lang) => {
+/** `{image, size, label, labelMode, markers, lang}` — `MainWindow.applyMapChange`. */
+ipcRenderer.on('map-change', async (event, change) => {
+    const {image, size, label, labelMode, markers, lang} = change || {};
     if (url!==null){
         URL.revokeObjectURL(url)
     }
-    let imgData = Buffer.from(img,"base64");
+    let imgData = Buffer.from(image || '',"base64");
     let blob = new Blob([imgData]);
     url = URL.createObjectURL(blob);
     $("#mapStack").css({
@@ -63,7 +65,7 @@ ipcRenderer.on('map-change', async (event, img, size, mapLabel, labelMode, marke
         ? {markers, width: parseInt(size, 10) || 0, lang: lang || 'en'}
         : null;
     renderMarkers();
-    showLabel(mapLabel, labelMode);
+    showLabel(label, labelMode);
 });
 
 ipcRenderer.on('map-hide', async (event) => {

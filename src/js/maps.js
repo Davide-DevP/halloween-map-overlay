@@ -25,10 +25,10 @@ class Maps {
         /** The staggered fade-up plays once; a re-render must not replay it. */
         this.hasRendered = false;
         this.init();
-        // All three are built with t(), so they rebuild on a language change.
+        // All three are built with t(), so they follow a language change.
         onChange(() => {
             this.populateCreatorSelect();
-            this.renderGallery().catch(err => debugLog("maps::onChange::render", err && err.message));
+            this.retranslateGallery();
             this.renderCurrent();
         });
     }
@@ -78,7 +78,6 @@ class Maps {
         if (!state) return;
         this.currentKey = typeof state.currentKey === 'string' ? state.currentKey : "";
         this.lastKey = typeof state.lastKey === 'string' ? state.lastKey : "";
-        window.__activeMapKey = this.currentKey;
         if (state.source && this.options && this.options.setting) $("#unset-pos").click();
         this.highlightActive();
         this.renderCurrent();
@@ -142,14 +141,29 @@ class Maps {
         if (this.thumbnails[key]) return this.thumbnails[key];
         const data = await ipcRenderer.invoke('read-map-image', key);
         if (!data || data.length === 0) return "";
+        // A concurrent read of the same key may have landed first: keep one URL.
+        if (this.thumbnails[key]) return this.thumbnails[key];
         const url = URL.createObjectURL(new Blob([data]));
         this.thumbnails[key] = url;
         return url;
     }
 
+    /** Only the one translated word on each card changes; the empty state is rebuilt. */
+    retranslateGallery() {
+        const $flags = $("#results .map-card-flag");
+        if ($flags.length) {
+            $flags.text(t('home.onOverlay'));
+            return;
+        }
+        this.renderGallery().catch(err => debugLog("maps::onChange::render", err && err.message));
+    }
+
     async renderGallery() {
         const creator = $("#creatorSelect").val() || "";
         const entries = this.catalog.filter(e => !creator || e.creator === creator);
+        // All reads first, then one synchronous build: two renders in flight
+        // cannot interleave their cards.
+        const urls = await Promise.all(entries.map(entry => this.thumbnail(entry.key)));
         const $results = $("#results").empty();
 
         if (!entries.length) {
@@ -166,9 +180,8 @@ class Maps {
         }
 
         const stagger = !this.hasRendered;
-        let index = 0;
-        for (const entry of entries) {
-            const url = await this.thumbnail(entry.key);
+        entries.forEach((entry, index) => {
+            const url = urls[index];
             // Custom map names are user-typed: an unescaped quote truncates
             // data-key and an unescaped tag would run with Node access
             const $card = $(`
@@ -195,8 +208,7 @@ class Maps {
             $(img).on("load", done).on("error", done);
             if (img.complete && img.naturalWidth > 0) done();
             $results.append($card);
-            index += 1;
-        }
+        });
         this.hasRendered = true;
 
         const self = this;
@@ -207,8 +219,9 @@ class Maps {
     }
 
     highlightActive() {
+        const current = this.currentKey || "";
         $("#results .map-card").each(function () {
-            $(this).toggleClass("active", $(this).attr("data-key") === (window.__activeMapKey || ""));
+            $(this).toggleClass("active", $(this).attr("data-key") === current);
         });
     }
 }

@@ -2,6 +2,7 @@ const {ipcMain} = require('electron');
 const {reduceMapState, intentForAction, INITIAL_STATE} = require('../shared/map-state');
 const {CUSTOM_CREATOR} = require('./map-catalog');
 const appLog = require('./app-log');
+const {errorMessage} = require('../shared/errors');
 
 const debug = process.env.DEBUG === 'true';
 
@@ -20,12 +21,11 @@ class MapController {
         this.detector = null;
         this.state = Object.assign({}, INITIAL_STATE);
 
-        const self = this;
         // A freshly created renderer renders from this, never an assumption.
-        ipcMain.handle('get-map-state', async () => self.status());
+        ipcMain.handle('get-map-state', async () => this.status());
         // `send`, not `handle`: the answer is the `map-state` push, which every
         // window that cares already listens for.
-        ipcMain.on('map-intent', (event, intent) => self.dispatch(intent));
+        ipcMain.on('map-intent', (event, intent) => this.dispatch(intent));
     }
 
     /** Injected: `MapDetector` is built after this class and needs it both ways. */
@@ -39,11 +39,6 @@ class MapController {
             lastKey: this.state.lastKey,
             previewActive: this.state.previewActive
         };
-    }
-
-    /** For the diagnostic report. */
-    currentKey() {
-        return this.state.currentKey;
     }
 
     catalog() {
@@ -99,11 +94,11 @@ class MapController {
         try {
             result = reduceMapState(this.state, intent, {
                 catalog: this.catalog(),
-                settings: this.settings ? this.settings.all() : {}
+                settings: this.settings.all()
             });
         } catch (err) {
             console.error(`MapController: "${intent.type}" failed:`, err && err.message);
-            appLog.error('map-intent', {intent: intent.type, message: (err && err.message) || String(err)});
+            appLog.error('map-intent', {intent: intent.type, message: errorMessage(err)});
             return;
         }
         // Captured **before** the commit below: reading `this.state` inside
@@ -117,7 +112,7 @@ class MapController {
                 if (source) applied = source;
             } catch (err) {
                 console.error(`MapController: effect "${effect.type}" failed:`, err && err.message);
-                appLog.error('map-effect', {effect: effect.type, message: (err && err.message) || String(err)});
+                appLog.error('map-effect', {effect: effect.type, message: errorMessage(err)});
             }
         }
         this.push(applied);
@@ -155,7 +150,7 @@ class MapController {
                         })
                         .catch(err => {
                             console.error('MapController: the map change failed:', err && err.message);
-                            appLog.error('map-change', {message: (err && err.message) || String(err)});
+                            appLog.error('map-change', {message: errorMessage(err)});
                             this.rollback(before, effect);
                         });
                 }
@@ -163,7 +158,7 @@ class MapController {
             }
 
             case 'setting':
-                if (this.settings) this.settings.set(effect.key, effect.value);
+                this.settings.set(effect.key, effect.value);
                 return null;
 
             case 'toast':
